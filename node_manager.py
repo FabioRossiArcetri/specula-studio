@@ -1031,6 +1031,12 @@ class NodeManager:
                         del self.active_monitors[monitor_id]
                 return False
             
+            # Get plot container
+            plot_container = info.get('plot_container')
+            if not plot_container or not dpg.does_item_exist(plot_container):
+                print(f"[MAIN_PLOT] Plot container {plot_container} doesn't exist for monitor {monitor_id}")
+                return False
+            
             # Remove placeholder if it exists
             placeholder = info.get('placeholder_tag')
             if placeholder and dpg.does_item_exist(placeholder):
@@ -1181,21 +1187,17 @@ class NodeManager:
             
         except Exception as e:
             print(f"[HEALTH] Error monitoring queue: {e}")
-
         
+
     def _find_and_close_monitor(self, monitor_info):
         """Find and close a monitor by node_uuid and output_name."""
         node_uuid, output_name = monitor_info
         
         # Find the monitor by node_uuid and output_name
-        with self.monitor_lock:
-            for monitor_id, info in list(self.active_monitors.items()):
-                if info.get('node_uuid') == node_uuid and info.get('output_name') == output_name:
-                    # Call close monitor immediately
-                    self._close_monitor(monitor_id)
-                    return True
-        
-        return False
+        for monitor_id, info in list(self.active_monitors.items()):
+            if info.get('node_uuid') == node_uuid and info.get('output_name') == output_name:
+                self._close_monitor(monitor_id)
+                break
             
     def start_periodic_tasks(self):
         """Start all periodic maintenance tasks."""
