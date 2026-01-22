@@ -1,0 +1,35 @@
+SubapData:
+  class_name: SubapData
+  bases:
+  - BaseDataObj
+  parameters:
+    idxs:
+      type: Any
+      default: REQUIRED
+      kind: value
+    display_map:
+      type: Any
+      default: REQUIRED
+      kind: value
+    nx:
+      type: int
+      default: REQUIRED
+      kind: value
+    ny:
+      type: int
+      default: REQUIRED
+      kind: value
+    energy_th:
+      type: float
+      default: 0
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs: []

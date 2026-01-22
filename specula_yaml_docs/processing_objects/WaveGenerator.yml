@@ -1,0 +1,48 @@
+WaveGenerator:
+  class_name: WaveGenerator
+  bases:
+  - BaseGenerator
+  parameters:
+    wave_type:
+      type: Any
+      default: SIN
+      kind: value
+    amp:
+      type: float
+      default: 0.0
+      kind: value
+    freq:
+      type: float
+      default: 0.0
+      kind: value
+    offset:
+      type: float
+      default: 0.0
+      kind: value
+    constant:
+      type: float
+      default: 0.0
+      kind: value
+    slope:
+      type: float
+      default: 0.0
+      kind: value
+    vsize:
+      type: int
+      default: 1
+      kind: value
+    output_size:
+      type: int
+      default: 1
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs:
+  - output

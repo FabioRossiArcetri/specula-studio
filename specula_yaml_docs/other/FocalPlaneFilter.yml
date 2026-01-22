@@ -1,0 +1,47 @@
+FocalPlaneFilter:
+  class_name: FocalPlaneFilter
+  bases:
+  - Coronograph
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    wavelengthInNm:
+      type: float
+      default: REQUIRED
+      kind: value
+    fov:
+      type: float
+      default: REQUIRED
+      kind: value
+    fov_errinf:
+      type: float
+      default: 0.1
+      kind: value
+    fov_errsup:
+      type: float
+      default: 10
+      kind: value
+    fft_res:
+      type: float
+      default: 3.0
+      kind: value
+    fp_obs:
+      type: float
+      default: 0.0
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_ef:
+      type: ElectricField
+      kind: single
+  outputs:
+  - out_ef

@@ -1,0 +1,27 @@
+Slopes:
+  class_name: Slopes
+  bases:
+  - BaseDataObj
+  parameters:
+    length:
+      type: int
+      default: null
+      kind: value
+    slopes:
+      type: Any
+      default: null
+      kind: value
+    interleave:
+      type: bool
+      default: false
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs: []

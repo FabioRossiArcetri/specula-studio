@@ -1,0 +1,19 @@
+PhaseFlattening:
+  class_name: PhaseFlattening
+  bases:
+  - BaseProcessingObj
+  parameters:
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_ef:
+      type: ElectricField
+      kind: single
+  outputs:
+  - out_ef

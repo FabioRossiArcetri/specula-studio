@@ -1,0 +1,34 @@
+DataStore:
+  class_name: DataStore
+  bases:
+  - BaseProcessingObj
+  parameters:
+    store_dir:
+      type: str
+      default: REQUIRED
+      kind: value
+    split_size:
+      type: int
+      default: 0
+      kind: value
+    first_suffix:
+      type: int
+      default: 0
+      kind: value
+    data_format:
+      type: str
+      default: fits
+      kind: value
+    start_time:
+      type: float
+      default: 0
+      kind: value
+    create_tn:
+      type: bool
+      default: true
+      kind: value
+  inputs:
+    input_list:
+      type: Any
+      kind: variadic
+  outputs: []

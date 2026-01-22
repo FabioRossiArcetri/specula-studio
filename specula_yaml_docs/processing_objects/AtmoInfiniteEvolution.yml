@@ -1,0 +1,70 @@
+AtmoInfiniteEvolution:
+  class_name: AtmoInfiniteEvolution
+  bases:
+  - BaseProcessingObj
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    L0:
+      type: list
+      default:
+      - 1.0
+      kind: value
+    heights:
+      type: list
+      default:
+      - 0.0
+      kind: value
+    Cn2:
+      type: list
+      default:
+      - 1.0
+      kind: value
+    fov:
+      type: float
+      default: 0.0
+      kind: value
+    seed:
+      type: int
+      default: 1
+      kind: value
+    extra_delta_time:
+      type: float
+      default: 0
+      kind: value
+    verbose:
+      type: bool
+      default: false
+      kind: value
+    fov_in_m:
+      type: float
+      default: null
+      kind: value
+    pupil_position:
+      type: list
+      default:
+      - 0
+      - 0
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    seeing:
+      type: BaseValue
+      kind: single
+    wind_speed:
+      type: BaseValue
+      kind: single
+    wind_direction:
+      type: BaseValue
+      kind: single
+  outputs:
+  - layer_list

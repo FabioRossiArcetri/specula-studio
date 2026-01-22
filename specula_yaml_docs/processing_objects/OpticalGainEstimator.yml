@@ -1,0 +1,31 @@
+OpticalGainEstimator:
+  class_name: OpticalGainEstimator
+  bases:
+  - BaseProcessingObj
+  parameters:
+    gain:
+      type: float
+      default: REQUIRED
+      kind: value
+    initial_optical_gain:
+      type: float
+      default: 1.0
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_demod_delta_command:
+      type: BaseValue
+      kind: single
+    in_demod_command:
+      type: BaseValue
+      kind: single
+  outputs:
+  - optical_gain
+  - output

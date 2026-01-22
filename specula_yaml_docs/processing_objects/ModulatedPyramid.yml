@@ -1,0 +1,116 @@
+ModulatedPyramid:
+  class_name: ModulatedPyramid
+  bases:
+  - BaseProcessingObj
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    wavelengthInNm:
+      type: float
+      default: REQUIRED
+      kind: value
+    fov:
+      type: float
+      default: REQUIRED
+      kind: value
+    pup_diam:
+      type: int
+      default: REQUIRED
+      kind: value
+    output_resolution:
+      type: int
+      default: REQUIRED
+      kind: value
+    mod_amp:
+      type: float
+      default: 3.0
+      kind: value
+    mod_step:
+      type: int
+      default: null
+      kind: value
+    mod_type:
+      type: str
+      default: circular
+      kind: value
+    fov_errinf:
+      type: float
+      default: 0.1
+      kind: value
+    fov_errsup:
+      type: float
+      default: 2
+      kind: value
+    pup_dist:
+      type: int
+      default: null
+      kind: value
+    pup_margin:
+      type: int
+      default: 2
+      kind: value
+    fft_res:
+      type: float
+      default: 3.0
+      kind: value
+    fp_obs:
+      type: float
+      default: null
+      kind: value
+    pup_shifts:
+      type: Any
+      default:
+      - 0.0
+      - 0.0
+      kind: value
+    pyr_tlt_coeff:
+      type: float
+      default: null
+      kind: value
+    pyr_edge_def_ld:
+      type: float
+      default: 0.0
+      kind: value
+    pyr_tip_def_ld:
+      type: float
+      default: 0.0
+      kind: value
+    pyr_tip_maya_ld:
+      type: float
+      default: 0.0
+      kind: value
+    min_pup_dist:
+      type: float
+      default: null
+      kind: value
+    rotAnglePhInDeg:
+      type: float
+      default: 0.0
+      kind: value
+    xShiftPhInPixel:
+      type: float
+      default: 0.0
+      kind: value
+    yShiftPhInPixel:
+      type: float
+      default: 0.0
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_ef:
+      type: ElectricField
+      kind: single
+  outputs:
+  - out_i
+  - out_psf_tot
+  - out_psf_bfm
+  - out_transmission

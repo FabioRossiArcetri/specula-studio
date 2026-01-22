@@ -1,0 +1,23 @@
+DoublePhaseDisplay:
+  class_name: DoublePhaseDisplay
+  bases:
+  - BaseDisplay
+  parameters:
+    title:
+      type: Any
+      default: Double Phase Display
+      kind: value
+    figsize:
+      type: Any
+      default:
+      - 12
+      - 3
+      kind: value
+  inputs:
+    phase1:
+      type: ElectricField
+      kind: single
+    phase2:
+      type: ElectricField
+      kind: single
+  outputs: []

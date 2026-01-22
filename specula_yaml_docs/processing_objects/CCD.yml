@@ -1,0 +1,128 @@
+CCD:
+  class_name: CCD
+  bases:
+  - BaseProcessingObj
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    size:
+      type: list
+      default: REQUIRED
+      kind: value
+    dt:
+      type: float
+      default: REQUIRED
+      kind: value
+    bandw:
+      type: float
+      default: REQUIRED
+      kind: value
+    binning:
+      type: int
+      default: 1
+      kind: value
+    photon_noise:
+      type: bool
+      default: false
+      kind: value
+    readout_noise:
+      type: bool
+      default: false
+      kind: value
+    excess_noise:
+      type: bool
+      default: false
+      kind: value
+    darkcurrent_noise:
+      type: bool
+      default: false
+      kind: value
+    background_noise:
+      type: bool
+      default: false
+      kind: value
+    cic_noise:
+      type: bool
+      default: false
+      kind: value
+    cte_noise:
+      type: bool
+      default: false
+      kind: value
+    readout_level:
+      type: float
+      default: 0.0
+      kind: value
+    darkcurrent_level:
+      type: float
+      default: 0.0
+      kind: value
+    background_level:
+      type: float
+      default: 0.0
+      kind: value
+    cic_level:
+      type: float
+      default: 0
+      kind: value
+    cte_mat:
+      type: Any
+      default: null
+      kind: value
+    quantum_eff:
+      type: float
+      default: 1.0
+      kind: value
+    pixelGains:
+      type: Any
+      default: null
+      kind: value
+    photon_seed:
+      type: int
+      default: 1
+      kind: value
+    readout_seed:
+      type: int
+      default: 2
+      kind: value
+    excess_seed:
+      type: int
+      default: 3
+      kind: value
+    excess_delta:
+      type: float
+      default: 1.0
+      kind: value
+    start_time:
+      type: int
+      default: 0
+      kind: value
+    ADU_gain:
+      type: float
+      default: null
+      kind: value
+    ADU_bias:
+      type: int
+      default: 400
+      kind: value
+    emccd_gain:
+      type: int
+      default: null
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_i:
+      type: Intensity
+      kind: single
+  outputs:
+  - out_pixels
+  - integrated_i

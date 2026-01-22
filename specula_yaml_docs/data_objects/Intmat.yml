@@ -1,0 +1,47 @@
+Intmat:
+  class_name: Intmat
+  bases:
+  - BaseDataObj
+  parameters:
+    intmat:
+      type: Any
+      default: null
+      kind: value
+    nmodes:
+      type: int
+      default: null
+      kind: value
+    nslopes:
+      type: int
+      default: null
+      kind: value
+    slope_mm:
+      type: list
+      default: null
+      kind: value
+    slope_rms:
+      type: list
+      default: null
+      kind: value
+    pupdata_tag:
+      type: str
+      default: ''
+      kind: value
+    subapdata_tag:
+      type: str
+      default: ''
+      kind: value
+    norm_factor:
+      type: float
+      default: 0.0
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs: []

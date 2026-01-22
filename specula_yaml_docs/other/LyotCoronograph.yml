@@ -1,0 +1,51 @@
+LyotCoronograph:
+  class_name: LyotCoronograph
+  bases:
+  - Coronograph
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    wavelengthInNm:
+      type: float
+      default: REQUIRED
+      kind: value
+    iwaInLambdaOverD:
+      type: float
+      default: REQUIRED
+      kind: value
+    owaInLambdaOverD:
+      type: float
+      default: null
+      kind: value
+    innerStopAsRatioOfPupil:
+      type: float
+      default: 0.0
+      kind: value
+    outerStopAsRatioOfPupil:
+      type: float
+      default: 1.0
+      kind: value
+    knife_edge:
+      type: bool
+      default: false
+      kind: value
+    fft_res:
+      type: float
+      default: 3.0
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_ef:
+      type: ElectricField
+      kind: single
+  outputs:
+  - out_ef

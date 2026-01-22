@@ -1,0 +1,14 @@
+BaseProcessingObj:
+  bases:
+  - BaseTimeObj
+  parameters:
+    target_device_idx:
+      type: Any
+      default: null
+    precision:
+      type: Any
+      default: null
+  inputs: {}
+  outputs: []
+  references:
+  - target_device_idx

@@ -1,0 +1,46 @@
+SpotMonitor:
+  class_name: SpotMonitor
+  bases:
+  - BaseProcessingObj
+  parameters:
+    subapdata:
+      type: SubapData
+      default: REQUIRED
+      kind: object
+    initial_alpha:
+      type: float
+      default: 2.0
+      kind: value
+    initial_gamma:
+      type: float
+      default: 3.0
+      kind: value
+    bounds_alpha:
+      type: Any
+      default:
+      - 0.5
+      - 10.0
+      kind: value
+    bounds_gamma:
+      type: Any
+      default:
+      - 0.1
+      - null
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_pixels:
+      type: Pixels
+      kind: single
+  outputs:
+  - out_sum_pixels
+  - out_model_pixels
+  - out_residual_pixels
+  - out_params

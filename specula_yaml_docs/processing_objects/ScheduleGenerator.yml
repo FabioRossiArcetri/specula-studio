@@ -1,0 +1,28 @@
+ScheduleGenerator:
+  class_name: ScheduleGenerator
+  bases:
+  - BaseGenerator
+  parameters:
+    scheduled_values:
+      type: list
+      default: REQUIRED
+      kind: value
+    scheduled_times:
+      type: list
+      default: REQUIRED
+      kind: value
+    modes_per_group:
+      type: list
+      default: REQUIRED
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs:
+  - output

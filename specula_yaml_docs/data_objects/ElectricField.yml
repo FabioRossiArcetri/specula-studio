@@ -1,0 +1,31 @@
+ElectricField:
+  class_name: ElectricField
+  bases:
+  - BaseDataObj
+  parameters:
+    dimx:
+      type: int
+      default: REQUIRED
+      kind: value
+    dimy:
+      type: int
+      default: REQUIRED
+      kind: value
+    pixel_pitch:
+      type: float
+      default: REQUIRED
+      kind: value
+    S0:
+      type: float
+      default: 0.0
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs: []

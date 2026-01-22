@@ -1,0 +1,43 @@
+InfinitePhaseScreen:
+  class_name: InfinitePhaseScreen
+  bases:
+  - BaseDataObj
+  parameters:
+    mx_size:
+      type: Any
+      default: REQUIRED
+      kind: value
+    pixel_scale:
+      type: Any
+      default: REQUIRED
+      kind: value
+    r0:
+      type: Any
+      default: REQUIRED
+      kind: value
+    L0:
+      type: Any
+      default: REQUIRED
+      kind: value
+    random_seed:
+      type: Any
+      default: null
+      kind: value
+    stencil_size_factor:
+      type: Any
+      default: 1
+      kind: value
+    xp:
+      type: Any
+      default: null
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs: []

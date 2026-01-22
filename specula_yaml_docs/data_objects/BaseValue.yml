@@ -1,0 +1,23 @@
+BaseValue:
+  class_name: BaseValue
+  bases:
+  - BaseDataObj
+  parameters:
+    description:
+      type: Any
+      default: ''
+      kind: value
+    value:
+      type: Any
+      default: null
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs: []

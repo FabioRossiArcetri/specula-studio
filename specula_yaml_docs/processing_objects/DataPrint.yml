@@ -1,0 +1,34 @@
+DataPrint:
+  class_name: DataPrint
+  bases:
+  - BaseProcessingObj
+  parameters:
+    print_dt:
+      type: float
+      default: 1.0
+      kind: value
+    range_slice:
+      type: tuple
+      default: null
+      kind: value
+    prefix:
+      type: str
+      default: ''
+      kind: value
+    format_str:
+      type: str
+      default: .4f
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_value:
+      type: BaseValue
+      kind: single
+  outputs: []

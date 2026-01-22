@@ -1,0 +1,40 @@
+VibrationGenerator:
+  class_name: VibrationGenerator
+  bases:
+  - BaseGenerator
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    nmodes:
+      type: int
+      default: REQUIRED
+      kind: value
+    psd:
+      type: Any
+      default: REQUIRED
+      kind: value
+    freq:
+      type: Any
+      default: REQUIRED
+      kind: value
+    seed:
+      type: int
+      default: 1987
+      kind: value
+    start_from_zero:
+      type: bool
+      default: false
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs:
+  - output

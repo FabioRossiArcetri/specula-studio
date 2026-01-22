@@ -1,0 +1,31 @@
+DisplayServer:
+  class_name: DisplayServer
+  bases:
+  - BaseProcessingObj
+  parameters:
+    params_dict:
+      type: dict
+      default: REQUIRED
+      kind: value
+    input_ref_getter:
+      type: typing.Callable
+      default: REQUIRED
+      kind: value
+    output_ref_getter:
+      type: typing.Callable
+      default: REQUIRED
+      kind: value
+    info_getter:
+      type: typing.Callable
+      default: REQUIRED
+      kind: value
+    host:
+      type: str
+      default: 0.0.0.0
+      kind: value
+    port:
+      type: int
+      default: 0
+      kind: value
+  inputs: {}
+  outputs: []

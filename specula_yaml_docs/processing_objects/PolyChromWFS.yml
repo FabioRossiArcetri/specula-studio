@@ -1,0 +1,35 @@
+PolyChromWFS:
+  class_name: PolyChromWFS
+  bases:
+  - BaseProcessingObj
+  parameters:
+    wavelengthInNm:
+      type: list
+      default: REQUIRED
+      kind: value
+    ccd_side:
+      type: int
+      default: REQUIRED
+      kind: value
+    flux_factor:
+      type: list
+      default: REQUIRED
+      kind: value
+    xy_tilts_in_arcsec:
+      type: list
+      default: null
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_ef:
+      type: ElectricField
+      kind: single
+  outputs:
+  - out_i

@@ -1,0 +1,45 @@
+Layer:
+  class_name: Layer
+  bases:
+  - ElectricField
+  parameters:
+    dimx:
+      type: int
+      default: REQUIRED
+      kind: value
+    dimy:
+      type: int
+      default: REQUIRED
+      kind: value
+    pixel_pitch:
+      type: float
+      default: REQUIRED
+      kind: value
+    height:
+      type: float
+      default: REQUIRED
+      kind: value
+    shiftXYinPixel:
+      type: tuple
+      default:
+      - 0.0
+      - 0.0
+      kind: value
+    rotInDeg:
+      type: float
+      default: 0.0
+      kind: value
+    magnification:
+      type: float
+      default: 1.0
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs: []

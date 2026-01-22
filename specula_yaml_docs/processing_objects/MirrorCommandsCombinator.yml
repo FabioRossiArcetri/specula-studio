@@ -1,0 +1,54 @@
+MirrorCommandsCombinator:
+  class_name: MirrorCommandsCombinator
+  bases:
+  - BaseProcessingObj
+  parameters:
+    k_vector:
+      type: Any
+      default: REQUIRED
+      kind: value
+    recmat:
+      type: Recmat
+      default: REQUIRED
+      kind: object
+    dims_LO:
+      type: list
+      default: []
+      kind: value
+    dims_P:
+      type: int
+      default: 1
+      kind: value
+    dims_F:
+      type: int
+      default: 1
+      kind: value
+    out_dims:
+      type: list
+      default: []
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_commandsHO:
+      type: BaseValue
+      kind: single
+    in_commandsLO:
+      type: BaseValue
+      kind: single
+    in_commandsF:
+      type: BaseValue
+      kind: single
+    in_commandsP:
+      type: BaseValue
+      kind: single
+  outputs:
+  - out_result_commands1
+  - out_result_commands2
+  - out_result_commands3

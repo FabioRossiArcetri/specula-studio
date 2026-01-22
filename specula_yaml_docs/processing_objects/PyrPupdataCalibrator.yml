@@ -1,0 +1,58 @@
+PyrPupdataCalibrator:
+  class_name: PyrPupdataCalibrator
+  bases:
+  - BaseProcessingObj
+  parameters:
+    data_dir:
+      type: str
+      default: REQUIRED
+      kind: value
+    thr1:
+      type: float
+      default: 0.1
+      kind: value
+    thr2:
+      type: float
+      default: 0.25
+      kind: value
+    obs_thr:
+      type: float
+      default: 0.8
+      kind: value
+    slopes_from_intensity:
+      type: bool
+      default: false
+      kind: value
+    output_tag:
+      type: str
+      default: null
+      kind: value
+    auto_detect_obstruction:
+      type: bool
+      default: true
+      kind: value
+    min_obstruction_ratio:
+      type: float
+      default: 0.05
+      kind: value
+    display_debug:
+      type: bool
+      default: false
+      kind: value
+    overwrite:
+      type: bool
+      default: false
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_i:
+      type: Intensity
+      kind: single
+  outputs: []

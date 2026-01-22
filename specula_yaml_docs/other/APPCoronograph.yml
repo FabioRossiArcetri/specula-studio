@@ -1,0 +1,59 @@
+APPCoronograph:
+  class_name: APPCoronograph
+  bases:
+  - Coronograph
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    wavelengthInNm:
+      type: float
+      default: REQUIRED
+      kind: value
+    pupil:
+      type: Any
+      default: REQUIRED
+      kind: value
+    contrastInDarkHole:
+      type: float
+      default: REQUIRED
+      kind: value
+    iwaInLambdaOverD:
+      type: float
+      default: REQUIRED
+      kind: value
+    owaInLambdaOverD:
+      type: float
+      default: REQUIRED
+      kind: value
+    fft_res:
+      type: float
+      default: 3.0
+      kind: value
+    make_symmetric:
+      type: bool
+      default: false
+      kind: value
+    beta:
+      type: float
+      default: 0.9
+      kind: value
+    max_its:
+      type: int
+      default: 1000
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_ef:
+      type: ElectricField
+      kind: single
+  outputs:
+  - out_ef

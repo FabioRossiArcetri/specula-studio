@@ -1,0 +1,35 @@
+IirFilterData:
+  class_name: IirFilterData
+  bases:
+  - BaseDataObj
+  parameters:
+    ordnum:
+      type: list
+      default: REQUIRED
+      kind: value
+    ordden:
+      type: list
+      default: REQUIRED
+      kind: value
+    num:
+      type: Any
+      default: REQUIRED
+      kind: value
+    den:
+      type: Any
+      default: REQUIRED
+      kind: value
+    n_modes:
+      type: Any
+      default: null
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs: []

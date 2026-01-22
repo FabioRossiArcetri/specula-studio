@@ -1,0 +1,20 @@
+DataSource:
+  class_name: DataSource
+  bases:
+  - BaseProcessingObj
+  parameters:
+    outputs:
+      type: list
+      default: REQUIRED
+      kind: value
+    store_dir:
+      type: str
+      default: REQUIRED
+      kind: value
+    data_format:
+      type: str
+      default: fits
+      kind: value
+  inputs: {}
+  outputs:
+  - k

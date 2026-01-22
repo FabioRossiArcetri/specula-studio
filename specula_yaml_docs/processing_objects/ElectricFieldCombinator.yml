@@ -1,0 +1,22 @@
+ElectricFieldCombinator:
+  class_name: ElectricFieldCombinator
+  bases:
+  - BaseProcessingObj
+  parameters:
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_ef1:
+      type: ElectricField
+      kind: single
+    in_ef2:
+      type: ElectricField
+      kind: single
+  outputs:
+  - out_ef

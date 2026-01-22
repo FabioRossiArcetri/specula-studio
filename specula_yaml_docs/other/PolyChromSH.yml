@@ -1,0 +1,87 @@
+PolyChromSH:
+  class_name: PolyChromSH
+  bases:
+  - PolyChromWFS
+  parameters:
+    wavelengthInNm:
+      type: list
+      default: REQUIRED
+      kind: value
+    flux_factor:
+      type: list
+      default: REQUIRED
+      kind: value
+    subap_wanted_fov:
+      type: float
+      default: REQUIRED
+      kind: value
+    sensor_pxscale:
+      type: float
+      default: REQUIRED
+      kind: value
+    subap_on_diameter:
+      type: int
+      default: REQUIRED
+      kind: value
+    subap_npx:
+      type: int
+      default: REQUIRED
+      kind: value
+    FoVres30mas:
+      type: bool
+      default: false
+      kind: value
+    squaremask:
+      type: bool
+      default: true
+      kind: value
+    fov_ovs_coeff:
+      type: float
+      default: 0
+      kind: value
+    xShiftPhInPixel:
+      type: float
+      default: 0
+      kind: value
+    yShiftPhInPixel:
+      type: float
+      default: 0
+      kind: value
+    rotAnglePhInDeg:
+      type: float
+      default: 0
+      kind: value
+    do_not_double_fov_ovs:
+      type: bool
+      default: false
+      kind: value
+    set_fov_res_to_turbpxsc:
+      type: bool
+      default: false
+      kind: value
+    laser_launch_tel:
+      type: LaserLaunchTelescope
+      default: null
+      kind: object
+    subap_rows_slice:
+      type: Any
+      default: null
+      kind: value
+    xy_tilts_in_arcsec:
+      type: list
+      default: null
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_ef:
+      type: ElectricField
+      kind: single
+  outputs:
+  - out_i

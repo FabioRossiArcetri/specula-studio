@@ -1,0 +1,50 @@
+AtmoPropagation:
+  class_name: AtmoPropagation
+  bases:
+  - BaseProcessingObj
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    source_dict:
+      type: dict
+      default: REQUIRED
+      kind: reference
+    doFresnel:
+      type: bool
+      default: false
+      kind: value
+    wavelengthInNm:
+      type: float
+      default: 500.0
+      kind: value
+    pupil_position:
+      type: Any
+      default: null
+      kind: value
+    mergeLayersContrib:
+      type: bool
+      default: true
+      kind: value
+    upwards:
+      type: bool
+      default: false
+      kind: value
+    target_device_idx:
+      type: Any
+      default: null
+      kind: value
+    precision:
+      type: Any
+      default: null
+      kind: value
+  inputs:
+    atmo_layer_list:
+      type: Layer
+      kind: single
+    common_layer_list:
+      type: Layer
+      kind: single
+  outputs:
+  - out_' + name + '_ef

@@ -1,0 +1,31 @@
+Pixels:
+  class_name: Pixels
+  bases:
+  - BaseDataObj
+  parameters:
+    dimx:
+      type: int
+      default: REQUIRED
+      kind: value
+    dimy:
+      type: int
+      default: REQUIRED
+      kind: value
+    bits:
+      type: int
+      default: 16
+      kind: value
+    signed:
+      type: int
+      default: 0
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs: []

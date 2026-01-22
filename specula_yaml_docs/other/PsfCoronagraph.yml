@@ -1,0 +1,46 @@
+PsfCoronagraph:
+  class_name: PsfCoronagraph
+  bases:
+  - PSF
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    wavelengthInNm:
+      type: float
+      default: REQUIRED
+      kind: value
+    nd:
+      type: float
+      default: null
+      kind: value
+    pixel_size_mas:
+      type: float
+      default: null
+      kind: value
+    start_time:
+      type: float
+      default: 0.0
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_ef:
+      type: ElectricField
+      kind: single
+  outputs:
+  - out_coronagraph_psf
+  - out_int_coronagraph_psf
+  - out_std_coronagraph_psf
+  - out_sr
+  - out_psf
+  - out_int_sr
+  - out_int_psf
+  - out_std_psf

@@ -1,0 +1,58 @@
+AtmoRandomPhase:
+  class_name: AtmoRandomPhase
+  bases:
+  - BaseProcessingObj
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    L0:
+      type: float
+      default: 1.0
+      kind: value
+    data_dir:
+      type: str
+      default: ''
+      kind: value
+    source_dict:
+      type: dict
+      default: {}
+      kind: reference
+    wavelengthInNm:
+      type: float
+      default: 500.0
+      kind: value
+    pixel_phasescreens:
+      type: Any
+      default: null
+      kind: value
+    seed:
+      type: int
+      default: 1
+      kind: value
+    update_interval:
+      type: int
+      default: 1
+      kind: value
+    target_device_idx:
+      type: Any
+      default: null
+      kind: value
+    precision:
+      type: Any
+      default: null
+      kind: value
+    verbose:
+      type: Any
+      default: null
+      kind: value
+  inputs:
+    seeing:
+      type: BaseValue
+      kind: single
+    pupilstop:
+      type: Pupilstop
+      kind: single
+  outputs:
+  - out_' + name + '_ef

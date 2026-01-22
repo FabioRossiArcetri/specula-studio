@@ -1,0 +1,23 @@
+IFuncInv:
+  class_name: IFuncInv
+  bases:
+  - BaseDataObj
+  parameters:
+    ifunc_inv:
+      type: Any
+      default: REQUIRED
+      kind: value
+    mask:
+      type: Any
+      default: REQUIRED
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs: []

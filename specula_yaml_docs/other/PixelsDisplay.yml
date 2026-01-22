@@ -1,0 +1,40 @@
+PixelsDisplay:
+  class_name: PixelsDisplay
+  bases:
+  - BaseDisplay
+  parameters:
+    title:
+      type: Any
+      default: Pixels Display
+      kind: value
+    figsize:
+      type: Any
+      default:
+      - 6
+      - 6
+      kind: value
+    sh_as_pyr:
+      type: Any
+      default: false
+      kind: value
+    subapdata:
+      type: SubapData
+      default: null
+      kind: object
+    log_scale:
+      type: Any
+      default: false
+      kind: value
+    crop:
+      type: Any
+      default: null
+      kind: value
+    crop_mode:
+      type: Any
+      default: slice
+      kind: value
+  inputs:
+    pixels:
+      type: Pixels
+      kind: single
+  outputs: []

@@ -1,0 +1,45 @@
+Pupilstop:
+  class_name: Pupilstop
+  bases:
+  - Layer
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    input_mask:
+      type: Any
+      default: null
+      kind: value
+    mask_diam:
+      type: float
+      default: 1.0
+      kind: value
+    obs_diam:
+      type: float
+      default: null
+      kind: value
+    shiftXYinPixel:
+      type: tuple
+      default:
+      - 0.0
+      - 0.0
+      kind: value
+    rotInDeg:
+      type: float
+      default: 0.0
+      kind: value
+    magnification:
+      type: float
+      default: 1.0
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs: []

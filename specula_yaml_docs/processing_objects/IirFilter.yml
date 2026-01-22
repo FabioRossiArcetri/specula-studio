@@ -1,0 +1,46 @@
+IirFilter:
+  class_name: IirFilter
+  bases:
+  - BaseProcessingObj
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    iir_filter_data:
+      type: IirFilterData
+      default: REQUIRED
+      kind: object
+    delay:
+      type: float
+      default: 0
+      kind: value
+    integration:
+      type: bool
+      default: true
+      kind: value
+    offset:
+      type: float
+      default: null
+      kind: value
+    og_shaper:
+      type: float
+      default: null
+      kind: value
+    target_device_idx:
+      type: Any
+      default: null
+      kind: value
+    precision:
+      type: Any
+      default: null
+      kind: value
+  inputs:
+    delta_comm:
+      type: BaseValue
+      kind: single
+    gain_mod:
+      type: BaseValue
+      kind: single
+  outputs:
+  - out_comm

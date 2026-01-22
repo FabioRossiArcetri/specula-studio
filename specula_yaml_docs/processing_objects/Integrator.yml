@@ -1,0 +1,50 @@
+Integrator:
+  class_name: Integrator
+  bases:
+  - IirFilter
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    int_gain:
+      type: list
+      default: REQUIRED
+      kind: value
+    ff:
+      type: list
+      default: null
+      kind: value
+    n_modes:
+      type: list[int]
+      default: null
+      kind: value
+    delay:
+      type: float
+      default: 0
+      kind: value
+    offset:
+      type: float
+      default: null
+      kind: value
+    og_shaper:
+      type: float
+      default: null
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    delta_comm:
+      type: BaseValue
+      kind: single
+    gain_mod:
+      type: BaseValue
+      kind: single
+  outputs:
+  - out_comm

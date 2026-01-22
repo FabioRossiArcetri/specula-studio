@@ -1,0 +1,59 @@
+VortexCoronograph:
+  class_name: VortexCoronograph
+  bases:
+  - Coronograph
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    wavelengthInNm:
+      type: float
+      default: REQUIRED
+      kind: value
+    vortexCharge:
+      type: float
+      default: REQUIRED
+      kind: value
+    innerStopAsRatioOfPupil:
+      type: float
+      default: 0.0
+      kind: value
+    outerStopAsRatioOfPupil:
+      type: float
+      default: 1.0
+      kind: value
+    addInVortex:
+      type: bool
+      default: false
+      kind: value
+    inVortexRadInLambdaOverD:
+      type: float
+      default: null
+      kind: value
+    inVortexCharge:
+      type: int
+      default: null
+      kind: value
+    inVortexShift:
+      type: float
+      default: null
+      kind: value
+    fft_res:
+      type: float
+      default: 3.0
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_ef:
+      type: ElectricField
+      kind: single
+  outputs:
+  - out_ef

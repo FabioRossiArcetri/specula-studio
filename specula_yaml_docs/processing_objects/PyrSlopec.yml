@@ -1,0 +1,47 @@
+PyrSlopec:
+  class_name: PyrSlopec
+  bases:
+  - Slopec
+  parameters:
+    pupdata:
+      type: PupData
+      default: REQUIRED
+      kind: object
+    sn:
+      type: Slopes
+      default: null
+      kind: object
+    shlike:
+      type: bool
+      default: false
+      kind: value
+    norm_factor:
+      type: float
+      default: null
+      kind: value
+    thr_value:
+      type: float
+      default: 0
+      kind: value
+    slopes_from_intensity:
+      type: bool
+      default: false
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_pixels:
+      type: Pixels
+      kind: single
+  outputs:
+  - out_pupdata
+  - out_slopes
+  - out_flux_per_subaperture
+  - out_total_counts
+  - out_subap_counts
