@@ -1,0 +1,43 @@
+FourQuadrantCoronograph:
+  class_name: FourQuadrantCoronograph
+  bases:
+  - Coronograph
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    wavelengthInNm:
+      type: float
+      default: REQUIRED
+      kind: value
+    innerStopAsRatioOfPupil:
+      type: float
+      default: 0.0
+      kind: value
+    outerStopAsRatioOfPupil:
+      type: float
+      default: 1.0
+      kind: value
+    phase_delay:
+      type: float
+      default: np.pi
+      kind: value
+    fft_res:
+      type: float
+      default: 3.0
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_ef:
+      type: ElectricField
+      kind: single
+  outputs:
+  - out_ef

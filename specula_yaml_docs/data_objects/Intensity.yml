@@ -1,0 +1,23 @@
+Intensity:
+  class_name: Intensity
+  bases:
+  - BaseDataObj
+  parameters:
+    dimx:
+      type: int
+      default: REQUIRED
+      kind: value
+    dimy:
+      type: int
+      default: REQUIRED
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs: []

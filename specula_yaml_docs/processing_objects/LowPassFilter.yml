@@ -1,0 +1,50 @@
+LowPassFilter:
+  class_name: LowPassFilter
+  bases:
+  - IirFilter
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    cutoff_freq:
+      type: float
+      default: REQUIRED
+      kind: value
+    amplif_fact:
+      type: float
+      default: null
+      kind: value
+    n_ord:
+      type: int
+      default: null
+      kind: value
+    delay:
+      type: float
+      default: 0
+      kind: value
+    offset:
+      type: list
+      default: null
+      kind: value
+    og_shaper:
+      type: float
+      default: null
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    delta_comm:
+      type: BaseValue
+      kind: single
+    gain_mod:
+      type: BaseValue
+      kind: single
+  outputs:
+  - out_comm

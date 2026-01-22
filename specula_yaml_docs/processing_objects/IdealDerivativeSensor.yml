@@ -1,0 +1,31 @@
+IdealDerivativeSensor:
+  class_name: IdealDerivativeSensor
+  bases:
+  - BaseProcessingObj
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    subapdata:
+      type: SubapData
+      default: REQUIRED
+      kind: object
+    fov:
+      type: float
+      default: REQUIRED
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_ef:
+      type: ElectricField
+      kind: single
+  outputs:
+  - out_slopes

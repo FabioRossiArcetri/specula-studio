@@ -1,0 +1,67 @@
+MultiImCalibrator:
+  class_name: MultiImCalibrator
+  bases:
+  - BaseProcessingObj
+  parameters:
+    nmodes:
+      type: int
+      default: REQUIRED
+      kind: value
+    n_inputs:
+      type: int
+      default: REQUIRED
+      kind: value
+    data_dir:
+      type: str
+      default: REQUIRED
+      kind: value
+    im_tag:
+      type: str
+      default: null
+      kind: value
+    full_im_tag:
+      type: str
+      default: null
+      kind: value
+    overwrite:
+      type: bool
+      default: false
+      kind: value
+    pupilstop:
+      type: Pupilstop
+      default: null
+      kind: reference
+    source_dict:
+      type: list
+      default: null
+      kind: reference
+    dm:
+      type: DM
+      default: null
+      kind: value
+    sensor_dict:
+      type: list
+      default: null
+      kind: value
+    slopec_dict:
+      type: list
+      default: null
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_slopes_list:
+      type: Slopes
+      kind: single
+    in_commands_list:
+      type: BaseValue
+      kind: single
+  outputs:
+  - out_intmat_list
+  - out_intmat_full

@@ -1,0 +1,28 @@
+PsfDisplay:
+  class_name: PsfDisplay
+  bases:
+  - BaseDisplay
+  parameters:
+    title:
+      type: Any
+      default: PSF Display
+      kind: value
+    figsize:
+      type: Any
+      default:
+      - 6
+      - 6
+      kind: value
+    log_scale:
+      type: Any
+      default: false
+      kind: value
+    image_p2v:
+      type: Any
+      default: 0.0
+      kind: value
+  inputs:
+    psf:
+      type: BaseValue
+      kind: single
+  outputs: []

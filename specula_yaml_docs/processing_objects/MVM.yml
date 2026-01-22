@@ -1,0 +1,23 @@
+MVM:
+  class_name: MVM
+  bases:
+  - BaseProcessingObj
+  parameters:
+    recmat:
+      type: Recmat
+      default: REQUIRED
+      kind: object
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_vector:
+      type: BaseValue
+      kind: single
+  outputs:
+  - out_vector

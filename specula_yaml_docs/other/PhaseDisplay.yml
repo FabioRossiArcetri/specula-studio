@@ -1,0 +1,20 @@
+PhaseDisplay:
+  class_name: PhaseDisplay
+  bases:
+  - BaseDisplay
+  parameters:
+    title:
+      type: Any
+      default: Phase Display
+      kind: value
+    figsize:
+      type: Any
+      default:
+      - 8
+      - 6
+      kind: value
+  inputs:
+    phase:
+      type: ElectricField
+      kind: single
+  outputs: []

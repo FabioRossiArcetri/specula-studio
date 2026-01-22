@@ -1,0 +1,49 @@
+MultiRecCalibrator:
+  class_name: MultiRecCalibrator
+  bases:
+  - BaseProcessingObj
+  parameters:
+    nmodes:
+      type: int
+      default: REQUIRED
+      kind: value
+    data_dir:
+      type: str
+      default: REQUIRED
+      kind: value
+    rec_tag:
+      type: str
+      default: null
+      kind: value
+    rec_tag_template:
+      type: str
+      default: null
+      kind: value
+    full_rec_tag:
+      type: str
+      default: null
+      kind: value
+    full_rec_tag_template:
+      type: str
+      default: null
+      kind: value
+    overwrite:
+      type: bool
+      default: false
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    intmat_list:
+      type: Intmat
+      kind: single
+    full_intmat:
+      type: Intmat
+      kind: single
+  outputs: []

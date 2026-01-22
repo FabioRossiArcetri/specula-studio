@@ -1,0 +1,43 @@
+SimulParams:
+  class_name: SimulParams
+  bases:
+  - BaseDataObj
+  parameters:
+    pixel_pupil:
+      type: int
+      default: null
+      kind: value
+    pixel_pitch:
+      type: float
+      default: null
+      kind: value
+    root_dir:
+      type: str
+      default: .
+      kind: value
+    total_time:
+      type: float
+      default: 0.1
+      kind: value
+    time_step:
+      type: float
+      default: 0.001
+      kind: value
+    zenithAngleInDeg:
+      type: float
+      default: 0
+      kind: value
+    display_server:
+      type: bool
+      default: false
+      kind: value
+    stepping:
+      type: bool
+      default: false
+      kind: value
+    add_modules:
+      type: List[str]
+      default: []
+      kind: value
+  inputs: {}
+  outputs: []

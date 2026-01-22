@@ -1,0 +1,85 @@
+IFunc:
+  class_name: IFunc
+  bases:
+  - BaseDataObj
+  parameters:
+    ifunc:
+      type: Any
+      default: null
+      kind: value
+    type_str:
+      type: str
+      default: null
+      kind: value
+    mask:
+      type: Any
+      default: null
+      kind: value
+    npixels:
+      type: int
+      default: null
+      kind: value
+    nzern:
+      type: int
+      default: null
+      kind: value
+    obsratio:
+      type: float
+      default: null
+      kind: value
+    diaratio:
+      type: float
+      default: null
+      kind: value
+    start_mode:
+      type: int
+      default: null
+      kind: value
+    nmodes:
+      type: int
+      default: null
+      kind: value
+    n_act:
+      type: int
+      default: null
+      kind: value
+    circ_geom:
+      type: bool
+      default: true
+      kind: value
+    angle_offset:
+      type: float
+      default: 0
+      kind: value
+    do_mech_coupling:
+      type: bool
+      default: false
+      kind: value
+    coupling_coeffs:
+      type: list
+      default:
+      - 0.31
+      - 0.05
+      kind: value
+    do_slaving:
+      type: bool
+      default: false
+      kind: value
+    slaving_thr:
+      type: float
+      default: 0.1
+      kind: value
+    idx_modes:
+      type: Any
+      default: null
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs: []

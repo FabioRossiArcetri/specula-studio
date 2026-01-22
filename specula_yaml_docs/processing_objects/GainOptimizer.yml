@@ -1,0 +1,69 @@
+GainOptimizer:
+  class_name: GainOptimizer
+  bases:
+  - BaseProcessingObj
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    iir_filter_data:
+      type: IirFilterData
+      default: REQUIRED
+      kind: object
+    opt_dt:
+      type: float
+      default: 1.0
+      kind: value
+    delay:
+      type: float
+      default: 2.0
+      kind: value
+    max_gain_factor:
+      type: float
+      default: 0.95
+      kind: value
+    safety_factor:
+      type: float
+      default: 0.9
+      kind: value
+    max_inc:
+      type: float
+      default: 0.5
+      kind: value
+    limit_inc:
+      type: bool
+      default: true
+      kind: value
+    ngains:
+      type: int
+      default: 20
+      kind: value
+    running_mean:
+      type: bool
+      default: false
+      kind: value
+    verbose:
+      type: bool
+      default: true
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    delta_comm:
+      type: BaseValue
+      kind: single
+    out_comm:
+      type: BaseValue
+      kind: single
+    optical_gain:
+      type: BaseValue
+      kind: single
+  outputs:
+  - optimized_gain

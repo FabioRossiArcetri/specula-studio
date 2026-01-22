@@ -1,0 +1,37 @@
+PlotDisplay:
+  class_name: PlotDisplay
+  bases:
+  - BaseDisplay
+  parameters:
+    title:
+      type: Any
+      default: Plot Display
+      kind: value
+    figsize:
+      type: Any
+      default:
+      - 8
+      - 6
+      kind: value
+    histlen:
+      type: Any
+      default: 200
+      kind: value
+    yrange:
+      type: Any
+      default:
+      - 0
+      - 0
+      kind: value
+    x_axis:
+      type: Any
+      default: time
+      kind: value
+  inputs:
+    value:
+      type: BaseValue
+      kind: single
+    value_list:
+      type: BaseValue
+      kind: single
+  outputs: []

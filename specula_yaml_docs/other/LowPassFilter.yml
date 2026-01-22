@@ -1,0 +1,44 @@
+LowPassFilter:
+  bases:
+  - IirFilter
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+    cutoff_freq:
+      type: float
+      default: REQUIRED
+    amplif_fact:
+      type: float
+      default: null
+    n_ord:
+      type: int
+      default: null
+    delay:
+      type: float
+      default: 0
+    offset:
+      type: list
+      default: null
+    og_shaper:
+      type: Any
+      default: null
+    target_device_idx:
+      type: int
+      default: null
+    precision:
+      type: int
+      default: null
+    iir_filter_data:
+      type: IirFilterData
+      default: REQUIRED
+    integration:
+      type: bool
+      default: true
+  inputs:
+    delta_comm: BaseValue
+    gain_mod: BaseValue
+  outputs:
+  - out_comm
+  references:
+  - target_device_idx

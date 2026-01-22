@@ -1,0 +1,71 @@
+ShSlopec:
+  class_name: ShSlopec
+  bases:
+  - Slopec
+  parameters:
+    subapdata:
+      type: SubapData
+      default: REQUIRED
+      kind: object
+    sn:
+      type: Slopes
+      default: null
+      kind: object
+    thr_value:
+      type: float
+      default: -1
+      kind: value
+    exp_weight:
+      type: float
+      default: 1.0
+      kind: value
+    filtmat:
+      type: Any
+      default: null
+      kind: value
+    weightedPixRad:
+      type: float
+      default: 0.0
+      kind: value
+    windowing:
+      type: bool
+      default: false
+      kind: value
+    weight_int_pixel_dt:
+      type: float
+      default: 0
+      kind: value
+    window_int_pixel:
+      type: bool
+      default: false
+      kind: value
+    window_int_threshold:
+      type: float
+      default: 1.0
+      kind: value
+    vecWeiPixRadT:
+      type: list
+      default: null
+      kind: value
+    interleave:
+      type: bool
+      default: false
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_pixels:
+      type: Pixels
+      kind: single
+  outputs:
+  - out_subapdata
+  - out_slopes
+  - out_flux_per_subaperture
+  - out_total_counts
+  - out_subap_counts

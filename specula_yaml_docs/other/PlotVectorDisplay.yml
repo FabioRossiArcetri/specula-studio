@@ -1,0 +1,50 @@
+PlotVectorDisplay:
+  class_name: PlotVectorDisplay
+  bases:
+  - BaseDisplay
+  parameters:
+    title:
+      type: Any
+      default: Vector Plot
+      kind: value
+    figsize:
+      type: Any
+      default:
+      - 8
+      - 6
+      kind: value
+    histlen:
+      type: Any
+      default: 200
+      kind: value
+    yrange:
+      type: Any
+      default:
+      - 0
+      - 0
+      kind: value
+    x_axis:
+      type: Any
+      default: time
+      kind: value
+    indices:
+      type: Any
+      default: null
+      kind: value
+    slice_args:
+      type: Any
+      default: null
+      kind: value
+    legend_labels:
+      type: Any
+      default: null
+      kind: value
+    max_elements:
+      type: Any
+      default: 20
+      kind: value
+  inputs:
+    vector:
+      type: BaseValue
+      kind: single
+  outputs: []

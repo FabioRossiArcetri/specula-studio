@@ -1,0 +1,20 @@
+SlopecDisplay:
+  class_name: SlopecDisplay
+  bases:
+  - BaseDisplay
+  parameters:
+    title:
+      type: Any
+      default: Slopes Display
+      kind: value
+    figsize:
+      type: Any
+      default:
+      - 6
+      - 6
+      kind: value
+  inputs:
+    slopes:
+      type: Slopes
+      kind: single
+  outputs: []

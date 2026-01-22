@@ -1,0 +1,75 @@
+PAPLCoronograph:
+  class_name: PAPLCoronograph
+  bases:
+  - APPCoronograph
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    wavelengthInNm:
+      type: float
+      default: REQUIRED
+      kind: value
+    pupil:
+      type: Any
+      default: REQUIRED
+      kind: value
+    contrastInDarkHole:
+      type: float
+      default: REQUIRED
+      kind: value
+    iwaInLambdaOverD:
+      type: float
+      default: REQUIRED
+      kind: value
+    owaInLambdaOverD:
+      type: float
+      default: REQUIRED
+      kind: value
+    fpmIWAInLambdaOverD:
+      type: float
+      default: REQUIRED
+      kind: value
+    fpmOWAInLambdaOverD:
+      type: float
+      default: null
+      kind: value
+    knife_edge:
+      type: bool
+      default: true
+      kind: value
+    outerStopAsRatioOfPupil:
+      type: float
+      default: 1.0
+      kind: value
+    innerStopAsRatioOfPupil:
+      type: float
+      default: 0.0
+      kind: value
+    fft_res:
+      type: float
+      default: 3.0
+      kind: value
+    make_symmetric:
+      type: bool
+      default: false
+      kind: value
+    beta:
+      type: float
+      default: 0.9
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_ef:
+      type: ElectricField
+      kind: single
+  outputs:
+  - out_ef

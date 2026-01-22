@@ -1,0 +1,72 @@
+ModalAnalysis:
+  class_name: ModalAnalysis
+  bases:
+  - BaseProcessingObj
+  parameters:
+    ifunc:
+      type: IFunc
+      default: null
+      kind: object
+    ifunc_inv:
+      type: IFuncInv
+      default: null
+      kind: object
+    type_str:
+      type: str
+      default: null
+      kind: value
+    npixels:
+      type: int
+      default: null
+      kind: value
+    nzern:
+      type: int
+      default: null
+      kind: value
+    obsratio:
+      type: float
+      default: null
+      kind: value
+    diaratio:
+      type: float
+      default: null
+      kind: value
+    pupilstop:
+      type: Pupilstop
+      default: null
+      kind: reference
+    nmodes:
+      type: int
+      default: null
+      kind: value
+    wavelengthInNm:
+      type: float
+      default: 0.0
+      kind: value
+    dorms:
+      type: bool
+      default: false
+      kind: value
+    n_inputs:
+      type: int
+      default: 1
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_ef:
+      type: ElectricField
+      kind: single
+    in_ef_list:
+      type: ElectricField
+      kind: single
+  outputs:
+  - out_modes
+  - rms
+  - out_modes_list

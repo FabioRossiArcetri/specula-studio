@@ -1,0 +1,89 @@
+Modalrec:
+  class_name: Modalrec
+  bases:
+  - BaseProcessingObj
+  parameters:
+    nmodes:
+      type: int
+      default: null
+      kind: value
+    recmat:
+      type: Recmat
+      default: null
+      kind: object
+    projmat:
+      type: Recmat
+      default: null
+      kind: object
+    intmat:
+      type: Intmat
+      default: null
+      kind: object
+    polc:
+      type: bool
+      default: false
+      kind: value
+    in_commands_size:
+      type: int
+      default: null
+      kind: value
+    filtmat:
+      type: Any
+      default: null
+      kind: value
+    identity:
+      type: bool
+      default: false
+      kind: value
+    ncutmodes:
+      type: int
+      default: null
+      kind: value
+    nSlopesToBeDiscarded:
+      type: int
+      default: null
+      kind: value
+    dmNumber:
+      type: int
+      default: 0
+      kind: reference
+    noProj:
+      type: bool
+      default: false
+      kind: value
+    input_modes_index:
+      type: list
+      default: null
+      kind: value
+    input_modes_slice:
+      type: list
+      default: null
+      kind: value
+    output_slice:
+      type: list
+      default: null
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_slopes:
+      type: Slopes
+      kind: single
+    in_slopes_list:
+      type: Slopes
+      kind: single
+    in_commands:
+      type: BaseValue
+      kind: single
+    in_commands_list:
+      type: BaseValue
+      kind: single
+  outputs:
+  - out_modes
+  - out_pseudo_ol_modes

@@ -1,0 +1,40 @@
+RandomGenerator:
+  class_name: RandomGenerator
+  bases:
+  - BaseGenerator
+  parameters:
+    distribution:
+      type: Any
+      default: NORMAL
+      kind: value
+    amp:
+      type: float
+      default: 1.0
+      kind: value
+    constant:
+      type: float
+      default: 0.0
+      kind: value
+    seed:
+      type: int
+      default: null
+      kind: value
+    vsize:
+      type: int
+      default: 1
+      kind: value
+    output_size:
+      type: int
+      default: 1
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs:
+  - output

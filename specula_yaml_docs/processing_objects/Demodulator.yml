@@ -1,0 +1,35 @@
+Demodulator:
+  class_name: Demodulator
+  bases:
+  - BaseProcessingObj
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    mode_numbers:
+      type: list
+      default: REQUIRED
+      kind: value
+    carrier_frequencies:
+      type: list
+      default: REQUIRED
+      kind: value
+    demod_dt:
+      type: float
+      default: REQUIRED
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_data:
+      type: BaseValue
+      kind: single
+  outputs:
+  - output

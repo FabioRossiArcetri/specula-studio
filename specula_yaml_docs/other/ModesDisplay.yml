@@ -1,0 +1,30 @@
+ModesDisplay:
+  class_name: ModesDisplay
+  bases:
+  - BaseDisplay
+  parameters:
+    title:
+      type: Any
+      default: Modes Display
+      kind: value
+    figsize:
+      type: Any
+      default:
+      - 6
+      - 3
+      kind: value
+    xrange:
+      type: Any
+      default: null
+      kind: value
+    yrange:
+      type: Any
+      default:
+      - -500
+      - 500
+      kind: value
+  inputs:
+    modes:
+      type: BaseValue
+      kind: single
+  outputs: []

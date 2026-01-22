@@ -1,0 +1,50 @@
+Slopec:
+  class_name: Slopec
+  bases:
+  - BaseProcessingObj
+  parameters:
+    sn:
+      type: Slopes
+      default: null
+      kind: object
+    recmat:
+      type: Recmat
+      default: null
+      kind: object
+    filt_intmat:
+      type: Intmat
+      default: null
+      kind: object
+    filt_recmat:
+      type: Recmat
+      default: null
+      kind: object
+    filtmat:
+      type: Any
+      default: null
+      kind: value
+    weight_int_pixel_dt:
+      type: float
+      default: 0
+      kind: value
+    interleave:
+      type: bool
+      default: false
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_pixels:
+      type: Pixels
+      kind: single
+  outputs:
+  - out_slopes
+  - out_flux_per_subaperture
+  - out_total_counts
+  - out_subap_counts

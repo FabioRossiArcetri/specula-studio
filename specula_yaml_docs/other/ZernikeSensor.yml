@@ -1,0 +1,54 @@
+ZernikeSensor:
+  class_name: ZernikeSensor
+  bases:
+  - ModulatedPyramid
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    wavelengthInNm:
+      type: float
+      default: REQUIRED
+      kind: value
+    fov:
+      type: float
+      default: REQUIRED
+      kind: value
+    pup_diam:
+      type: int
+      default: REQUIRED
+      kind: value
+    output_resolution:
+      type: int
+      default: REQUIRED
+      kind: value
+    spot_radius_lambda:
+      type: float
+      default: 1.06
+      kind: value
+    phase_shift:
+      type: float
+      default: 3.141592653589793 / 2
+      kind: value
+    fft_res:
+      type: float
+      default: 16.0
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_ef:
+      type: ElectricField
+      kind: single
+  outputs:
+  - out_i
+  - out_psf_tot
+  - out_psf_bfm
+  - out_transmission

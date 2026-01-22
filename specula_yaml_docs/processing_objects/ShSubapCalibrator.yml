@@ -1,0 +1,45 @@
+ShSubapCalibrator:
+  class_name: ShSubapCalibrator
+  bases:
+  - BaseProcessingObj
+  parameters:
+    subap_on_diameter:
+      type: int
+      default: REQUIRED
+      kind: value
+    data_dir:
+      type: str
+      default: REQUIRED
+      kind: value
+    energy_th:
+      type: float
+      default: REQUIRED
+      kind: value
+    output_tag:
+      type: str
+      default: null
+      kind: value
+    tag_template:
+      type: str
+      default: null
+      kind: value
+    overwrite:
+      type: bool
+      default: false
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_i:
+      type: Intensity
+      kind: single
+    in_pixels:
+      type: Pixels
+      kind: single
+  outputs: []

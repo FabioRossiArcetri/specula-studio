@@ -1,0 +1,27 @@
+Recmat:
+  class_name: Recmat
+  bases:
+  - BaseDataObj
+  parameters:
+    recmat:
+      type: Any
+      default: REQUIRED
+      kind: value
+    modes2recLayer:
+      type: Any
+      default: null
+      kind: value
+    norm_factor:
+      type: float
+      default: 0
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs: []

@@ -1,0 +1,19 @@
+AVC:
+  class_name: AVC
+  bases:
+  - BaseProcessingObj
+  parameters:
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_measurement:
+      type: BaseValue
+      kind: single
+  outputs:
+  - out_comm

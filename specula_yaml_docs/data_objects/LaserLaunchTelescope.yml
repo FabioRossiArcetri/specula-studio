@@ -1,0 +1,37 @@
+LaserLaunchTelescope:
+  class_name: LaserLaunchTelescope
+  bases:
+  - BaseDataObj
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: null
+      kind: reference
+    spot_size:
+      type: float
+      default: 0.0
+      kind: value
+    tel_position:
+      type: list
+      default: []
+      kind: value
+    beacon_focus:
+      type: float
+      default: 90000.0
+      kind: value
+    beacon_tt:
+      type: list
+      default:
+      - 0.0
+      - 0.0
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs: []

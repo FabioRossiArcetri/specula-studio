@@ -1,0 +1,17 @@
+BaseDisplay:
+  class_name: BaseDisplay
+  bases:
+  - BaseProcessingObj
+  parameters:
+    title:
+      type: Any
+      default: ''
+      kind: value
+    figsize:
+      type: Any
+      default:
+      - 8
+      - 6
+      kind: value
+  inputs: {}
+  outputs: []

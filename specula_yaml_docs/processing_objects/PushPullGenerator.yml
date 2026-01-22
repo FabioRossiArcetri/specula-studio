@@ -1,0 +1,58 @@
+PushPullGenerator:
+  class_name: PushPullGenerator
+  bases:
+  - BaseGenerator
+  parameters:
+    nmodes:
+      type: int
+      default: REQUIRED
+      kind: value
+    first_mode:
+      type: int
+      default: 0
+      kind: value
+    push_pull_type:
+      type: str
+      default: PUSHPULL
+      kind: value
+    amp:
+      type: float
+      default: null
+      kind: value
+    constant_amp:
+      type: bool
+      default: false
+      kind: value
+    pattern:
+      type: list
+      default:
+      - 1
+      - -1
+      kind: value
+    vect_amplitude:
+      type: list
+      default: null
+      kind: value
+    ncycles:
+      type: int
+      default: 1
+      kind: value
+    nsamples:
+      type: int
+      default: 1
+      kind: value
+    repeat_cycles:
+      type: bool
+      default: false
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs:
+  - output

@@ -1,0 +1,27 @@
+M2C:
+  class_name: M2C
+  bases:
+  - BaseDataObj
+  parameters:
+    m2c:
+      type: Any
+      default: REQUIRED
+      kind: value
+    nmodes:
+      type: int
+      default: null
+      kind: value
+    norm_factor:
+      type: float
+      default: null
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs: []

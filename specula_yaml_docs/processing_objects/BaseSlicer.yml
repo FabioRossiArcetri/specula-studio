@@ -1,0 +1,27 @@
+BaseSlicer:
+  class_name: BaseSlicer
+  bases:
+  - BaseProcessingObj
+  parameters:
+    indices:
+      type: Any
+      default: null
+      kind: value
+    slice_args:
+      type: Any
+      default: null
+      kind: value
+    target_device_idx:
+      type: Any
+      default: null
+      kind: value
+    precision:
+      type: Any
+      default: null
+      kind: value
+  inputs:
+    in_value:
+      type: BaseValue
+      kind: single
+  outputs:
+  - out_value

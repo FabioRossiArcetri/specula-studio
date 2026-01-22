@@ -1,0 +1,39 @@
+WindowedIntegration:
+  class_name: WindowedIntegration
+  bases:
+  - BaseProcessingObj
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    n_elem:
+      type: int
+      default: REQUIRED
+      kind: value
+    dt:
+      type: float
+      default: REQUIRED
+      kind: value
+    start_time:
+      type: float
+      default: 0
+      kind: value
+    update_time_on_dt:
+      type: bool
+      default: false
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    input:
+      type: BaseValue
+      kind: single
+  outputs:
+  - output

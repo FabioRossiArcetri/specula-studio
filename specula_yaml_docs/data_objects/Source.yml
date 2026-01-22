@@ -1,0 +1,49 @@
+Source:
+  class_name: Source
+  bases:
+  - BaseDataObj
+  parameters:
+    polar_coordinates:
+      type: list
+      default: REQUIRED
+      kind: value
+    magnitude:
+      type: float
+      default: REQUIRED
+      kind: value
+    wavelengthInNm:
+      type: float
+      default: REQUIRED
+      kind: value
+    height:
+      type: float
+      default: float('inf')
+      kind: value
+    band:
+      type: str
+      default: ''
+      kind: value
+    zero_point:
+      type: float
+      default: 0
+      kind: value
+    error_coord:
+      type: tuple
+      default:
+      - 0.0
+      - 0.0
+      kind: value
+    verbose:
+      type: bool
+      default: false
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs: []

@@ -1,0 +1,34 @@
+SnCalibrator:
+  class_name: SnCalibrator
+  bases:
+  - BaseProcessingObj
+  parameters:
+    data_dir:
+      type: str
+      default: REQUIRED
+      kind: value
+    output_tag:
+      type: str
+      default: null
+      kind: value
+    overwrite:
+      type: bool
+      default: false
+      kind: value
+    tag_template:
+      type: str
+      default: null
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_slopes:
+      type: Slopes
+      kind: single
+  outputs: []

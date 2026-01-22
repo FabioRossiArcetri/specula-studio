@@ -1,0 +1,14 @@
+DataBuffer:
+  class_name: DataBuffer
+  bases:
+  - BaseProcessingObj
+  parameters:
+    buffer_size:
+      type: int
+      default: 10
+      kind: value
+  inputs:
+    input_list:
+      type: Any
+      kind: variadic
+  outputs: []

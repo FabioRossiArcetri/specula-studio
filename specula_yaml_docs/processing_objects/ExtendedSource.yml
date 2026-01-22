@@ -1,0 +1,79 @@
+ExtendedSource:
+  class_name: ExtendedSource
+  bases:
+  - BaseProcessingObj
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    wavelengthInNm:
+      type: float
+      default: REQUIRED
+      kind: value
+    source_type:
+      type: str
+      default: REQUIRED
+      kind: reference
+    sampling_lambda_over_d:
+      type: float
+      default: 1.0
+      kind: value
+    size_obj:
+      type: Optional[float]
+      default: null
+      kind: value
+    sampling_type:
+      type: str
+      default: CARTESIAN
+      kind: value
+    layer_height:
+      type: Optional[List[float]]
+      default: null
+      kind: value
+    intensity_profile:
+      type: Optional[List[float]]
+      default: null
+      kind: value
+    focus_height:
+      type: Optional[float]
+      default: null
+      kind: value
+    tt_profile:
+      type: Optional[np.ndarray]
+      default: null
+      kind: value
+    n_rings:
+      type: Optional[int]
+      default: null
+      kind: value
+    flux_threshold:
+      type: float
+      default: 0.0
+      kind: value
+    initial_psf:
+      type: Optional[np.ndarray]
+      default: null
+      kind: value
+    pixel_scale_psf:
+      type: Optional[float]
+      default: null
+      kind: value
+    crop_psf:
+      type: bool
+      default: false
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    psf:
+      type: BaseValue
+      kind: single
+  outputs:
+  - coeff

@@ -1,0 +1,27 @@
+ProcessingObjName:
+  class_name: ProcessingObjName
+  bases:
+  - BaseProcessingObj
+  parameters:
+    parameter1:
+      type: float
+      default: 0
+      kind: value
+    parameter2:
+      type: Recmat
+      default: null
+      kind: object
+    target_device_idx:
+      type: Any
+      default: null
+      kind: value
+    precision:
+      type: Any
+      default: null
+      kind: value
+  inputs:
+    in_data1:
+      type: Slopes
+      kind: single
+  outputs:
+  - out_result_data1

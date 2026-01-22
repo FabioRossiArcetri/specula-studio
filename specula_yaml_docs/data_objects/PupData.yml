@@ -1,0 +1,35 @@
+PupData:
+  class_name: PupData
+  bases:
+  - BaseDataObj
+  parameters:
+    ind_pup:
+      type: Any
+      default: null
+      kind: value
+    radius:
+      type: Any
+      default: null
+      kind: value
+    cx:
+      type: Any
+      default: null
+      kind: value
+    cy:
+      type: Any
+      default: null
+      kind: value
+    framesize:
+      type: Any
+      default: null
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs: []

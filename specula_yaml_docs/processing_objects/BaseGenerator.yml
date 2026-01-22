@@ -1,0 +1,20 @@
+BaseGenerator:
+  class_name: BaseGenerator
+  bases:
+  - BaseProcessingObj
+  parameters:
+    output_size:
+      type: int
+      default: 1
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs:
+  - output

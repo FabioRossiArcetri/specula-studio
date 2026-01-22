@@ -1,0 +1,56 @@
+PyrSlopec:
+  bases:
+  - Slopec
+  parameters:
+    pupdata:
+      type: PupData
+      default: REQUIRED
+    sn:
+      type: Slopes
+      default: null
+    shlike:
+      type: bool
+      default: false
+    norm_factor:
+      type: float
+      default: null
+    thr_value:
+      type: float
+      default: 0
+    slopes_from_intensity:
+      type: bool
+      default: false
+    target_device_idx:
+      type: int
+      default: null
+    precision:
+      type: int
+      default: null
+    recmat:
+      type: Recmat
+      default: null
+    filt_intmat:
+      type: Intmat
+      default: null
+    filt_recmat:
+      type: Recmat
+      default: null
+    filtmat:
+      type: Any
+      default: null
+    weight_int_pixel_dt:
+      type: float
+      default: 0
+    interleave:
+      type: bool
+      default: false
+  inputs:
+    in_pixels: Pixels
+  outputs:
+  - out_pupdata
+  - out_slopes
+  - out_flux_per_subaperture
+  - out_total_counts
+  - out_subap_counts
+  references:
+  - target_device_idx

@@ -1,0 +1,66 @@
+RecCalibrator:
+  class_name: RecCalibrator
+  bases:
+  - BaseProcessingObj
+  parameters:
+    nmodes:
+      type: int
+      default: REQUIRED
+      kind: value
+    data_dir:
+      type: str
+      default: REQUIRED
+      kind: value
+    rec_tag:
+      type: str
+      default: REQUIRED
+      kind: value
+    first_mode:
+      type: int
+      default: 0
+      kind: value
+    pupdata_tag:
+      type: str
+      default: null
+      kind: value
+    tag_template:
+      type: str
+      default: null
+      kind: value
+    overwrite:
+      type: bool
+      default: false
+      kind: value
+    mmse:
+      type: bool
+      default: false
+      kind: value
+    r0:
+      type: float
+      default: 0.15
+      kind: value
+    L0:
+      type: float
+      default: 25.0
+      kind: value
+    dm:
+      type: DM
+      default: null
+      kind: value
+    noise_cov:
+      type: Union[float, np.ndarray, list]
+      default: null
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_intmat:
+      type: Intmat
+      kind: single
+  outputs: []

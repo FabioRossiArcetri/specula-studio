@@ -1,0 +1,39 @@
+PowerLoss:
+  class_name: PowerLoss
+  bases:
+  - BaseProcessingObj
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    wavelengthInNm:
+      type: float
+      default: REQUIRED
+      kind: value
+    nd:
+      type: int
+      default: REQUIRED
+      kind: value
+    prop_distance:
+      type: float
+      default: REQUIRED
+      kind: value
+    receiver_diam:
+      type: float
+      default: REQUIRED
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    se_sr:
+      type: BaseValue
+      kind: single
+  outputs:
+  - out_power_loss

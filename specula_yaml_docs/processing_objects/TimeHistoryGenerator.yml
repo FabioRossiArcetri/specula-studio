@@ -1,0 +1,20 @@
+TimeHistoryGenerator:
+  class_name: TimeHistoryGenerator
+  bases:
+  - BaseGenerator
+  parameters:
+    time_hist:
+      type: TimeHistory
+      default: REQUIRED
+      kind: object
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs:
+  - output

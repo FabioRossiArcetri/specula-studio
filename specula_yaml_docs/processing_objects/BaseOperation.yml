@@ -1,0 +1,66 @@
+BaseOperation:
+  class_name: BaseOperation
+  bases:
+  - BaseProcessingObj
+  parameters:
+    constant_mul:
+      type: float
+      default: null
+      kind: value
+    constant_div:
+      type: float
+      default: null
+      kind: value
+    constant_sum:
+      type: float
+      default: null
+      kind: value
+    constant_sub:
+      type: float
+      default: null
+      kind: value
+    mul:
+      type: bool
+      default: false
+      kind: value
+    div:
+      type: bool
+      default: false
+      kind: value
+    sum:
+      type: bool
+      default: false
+      kind: value
+    sub:
+      type: bool
+      default: false
+      kind: value
+    concat:
+      type: bool
+      default: false
+      kind: value
+    value2_is_shorter:
+      type: bool
+      default: false
+      kind: value
+    value2_remap:
+      type: list
+      default: null
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_value1:
+      type: BaseValue
+      kind: single
+    in_value2:
+      type: BaseValue
+      kind: single
+  outputs:
+  - out_value
