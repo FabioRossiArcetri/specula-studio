@@ -40,11 +40,6 @@ class SpeculaEditor:
         # 3. Setup UI
         self.create_ui()
         self.nm.setup_handlers()
-        # self.nm.start_display_server_monitor()
-        # stats = self.nm.get_display_server_stats()
-        # print(stats)
-        # results = self.nm.test_server_connection()
-        #print(results)
 
 
     def load_templates(self, folder):
@@ -62,6 +57,7 @@ class SpeculaEditor:
     
     # Callback in SpeculaEditor class
     def _toggle_export_defaults(self, sender, app_data):
+        print('_toggle_export_defaults', app_data)
         self.export_include_defaults = app_data
 
     # Update the Export Bridge Callback
@@ -70,15 +66,15 @@ class SpeculaEditor:
             a['file_path_name'], 
             include_defaults=self.export_include_defaults
         )
-            
-    def _check_monitor_status(self, sender, app_data):
-        """Check and display monitor status."""
-        active_count = len(self.nm.active_monitors)
-        print(f"Active monitors: {active_count}")
-        for monitor_id, monitor_data in self.nm.active_monitors.items():
-            node_uuid, output_name = monitor_id
-            node_name = self.nm.graph.nodes[node_uuid].get('name', 'unknown')
-            print(f"  - {node_name}.{output_name}")
+
+
+    # In the create_ui method, add this to the global handlers section:
+    def _on_key_press(self, sender, app_data):
+        """Handle global key presses."""
+        # D key to delete selected link
+        if app_data == dpg.mvKey_D:
+            # Forward to node manager
+            self.nm.delete_selected_link(sender, app_data)
 
 
     def create_ui(self):
@@ -109,17 +105,7 @@ class SpeculaEditor:
                     dpg.add_menu_item(label="Include Defaults in Export", check=True, callback=self._toggle_export_defaults)
                     dpg.add_menu_item(label="Export Specula Sim", callback=lambda: dpg.show_item("export_sim_dialog"))
 
-                # Add a Debug/Test menu
-                with dpg.menu(label="Debug"):
-                    dpg.add_menu_item(
-                        label="Test Monitor Window", 
-                        callback=lambda s, a: self.nm.test_simple_monitor(s, a, None)
-                    )
-                    dpg.add_menu_item(
-                        label="Check Active Monitors",
-                        callback=self._check_monitor_status
-                    )
-
+          
                 with dpg.menu(label="Processing Objects"):
                     for node_type in sorted(self.proc_obj_templates.keys()):
                         dpg.add_menu_item(label=node_type, callback=self._on_menu_create, user_data=node_type)
@@ -130,7 +116,6 @@ class SpeculaEditor:
 
                 with dpg.menu(label="Monitors"):
                     dpg.add_menu_item(label="Close All Monitors", callback=lambda: self.nm.close_all_monitors())
-                    dpg.add_menu_item(label="Check Monitor Status", callback=self._check_monitor_status)
   
 
             # 2. Split Workspace
@@ -152,6 +137,8 @@ class SpeculaEditor:
         # --- Global Handlers ---
         with dpg.handler_registry():
             dpg.add_mouse_click_handler(button=0, callback=self._on_canvas_click)
+            dpg.add_key_press_handler(callback=self._on_key_press)  # Add this line
+
 
         # --- Setup File Dialogs ---
         self.setup_dialogs()
@@ -245,7 +232,7 @@ class SpeculaEditor:
                     
     # --- File Bridge Callbacks ---
     def _import_cb(self, s, a): self.fh.import_simulation(a['file_path_name'])
-    def _export_cb(self, s, a): self.fh.export_simulation(a['file_path_name'])
+    def _export_cb(self, s, a): self.fh.export_simulation(a['file_path_name'], self.export_include_defaults)
     def _save_scene_cb(self, s, a): self.fh.save_scene(a['file_path_name'])
     def _load_scene_cb(self, s, a): self.fh.load_scene(a['file_path_name'])
 

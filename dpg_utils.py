@@ -93,5 +93,5 @@ def auto_layout_nodes(graph, uuid_to_dpg):
         
         row = lvl_counts.get(lvl, 0)
         # spacing: 450px Horizontal, 300px Vertical
-        dpg.set_item_pos(dpg_id, [30 + lvl * 300, 30 + row * 200])
+        dpg.set_item_pos(dpg_id, [30 + lvl * 330, 30 + row * 220])
         lvl_counts[lvl] = row + 1
