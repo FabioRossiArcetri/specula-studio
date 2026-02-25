@@ -21,7 +21,7 @@ AtmoEvolution:
       kind: value
     data_dir:
       type: str
-      default: ''
+      default: REQUIRED
       kind: value
     fov:
       type: float

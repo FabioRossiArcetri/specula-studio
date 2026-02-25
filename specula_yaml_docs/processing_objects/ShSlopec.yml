@@ -6,11 +6,11 @@ ShSlopec:
     subapdata:
       type: SubapData
       default: REQUIRED
-      kind: object
+      kind: value
     sn:
       type: Slopes
       default: null
-      kind: object
+      kind: value
     thr_value:
       type: float
       default: -1

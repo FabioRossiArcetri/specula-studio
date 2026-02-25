@@ -8,7 +8,7 @@ CCD:
       default: REQUIRED
       kind: reference
     size:
-      type: list
+      type: int
       default: REQUIRED
       kind: value
     dt:

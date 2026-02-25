@@ -1,0 +1,4019 @@
+APPCoronagraph:
+  bases:
+  - Coronagraph
+  class_name: APPCoronagraph
+  inputs:
+    in_ef:
+      kind: single
+      type: ElectricField
+  outputs:
+  - out_ef
+  parameters:
+    beta:
+      default: 0.9
+      kind: value
+      type: float
+    contrastInDarkHole:
+      default: REQUIRED
+      kind: value
+      type: float
+    fft_res:
+      default: 3.0
+      kind: value
+      type: float
+    iwaInLambdaOverD:
+      default: REQUIRED
+      kind: value
+      type: float
+    make_symmetric:
+      default: false
+      kind: value
+      type: bool
+    max_its:
+      default: 1000
+      kind: value
+      type: int
+    owaInLambdaOverD:
+      default: REQUIRED
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: int
+    pupil:
+      default: REQUIRED
+      kind: value
+      type: Any
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    wavelengthInNm:
+      default: REQUIRED
+      kind: value
+      type: float
+AVC:
+  bases:
+  - BaseProcessingObj
+  class_name: AVC
+  inputs:
+    in_measurement:
+      kind: single
+      type: BaseValue
+  outputs:
+  - out_comm
+  parameters:
+    precision:
+      default: null
+      kind: value
+      type: int
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+AtmoEvolution:
+  bases:
+  - BaseProcessingObj
+  class_name: AtmoEvolution
+  inputs:
+    seeing:
+      kind: single
+      type: BaseValue
+    wind_direction:
+      kind: single
+      type: BaseValue
+    wind_speed:
+      kind: single
+      type: BaseValue
+  outputs:
+  - layer_list
+  parameters:
+    Cn2:
+      default: REQUIRED
+      kind: value
+      type: list
+    L0:
+      default: REQUIRED
+      kind: value
+      type: list
+    data_dir:
+      default: REQUIRED
+      kind: value
+      type: str
+    extra_delta_time:
+      default: 0
+      kind: value
+      type: float
+    fov:
+      default: 0.0
+      kind: value
+      type: float
+    fov_in_m:
+      default: null
+      kind: value
+      type: float
+    heights:
+      default: REQUIRED
+      kind: value
+      type: list
+    pixel_phasescreens:
+      default: 8192
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: int
+    pupil_position:
+      default:
+      - 0
+      - 0
+      kind: value
+      type: list
+    seed:
+      default: 1
+      kind: value
+      type: int
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    verbose:
+      default: false
+      kind: value
+      type: bool
+AtmoEvolutionUpDown:
+  bases:
+  - AtmoEvolution
+  class_name: AtmoEvolutionUpDown
+  inputs:
+    seeing:
+      kind: single
+      type: BaseValue
+    wind_direction:
+      kind: single
+      type: BaseValue
+    wind_speed:
+      kind: single
+      type: BaseValue
+  outputs:
+  - layer_list_down
+  - layer_list_up
+  - layer_list
+  parameters:
+    Cn2:
+      default: REQUIRED
+      kind: value
+      type: list
+    L0:
+      default: REQUIRED
+      kind: value
+      type: list
+    data_dir:
+      default: REQUIRED
+      kind: value
+      type: str
+    extra_delta_time_down:
+      default: 0
+      kind: value
+      type: float
+    extra_delta_time_up:
+      default: 0
+      kind: value
+      type: float
+    fov:
+      default: 0.0
+      kind: value
+      type: float
+    fov_in_m:
+      default: null
+      kind: value
+      type: float
+    heights:
+      default: REQUIRED
+      kind: value
+      type: list
+    pixel_phasescreens:
+      default: 8192
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: int
+    pupil_position:
+      default:
+      - 0
+      - 0
+      kind: value
+      type: list
+    seed:
+      default: 1
+      kind: value
+      type: int
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    verbose:
+      default: false
+      kind: value
+      type: bool
+AtmoInfiniteEvolution:
+  bases:
+  - BaseProcessingObj
+  class_name: AtmoInfiniteEvolution
+  inputs:
+    seeing:
+      kind: single
+      type: BaseValue
+    wind_direction:
+      kind: single
+      type: BaseValue
+    wind_speed:
+      kind: single
+      type: BaseValue
+  outputs:
+  - layer_list
+  parameters:
+    Cn2:
+      default:
+      - 1.0
+      kind: value
+      type: list
+    L0:
+      default:
+      - 1.0
+      kind: value
+      type: list
+    extra_delta_time:
+      default: 0
+      kind: value
+      type: float
+    fov:
+      default: 0.0
+      kind: value
+      type: float
+    fov_in_m:
+      default: null
+      kind: value
+      type: float
+    heights:
+      default:
+      - 0.0
+      kind: value
+      type: list
+    precision:
+      default: null
+      kind: value
+      type: int
+    pupil_position:
+      default:
+      - 0
+      - 0
+      kind: value
+      type: list
+    seed:
+      default: 1
+      kind: value
+      type: int
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    verbose:
+      default: false
+      kind: value
+      type: bool
+AtmoInfiniteEvolutionUpDown:
+  bases:
+  - AtmoInfiniteEvolution
+  class_name: AtmoInfiniteEvolutionUpDown
+  inputs:
+    seeing:
+      kind: single
+      type: BaseValue
+    wind_direction:
+      kind: single
+      type: BaseValue
+    wind_speed:
+      kind: single
+      type: BaseValue
+  outputs:
+  - layer_list_down
+  - layer_list_up
+  - layer_list
+  parameters:
+    Cn2:
+      default:
+      - 1.0
+      kind: value
+      type: list
+    L0:
+      default:
+      - 1.0
+      kind: value
+      type: list
+    extra_delta_time_down:
+      default: 0
+      kind: value
+      type: float
+    extra_delta_time_up:
+      default: 0
+      kind: value
+      type: float
+    fov:
+      default: 0.0
+      kind: value
+      type: float
+    fov_in_m:
+      default: null
+      kind: value
+      type: float
+    heights:
+      default:
+      - 0.0
+      kind: value
+      type: list
+    precision:
+      default: null
+      kind: value
+      type: int
+    pupil_position:
+      default:
+      - 0
+      - 0
+      kind: value
+      type: list
+    seed:
+      default: 1
+      kind: value
+      type: int
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    verbose:
+      default: false
+      kind: value
+      type: bool
+AtmoPropagation:
+  bases:
+  - BaseProcessingObj
+  class_name: AtmoPropagation
+  inputs:
+    atmo_layer_list:
+      kind: single
+      type: Layer
+    common_layer_list:
+      kind: single
+      type: Layer
+  outputs:
+  - out_' + name + '_ef
+  parameters:
+    band_limit_factor:
+      default: 1.0
+      kind: value
+      type: float
+    doFresnel:
+      default: false
+      kind: value
+      type: bool
+    mergeLayersContrib:
+      default: true
+      kind: value
+      type: bool
+    padding_factor:
+      default: 1
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: Any
+    pupil_position:
+      default: null
+      kind: value
+      type: Any
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    source_dict:
+      default: REQUIRED
+      kind: value
+      type: dict
+    target_device_idx:
+      default: null
+      kind: value
+      type: Any
+    upwards:
+      default: false
+      kind: value
+      type: bool
+    wavelengthInNm:
+      default: 500.0
+      kind: value
+      type: float
+AtmoRandomPhase:
+  bases:
+  - BaseProcessingObj
+  class_name: AtmoRandomPhase
+  inputs:
+    pupilstop:
+      kind: single
+      type: Pupilstop
+    seeing:
+      kind: single
+      type: BaseValue
+  outputs:
+  - out_' + name + '_ef
+  parameters:
+    L0:
+      default: 1.0
+      kind: value
+      type: float
+    data_dir:
+      default: ''
+      kind: value
+      type: str
+    pixel_phasescreens:
+      default: null
+      kind: value
+      type: Any
+    precision:
+      default: null
+      kind: value
+      type: Any
+    seed:
+      default: 1
+      kind: value
+      type: int
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    source_dict:
+      default: {}
+      kind: value
+      type: dict
+    target_device_idx:
+      default: null
+      kind: value
+      type: Any
+    update_interval:
+      default: 1
+      kind: value
+      type: int
+    verbose:
+      default: null
+      kind: value
+      type: Any
+    wavelengthInNm:
+      default: 500.0
+      kind: value
+      type: float
+BaseFilter:
+  bases:
+  - BaseProcessingObj
+  class_name: BaseFilter
+  inputs:
+    delta_comm:
+      kind: single
+      type: BaseValue
+    gain_mod:
+      kind: single
+      type: BaseValue
+  outputs:
+  - out_comm
+  - out_comm_no_delay
+  parameters:
+    delay:
+      default: 0
+      kind: value
+      type: float
+    nfilter:
+      default: REQUIRED
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: Any
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    target_device_idx:
+      default: null
+      kind: value
+      type: Any
+BaseGenerator:
+  bases:
+  - BaseProcessingObj
+  class_name: BaseGenerator
+  inputs: {}
+  outputs:
+  - output
+  parameters:
+    output_size:
+      default: 1
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: int
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+BaseOperation:
+  bases:
+  - BaseProcessingObj
+  class_name: BaseOperation
+  inputs:
+    in_value1:
+      kind: single
+      type: BaseValue
+    in_value2:
+      kind: single
+      type: BaseValue
+  outputs:
+  - out_value
+  parameters:
+    concat:
+      default: false
+      kind: value
+      type: bool
+    constant_div:
+      default: null
+      kind: value
+      type: float
+    constant_mul:
+      default: null
+      kind: value
+      type: float
+    constant_sub:
+      default: null
+      kind: value
+      type: float
+    constant_sum:
+      default: null
+      kind: value
+      type: float
+    div:
+      default: false
+      kind: value
+      type: bool
+    mul:
+      default: false
+      kind: value
+      type: bool
+    precision:
+      default: null
+      kind: value
+      type: int
+    sub:
+      default: false
+      kind: value
+      type: bool
+    sum:
+      default: false
+      kind: value
+      type: bool
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    value2_is_shorter:
+      default: false
+      kind: value
+      type: bool
+    value2_remap:
+      default: null
+      kind: value
+      type: list
+BaseSlicer:
+  bases:
+  - BaseProcessingObj
+  class_name: BaseSlicer
+  inputs:
+    in_value:
+      kind: single
+      type: BaseValue
+  outputs:
+  - out_value
+  parameters:
+    indices:
+      default: null
+      kind: value
+      type: Any
+    precision:
+      default: null
+      kind: value
+      type: Any
+    slice_args:
+      default: null
+      kind: value
+      type: Any
+    target_device_idx:
+      default: null
+      kind: value
+      type: Any
+CCD:
+  bases:
+  - BaseProcessingObj
+  class_name: CCD
+  inputs:
+    in_i:
+      kind: single
+      type: Intensity
+  outputs:
+  - out_pixels
+  - integrated_i
+  parameters:
+    ADU_bias:
+      default: 400
+      kind: value
+      type: int
+    ADU_gain:
+      default: null
+      kind: value
+      type: float
+    background_level:
+      default: 0.0
+      kind: value
+      type: float
+    background_noise:
+      default: false
+      kind: value
+      type: bool
+    bandw:
+      default: REQUIRED
+      kind: value
+      type: float
+    binning:
+      default: 1
+      kind: value
+      type: int
+    cic_level:
+      default: 0
+      kind: value
+      type: float
+    cic_noise:
+      default: false
+      kind: value
+      type: bool
+    cte_mat:
+      default: null
+      kind: value
+      type: Any
+    cte_noise:
+      default: false
+      kind: value
+      type: bool
+    darkcurrent_level:
+      default: 0.0
+      kind: value
+      type: float
+    darkcurrent_noise:
+      default: false
+      kind: value
+      type: bool
+    dt:
+      default: REQUIRED
+      kind: value
+      type: float
+    emccd_gain:
+      default: null
+      kind: value
+      type: int
+    excess_delta:
+      default: 1.0
+      kind: value
+      type: float
+    excess_noise:
+      default: false
+      kind: value
+      type: bool
+    excess_seed:
+      default: 3
+      kind: value
+      type: int
+    photon_noise:
+      default: false
+      kind: value
+      type: bool
+    photon_seed:
+      default: 1
+      kind: value
+      type: int
+    pixelGains:
+      default: null
+      kind: value
+      type: Any
+    precision:
+      default: null
+      kind: value
+      type: int
+    quantum_eff:
+      default: 1.0
+      kind: value
+      type: float
+    readout_level:
+      default: 0.0
+      kind: value
+      type: float
+    readout_noise:
+      default: false
+      kind: value
+      type: bool
+    readout_seed:
+      default: 2
+      kind: value
+      type: int
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    size:
+      default: REQUIRED
+      kind: value
+      type: int
+    start_time:
+      default: 0
+      kind: value
+      type: int
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+Coronagraph:
+  bases:
+  - BaseProcessingObj
+  class_name: Coronagraph
+  inputs:
+    in_ef:
+      kind: single
+      type: ElectricField
+  outputs:
+  - out_ef
+  parameters:
+    center_on_pixel:
+      default: true
+      kind: value
+      type: bool
+    fft_res:
+      default: 3.0
+      kind: value
+      type: float
+    fov:
+      default: REQUIRED
+      kind: value
+      type: float
+    fov_errinf:
+      default: 0.1
+      kind: value
+      type: float
+    fov_errsup:
+      default: 10
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: int
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    wavelengthInNm:
+      default: REQUIRED
+      kind: value
+      type: float
+DM:
+  bases:
+  - BaseProcessingObj
+  class_name: DM
+  inputs:
+    in_command:
+      kind: single
+      type: BaseValue
+  outputs:
+  - out_layer
+  parameters:
+    diaratio:
+      default: null
+      kind: value
+      type: float
+    height:
+      default: REQUIRED
+      kind: value
+      type: float
+    idx_modes:
+      default: null
+      kind: value
+      type: Any
+    ifunc:
+      default: null
+      kind: value
+      type: IFunc
+    input_offset:
+      default: 0
+      kind: value
+      type: int
+    m2c:
+      default: null
+      kind: value
+      type: M2C
+    nmodes:
+      default: null
+      kind: value
+      type: int
+    npixels:
+      default: null
+      kind: value
+      type: int
+    nzern:
+      default: null
+      kind: value
+      type: int
+    obsratio:
+      default: null
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: int
+    pupilstop:
+      default: null
+      kind: value
+      type: Pupilstop
+    sign:
+      default: -1
+      kind: value
+      type: int
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    start_mode:
+      default: null
+      kind: value
+      type: int
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    type_str:
+      default: null
+      kind: value
+      type: str
+DataBuffer:
+  bases:
+  - BaseProcessingObj
+  class_name: DataBuffer
+  inputs:
+    input_list:
+      kind: variadic
+      type: Any
+  outputs: []
+  parameters:
+    buffer_size:
+      default: 10
+      kind: value
+      type: int
+DataPrint:
+  bases:
+  - BaseProcessingObj
+  class_name: DataPrint
+  inputs:
+    in_value:
+      kind: single
+      type: BaseValue
+  outputs: []
+  parameters:
+    format_str:
+      default: .4f
+      kind: value
+      type: str
+    precision:
+      default: null
+      kind: value
+      type: int
+    prefix:
+      default: ''
+      kind: value
+      type: str
+    print_dt:
+      default: 1.0
+      kind: value
+      type: float
+    range_slice:
+      default: null
+      kind: value
+      type: tuple
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+DataSource:
+  bases:
+  - BaseProcessingObj
+  class_name: DataSource
+  inputs: {}
+  outputs:
+  - k
+  parameters:
+    data_format:
+      default: fits
+      kind: value
+      type: str
+    outputs:
+      default: REQUIRED
+      kind: value
+      type: list
+    store_dir:
+      default: REQUIRED
+      kind: value
+      type: str
+DataStore:
+  bases:
+  - BaseProcessingObj
+  class_name: DataStore
+  inputs:
+    input_list:
+      kind: variadic
+      type: Any
+  outputs: []
+  parameters:
+    create_tn:
+      default: true
+      kind: value
+      type: bool
+    data_format:
+      default: fits
+      kind: value
+      type: str
+    first_suffix:
+      default: 0
+      kind: value
+      type: int
+    split_size:
+      default: 0
+      kind: value
+      type: int
+    start_time:
+      default: 0
+      kind: value
+      type: float
+    store_dir:
+      default: REQUIRED
+      kind: value
+      type: str
+Demodulator:
+  bases:
+  - BaseProcessingObj
+  class_name: Demodulator
+  inputs:
+    in_data:
+      kind: single
+      type: BaseValue
+  outputs:
+  - output
+  parameters:
+    carrier_frequencies:
+      default: REQUIRED
+      kind: value
+      type: list
+    demod_dt:
+      default: REQUIRED
+      kind: value
+      type: float
+    mode_numbers:
+      default: REQUIRED
+      kind: value
+      type: list
+    precision:
+      default: null
+      kind: value
+      type: int
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+DisplayServer:
+  bases:
+  - BaseProcessingObj
+  class_name: DisplayServer
+  inputs: {}
+  outputs: []
+  parameters:
+    host:
+      default: 0.0.0.0
+      kind: value
+      type: str
+    info_getter:
+      default: REQUIRED
+      kind: value
+      type: typing.Callable
+    input_ref_getter:
+      default: REQUIRED
+      kind: value
+      type: typing.Callable
+    output_ref_getter:
+      default: REQUIRED
+      kind: value
+      type: typing.Callable
+    params_dict:
+      default: REQUIRED
+      kind: value
+      type: dict
+    port:
+      default: 0
+      kind: value
+      type: int
+DistributedSH:
+  bases:
+  - SH
+  class_name: DistributedSH
+  inputs:
+    in_ef:
+      kind: single
+      type: ElectricField
+    sodium_altitude:
+      kind: single
+      type: BaseValue
+    sodium_intensity:
+      kind: single
+      type: BaseValue
+  outputs:
+  - out_i
+  parameters:
+    FoVres30mas:
+      default: false
+      kind: value
+      type: bool
+    do_not_double_fov_ovs:
+      default: false
+      kind: value
+      type: bool
+    fov_ovs_coeff:
+      default: 0
+      kind: value
+      type: float
+    laser_launch_tel:
+      default: null
+      kind: value
+      type: LaserLaunchTelescope
+    n_slices:
+      default: REQUIRED
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: int
+    rotAnglePhInDeg:
+      default: 0
+      kind: value
+      type: float
+    sensor_pxscale:
+      default: REQUIRED
+      kind: value
+      type: float
+    set_fov_res_to_turbpxsc:
+      default: false
+      kind: value
+      type: bool
+    squaremask:
+      default: true
+      kind: value
+      type: bool
+    subap_npx:
+      default: REQUIRED
+      kind: value
+      type: int
+    subap_on_diameter:
+      default: REQUIRED
+      kind: value
+      type: int
+    subap_wanted_fov:
+      default: REQUIRED
+      kind: value
+      type: float
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    wavelengthInNm:
+      default: REQUIRED
+      kind: value
+      type: float
+    xShiftPhInPixel:
+      default: 0
+      kind: value
+      type: float
+    yShiftPhInPixel:
+      default: 0
+      kind: value
+      type: float
+DoubleRoofSlopec:
+  bases:
+  - PyrSlopec
+  class_name: DoubleRoofSlopec
+  inputs:
+    in_pixels:
+      kind: single
+      type: Pixels
+  outputs:
+  - out_pupdata
+  - out_slopes
+  - out_flux_per_subaperture
+  - out_total_counts
+  - out_subap_counts
+  parameters:
+    norm_factor:
+      default: null
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: int
+    pupdata:
+      default: REQUIRED
+      kind: value
+      type: PupData
+    shlike:
+      default: false
+      kind: value
+      type: bool
+    slopes_from_intensity:
+      default: false
+      kind: value
+      type: bool
+    sn:
+      default: null
+      kind: value
+      type: Slopes
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    thr_value:
+      default: 0
+      kind: value
+      type: float
+ElectricFieldCombinator:
+  bases:
+  - BaseProcessingObj
+  class_name: ElectricFieldCombinator
+  inputs:
+    in_ef1:
+      kind: single
+      type: ElectricField
+    in_ef2:
+      kind: single
+      type: ElectricField
+  outputs:
+  - out_ef
+  parameters:
+    precision:
+      default: null
+      kind: value
+      type: int
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+ElectricFieldReflection:
+  bases:
+  - BaseProcessingObj
+  class_name: ElectricFieldReflection
+  inputs:
+    in_ef:
+      kind: single
+      type: ElectricField
+  outputs:
+  - out_ef
+  parameters:
+    precision:
+      default: null
+      kind: value
+      type: int
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+ExtSourcePyramid:
+  bases:
+  - ModulatedPyramid
+  class_name: ExtSourcePyramid
+  inputs:
+    ext_source_coeff:
+      kind: single
+      type: BaseValue
+    in_ef:
+      kind: single
+      type: ElectricField
+  outputs:
+  - out_i
+  - out_psf_tot
+  - out_psf_bfm
+  - out_transmission
+  parameters:
+    cuda_stream_enable:
+      default: true
+      kind: value
+      type: bool
+    fft_res:
+      default: 3.0
+      kind: value
+      type: float
+    fov:
+      default: REQUIRED
+      kind: value
+      type: float
+    fov_errinf:
+      default: 0.5
+      kind: value
+      type: float
+    fov_errsup:
+      default: 2
+      kind: value
+      type: float
+    fp_obs:
+      default: null
+      kind: value
+      type: float
+    max_batch_size:
+      default: 128
+      kind: value
+      type: int
+    max_flux_ratio_thr:
+      default: 0.001
+      kind: value
+      type: float
+    min_pup_dist:
+      default: null
+      kind: value
+      type: float
+    mod_amp:
+      default: 3.0
+      kind: value
+      type: float
+    mod_step:
+      default: null
+      kind: value
+      type: int
+    mod_type:
+      default: circular
+      kind: value
+      type: str
+    output_resolution:
+      default: REQUIRED
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: int
+    pup_diam:
+      default: REQUIRED
+      kind: value
+      type: int
+    pup_dist:
+      default: null
+      kind: value
+      type: int
+    pup_margin:
+      default: 2
+      kind: value
+      type: int
+    pup_shifts:
+      default:
+      - 0.0
+      - 0.0
+      kind: value
+      type: Any
+    pyr_edge_def_ld:
+      default: 0.0
+      kind: value
+      type: float
+    pyr_tip_def_ld:
+      default: 0.0
+      kind: value
+      type: float
+    pyr_tip_maya_ld:
+      default: 0.0
+      kind: value
+      type: float
+    pyr_tlt_coeff:
+      default: null
+      kind: value
+      type: float
+    rotAnglePhInDeg:
+      default: 0.0
+      kind: value
+      type: float
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    wavelengthInNm:
+      default: REQUIRED
+      kind: value
+      type: float
+    xShiftPhInPixel:
+      default: 0.0
+      kind: value
+      type: float
+    yShiftPhInPixel:
+      default: 0.0
+      kind: value
+      type: float
+ExtendedSource:
+  bases:
+  - BaseProcessingObj
+  class_name: ExtendedSource
+  inputs:
+    psf:
+      kind: single
+      type: BaseValue
+  outputs:
+  - coeff
+  parameters:
+    crop_psf:
+      default: false
+      kind: value
+      type: bool
+    flux_threshold:
+      default: 0.0
+      kind: value
+      type: float
+    focus_height:
+      default: null
+      kind: value
+      type: Optional[float]
+    initial_psf:
+      default: null
+      kind: value
+      type: Optional[np.ndarray]
+    intensity_profile:
+      default: null
+      kind: value
+      type: Optional[List[float]]
+    layer_height:
+      default: null
+      kind: value
+      type: Optional[List[float]]
+    n_rings:
+      default: null
+      kind: value
+      type: Optional[int]
+    pixel_scale_psf:
+      default: null
+      kind: value
+      type: Optional[float]
+    precision:
+      default: null
+      kind: value
+      type: int
+    sampling_lambda_over_d:
+      default: 1.0
+      kind: value
+      type: float
+    sampling_type:
+      default: CARTESIAN
+      kind: value
+      type: str
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    size_obj:
+      default: null
+      kind: value
+      type: Optional[float]
+    source_type:
+      default: REQUIRED
+      kind: value
+      type: str
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    tt_profile:
+      default: null
+      kind: value
+      type: Optional[np.ndarray]
+    wavelengthInNm:
+      default: REQUIRED
+      kind: value
+      type: float
+FocalPlaneFilter:
+  bases:
+  - Coronagraph
+  class_name: FocalPlaneFilter
+  inputs:
+    in_ef:
+      kind: single
+      type: ElectricField
+  outputs:
+  - out_ef
+  parameters:
+    fft_res:
+      default: 3.0
+      kind: value
+      type: float
+    fov:
+      default: REQUIRED
+      kind: value
+      type: float
+    fov_errinf:
+      default: 0.1
+      kind: value
+      type: float
+    fov_errsup:
+      default: 10
+      kind: value
+      type: float
+    fp_obs:
+      default: 0.0
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: int
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    wavelengthInNm:
+      default: REQUIRED
+      kind: value
+      type: float
+FourQuadrantCoronagraph:
+  bases:
+  - Coronagraph
+  class_name: FourQuadrantCoronagraph
+  inputs:
+    in_ef:
+      kind: single
+      type: ElectricField
+  outputs:
+  - out_ef
+  parameters:
+    fft_res:
+      default: 3.0
+      kind: value
+      type: float
+    innerStopAsRatioOfPupil:
+      default: 0.0
+      kind: value
+      type: float
+    outerStopAsRatioOfPupil:
+      default: 1.0
+      kind: value
+      type: float
+    phase_delay:
+      default: np.pi
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: int
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    wavelengthInNm:
+      default: REQUIRED
+      kind: value
+      type: float
+GainOptimizer:
+  bases:
+  - BaseProcessingObj
+  class_name: GainOptimizer
+  inputs:
+    delta_comm:
+      kind: single
+      type: BaseValue
+    optical_gain:
+      kind: single
+      type: BaseValue
+    out_comm:
+      kind: single
+      type: BaseValue
+  outputs:
+  - optimized_gain
+  parameters:
+    delay:
+      default: 2.0
+      kind: value
+      type: float
+    iir_filter_data:
+      default: REQUIRED
+      kind: value
+      type: IirFilterData
+    limit_inc:
+      default: true
+      kind: value
+      type: bool
+    max_gain_factor:
+      default: 0.95
+      kind: value
+      type: float
+    max_inc:
+      default: 0.5
+      kind: value
+      type: float
+    ngains:
+      default: 20
+      kind: value
+      type: int
+    opt_dt:
+      default: 1.0
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: int
+    running_mean:
+      default: false
+      kind: value
+      type: bool
+    safety_factor:
+      default: 0.9
+      kind: value
+      type: float
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    verbose:
+      default: true
+      kind: value
+      type: bool
+IdealDerivativeSensor:
+  bases:
+  - BaseProcessingObj
+  class_name: IdealDerivativeSensor
+  inputs:
+    in_ef:
+      kind: single
+      type: ElectricField
+  outputs:
+  - out_slopes
+  parameters:
+    fov:
+      default: REQUIRED
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: int
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    subapdata:
+      default: REQUIRED
+      kind: value
+      type: SubapData
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+IirFilter:
+  bases:
+  - BaseFilter
+  class_name: IirFilter
+  inputs:
+    delta_comm:
+      kind: single
+      type: BaseValue
+    gain_mod:
+      kind: single
+      type: BaseValue
+  outputs:
+  - out_comm
+  - out_comm_no_delay
+  parameters:
+    delay:
+      default: 0
+      kind: value
+      type: float
+    iir_filter_data:
+      default: REQUIRED
+      kind: value
+      type: IirFilterData
+    integration:
+      default: true
+      kind: value
+      type: bool
+    precision:
+      default: null
+      kind: value
+      type: Any
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    target_device_idx:
+      default: null
+      kind: value
+      type: Any
+ImCalibrator:
+  bases:
+  - BaseProcessingObj
+  class_name: ImCalibrator
+  inputs:
+    in_commands:
+      kind: single
+      type: BaseValue
+    in_slopes:
+      kind: single
+      type: Slopes
+  outputs:
+  - out_intmat
+  - out_single_im
+  parameters:
+    data_dir:
+      default: REQUIRED
+      kind: value
+      type: str
+    dm:
+      default: null
+      kind: value
+      type: DM
+    first_mode:
+      default: 0
+      kind: value
+      type: int
+    im_tag:
+      default: ''
+      kind: value
+      type: str
+    nmodes:
+      default: REQUIRED
+      kind: value
+      type: int
+    overwrite:
+      default: false
+      kind: value
+      type: bool
+    precision:
+      default: null
+      kind: value
+      type: int
+    pupilstop:
+      default: null
+      kind: value
+      type: Pupilstop
+    sensor:
+      default: null
+      kind: value
+      type: BaseProcessingObj
+    slopec:
+      default: null
+      kind: value
+      type: BaseProcessingObj
+    source:
+      default: null
+      kind: value
+      type: Source
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+Integrator:
+  bases:
+  - IirFilter
+  class_name: Integrator
+  inputs:
+    delta_comm:
+      kind: single
+      type: BaseValue
+    gain_mod:
+      kind: single
+      type: BaseValue
+  outputs:
+  - out_comm
+  - out_comm_no_delay
+  parameters:
+    delay:
+      default: 0
+      kind: value
+      type: float
+    ff:
+      default: null
+      kind: value
+      type: list
+    int_gain:
+      default: REQUIRED
+      kind: value
+      type: float
+    integration:
+      default: true
+      kind: value
+      type: bool
+    n_modes:
+      default: null
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: int
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+LinearCombination:
+  bases:
+  - BaseProcessingObj
+  class_name: LinearCombination
+  inputs:
+    in_vectors_list:
+      kind: single
+      type: BaseValue
+  outputs:
+  - out_vector
+  parameters:
+    dm1:
+      default: null
+      kind: value
+      type: DM
+    dm3:
+      default: null
+      kind: value
+      type: DM
+    no_focus:
+      default: false
+      kind: value
+      type: bool
+    no_lift:
+      default: false
+      kind: value
+      type: bool
+    plate_scale_idx:
+      default: null
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: int
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    start_modes:
+      default: []
+      kind: value
+      type: list
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+LowPassFilter:
+  bases:
+  - IirFilter
+  class_name: LowPassFilter
+  inputs:
+    delta_comm:
+      kind: single
+      type: BaseValue
+    gain_mod:
+      kind: single
+      type: BaseValue
+  outputs:
+  - out_comm
+  - out_comm_no_delay
+  parameters:
+    amplif_fact:
+      default: null
+      kind: value
+      type: float
+    cutoff_freq:
+      default: REQUIRED
+      kind: value
+      type: float
+    delay:
+      default: 0
+      kind: value
+      type: float
+    n_ord:
+      default: null
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: int
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+LyotCoronagraph:
+  bases:
+  - Coronagraph
+  class_name: LyotCoronagraph
+  inputs:
+    in_ef:
+      kind: single
+      type: ElectricField
+  outputs:
+  - out_ef
+  parameters:
+    fft_res:
+      default: 3.0
+      kind: value
+      type: float
+    innerStopAsRatioOfPupil:
+      default: 0.0
+      kind: value
+      type: float
+    iwaInLambdaOverD:
+      default: REQUIRED
+      kind: value
+      type: float
+    knife_edge:
+      default: false
+      kind: value
+      type: bool
+    outerStopAsRatioOfPupil:
+      default: 1.0
+      kind: value
+      type: float
+    owaInLambdaOverD:
+      default: null
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: int
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    wavelengthInNm:
+      default: REQUIRED
+      kind: value
+      type: float
+MVM:
+  bases:
+  - BaseProcessingObj
+  class_name: MVM
+  inputs:
+    in_vector:
+      kind: single
+      type: BaseValue
+  outputs:
+  - out_vector
+  parameters:
+    precision:
+      default: null
+      kind: value
+      type: int
+    recmat:
+      default: REQUIRED
+      kind: value
+      type: Recmat
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+MirrorCommandsCombinator:
+  bases:
+  - BaseProcessingObj
+  class_name: MirrorCommandsCombinator
+  inputs:
+    in_commandsF:
+      kind: single
+      type: BaseValue
+    in_commandsHO:
+      kind: single
+      type: BaseValue
+    in_commandsLO:
+      kind: single
+      type: BaseValue
+    in_commandsP:
+      kind: single
+      type: BaseValue
+  outputs:
+  - out_result_commands1
+  - out_result_commands2
+  - out_result_commands3
+  parameters:
+    dims_F:
+      default: 1
+      kind: value
+      type: int
+    dims_LO:
+      default: []
+      kind: value
+      type: list
+    dims_P:
+      default: 1
+      kind: value
+      type: int
+    k_vector:
+      default: REQUIRED
+      kind: value
+      type: Any
+    out_dims:
+      default: []
+      kind: value
+      type: list
+    precision:
+      default: null
+      kind: value
+      type: int
+    recmat:
+      default: REQUIRED
+      kind: value
+      type: Recmat
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+ModalAnalysis:
+  bases:
+  - BaseProcessingObj
+  class_name: ModalAnalysis
+  inputs:
+    in_ef:
+      kind: single
+      type: ElectricField
+    in_ef_list:
+      kind: single
+      type: ElectricField
+  outputs:
+  - out_modes
+  - rms
+  - out_modes_list
+  parameters:
+    diaratio:
+      default: null
+      kind: value
+      type: float
+    dorms:
+      default: false
+      kind: value
+      type: bool
+    ifunc:
+      default: null
+      kind: value
+      type: IFunc
+    ifunc_inv:
+      default: null
+      kind: value
+      type: IFuncInv
+    n_inputs:
+      default: 1
+      kind: value
+      type: int
+    nmodes:
+      default: null
+      kind: value
+      type: int
+    npixels:
+      default: null
+      kind: value
+      type: int
+    nzern:
+      default: null
+      kind: value
+      type: int
+    obsratio:
+      default: null
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: int
+    pupilstop:
+      default: null
+      kind: value
+      type: Pupilstop
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    type_str:
+      default: null
+      kind: value
+      type: str
+    wavelengthInNm:
+      default: 0.0
+      kind: value
+      type: float
+Modalrec:
+  bases:
+  - BaseProcessingObj
+  class_name: Modalrec
+  inputs:
+    in_commands:
+      kind: single
+      type: BaseValue
+    in_commands_list:
+      kind: single
+      type: BaseValue
+    in_slopes:
+      kind: single
+      type: Slopes
+    in_slopes_list:
+      kind: single
+      type: Slopes
+  outputs:
+  - out_modes
+  - out_pseudo_ol_modes
+  parameters:
+    dmNumber:
+      default: 0
+      kind: value
+      type: int
+    filtmat:
+      default: null
+      kind: value
+      type: Any
+    identity:
+      default: false
+      kind: value
+      type: bool
+    in_commands_size:
+      default: null
+      kind: value
+      type: int
+    input_modes_index:
+      default: null
+      kind: value
+      type: list
+    input_modes_slice:
+      default: null
+      kind: value
+      type: list
+    intmat:
+      default: null
+      kind: value
+      type: Intmat
+    nSlopesToBeDiscarded:
+      default: null
+      kind: value
+      type: int
+    ncutmodes:
+      default: null
+      kind: value
+      type: int
+    nmodes:
+      default: null
+      kind: value
+      type: int
+    noProj:
+      default: false
+      kind: value
+      type: bool
+    output_slice:
+      default: null
+      kind: value
+      type: list
+    polc:
+      default: false
+      kind: value
+      type: bool
+    precision:
+      default: null
+      kind: value
+      type: int
+    projmat:
+      default: null
+      kind: value
+      type: Recmat
+    recmat:
+      default: null
+      kind: value
+      type: Recmat
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+ModalrecImplicitPolc:
+  bases:
+  - Modalrec
+  class_name: ModalrecImplicitPolc
+  inputs:
+    in_commands:
+      kind: single
+      type: BaseValue
+    in_commands_list:
+      kind: single
+      type: BaseValue
+    in_slopes:
+      kind: single
+      type: Slopes
+    in_slopes_list:
+      kind: single
+      type: Slopes
+  outputs:
+  - out_modes
+  - out_pseudo_ol_modes
+  parameters:
+    dmNumber:
+      default: 0
+      kind: value
+      type: int
+    in_commands_size:
+      default: null
+      kind: value
+      type: int
+    input_modes_index:
+      default: null
+      kind: value
+      type: list
+    input_modes_slice:
+      default: null
+      kind: value
+      type: list
+    intmat:
+      default: null
+      kind: value
+      type: Intmat
+    nSlopesToBeDiscarded:
+      default: null
+      kind: value
+      type: int
+    ncutmodes:
+      default: null
+      kind: value
+      type: int
+    nmodes:
+      default: null
+      kind: value
+      type: int
+    output_slice:
+      default: null
+      kind: value
+      type: list
+    precision:
+      default: null
+      kind: value
+      type: int
+    projmat:
+      default: null
+      kind: value
+      type: Recmat
+    recmat:
+      default: null
+      kind: value
+      type: Recmat
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+ModulatedDoubleRoof:
+  bases:
+  - ModulatedPyramid
+  class_name: ModulatedDoubleRoof
+  inputs:
+    in_ef:
+      kind: single
+      type: ElectricField
+  outputs:
+  - out_i
+  - out_psf_tot
+  - out_psf_bfm
+  - out_transmission
+  parameters:
+    fft_res:
+      default: 3.0
+      kind: value
+      type: float
+    fov:
+      default: REQUIRED
+      kind: value
+      type: float
+    fov_errinf:
+      default: 0.5
+      kind: value
+      type: float
+    fov_errsup:
+      default: 2
+      kind: value
+      type: float
+    fp_obs:
+      default: null
+      kind: value
+      type: float
+    min_pup_dist:
+      default: null
+      kind: value
+      type: float
+    mod_amp:
+      default: 3.0
+      kind: value
+      type: float
+    mod_step:
+      default: null
+      kind: value
+      type: int
+    output_resolution:
+      default: REQUIRED
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: int
+    pup_diam:
+      default: REQUIRED
+      kind: value
+      type: int
+    pup_dist:
+      default: null
+      kind: value
+      type: int
+    pup_margin:
+      default: 2
+      kind: value
+      type: int
+    pup_shifts:
+      default:
+      - 0.0
+      - 0.0
+      kind: value
+      type: Any
+    pyr_edge_def_ld:
+      default: 0.0
+      kind: value
+      type: float
+    pyr_tip_def_ld:
+      default: 0.0
+      kind: value
+      type: float
+    pyr_tip_maya_ld:
+      default: 0.0
+      kind: value
+      type: float
+    pyr_tlt_coeff:
+      default: null
+      kind: value
+      type: float
+    rotAnglePhInDeg:
+      default: 0.0
+      kind: value
+      type: float
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    wavelengthInNm:
+      default: REQUIRED
+      kind: value
+      type: float
+    xShiftPhInPixel:
+      default: 0.0
+      kind: value
+      type: float
+    yShiftPhInPixel:
+      default: 0.0
+      kind: value
+      type: float
+ModulatedPyramid:
+  bases:
+  - BaseProcessingObj
+  class_name: ModulatedPyramid
+  inputs:
+    in_ef:
+      kind: single
+      type: ElectricField
+  outputs:
+  - out_i
+  - out_psf_tot
+  - out_psf_bfm
+  - out_transmission
+  parameters:
+    fft_res:
+      default: 3.0
+      kind: value
+      type: float
+    fov:
+      default: REQUIRED
+      kind: value
+      type: float
+    fov_errinf:
+      default: 0.1
+      kind: value
+      type: float
+    fov_errsup:
+      default: 2
+      kind: value
+      type: float
+    fp_obs:
+      default: null
+      kind: value
+      type: float
+    min_pup_dist:
+      default: null
+      kind: value
+      type: float
+    mod_amp:
+      default: 3.0
+      kind: value
+      type: float
+    mod_step:
+      default: null
+      kind: value
+      type: int
+    mod_type:
+      default: circular
+      kind: value
+      type: str
+    output_resolution:
+      default: REQUIRED
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: int
+    pup_diam:
+      default: REQUIRED
+      kind: value
+      type: int
+    pup_dist:
+      default: null
+      kind: value
+      type: int
+    pup_margin:
+      default: 2
+      kind: value
+      type: int
+    pup_shifts:
+      default:
+      - 0.0
+      - 0.0
+      kind: value
+      type: Any
+    pyr_edge_def_ld:
+      default: 0.0
+      kind: value
+      type: float
+    pyr_tip_def_ld:
+      default: 0.0
+      kind: value
+      type: float
+    pyr_tip_maya_ld:
+      default: 0.0
+      kind: value
+      type: float
+    pyr_tlt_coeff:
+      default: null
+      kind: value
+      type: float
+    rotAnglePhInDeg:
+      default: 0.0
+      kind: value
+      type: float
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    wavelengthInNm:
+      default: REQUIRED
+      kind: value
+      type: float
+    xShiftPhInPixel:
+      default: 0.0
+      kind: value
+      type: float
+    yShiftPhInPixel:
+      default: 0.0
+      kind: value
+      type: float
+MultiImCalibrator:
+  bases:
+  - BaseProcessingObj
+  class_name: MultiImCalibrator
+  inputs:
+    in_commands_list:
+      kind: single
+      type: BaseValue
+    in_slopes_list:
+      kind: single
+      type: Slopes
+  outputs:
+  - out_intmat_list
+  - out_intmat_full
+  parameters:
+    data_dir:
+      default: REQUIRED
+      kind: value
+      type: str
+    dm:
+      default: null
+      kind: value
+      type: DM
+    full_im_tag:
+      default: null
+      kind: value
+      type: str
+    im_tag:
+      default: null
+      kind: value
+      type: str
+    n_inputs:
+      default: REQUIRED
+      kind: value
+      type: int
+    nmodes:
+      default: REQUIRED
+      kind: value
+      type: int
+    overwrite:
+      default: false
+      kind: value
+      type: bool
+    precision:
+      default: null
+      kind: value
+      type: int
+    pupilstop:
+      default: null
+      kind: value
+      type: Pupilstop
+    sensor_dict:
+      default: null
+      kind: value
+      type: list
+    slopec_dict:
+      default: null
+      kind: value
+      type: list
+    source_dict:
+      default: null
+      kind: value
+      type: list
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+MultiRecCalibrator:
+  bases:
+  - BaseProcessingObj
+  class_name: MultiRecCalibrator
+  inputs:
+    full_intmat:
+      kind: single
+      type: Intmat
+    intmat_list:
+      kind: single
+      type: Intmat
+  outputs: []
+  parameters:
+    data_dir:
+      default: REQUIRED
+      kind: value
+      type: str
+    full_rec_tag:
+      default: null
+      kind: value
+      type: str
+    full_rec_tag_template:
+      default: null
+      kind: value
+      type: str
+    nmodes:
+      default: REQUIRED
+      kind: value
+      type: int
+    overwrite:
+      default: false
+      kind: value
+      type: bool
+    precision:
+      default: null
+      kind: value
+      type: int
+    rec_tag:
+      default: null
+      kind: value
+      type: str
+    rec_tag_template:
+      default: null
+      kind: value
+      type: str
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+OpticalGainEstimator:
+  bases:
+  - BaseProcessingObj
+  class_name: OpticalGainEstimator
+  inputs:
+    in_demod_command:
+      kind: single
+      type: BaseValue
+    in_demod_delta_command:
+      kind: single
+      type: BaseValue
+  outputs:
+  - optical_gain
+  - output
+  parameters:
+    gain:
+      default: REQUIRED
+      kind: value
+      type: float
+    initial_optical_gain:
+      default: 1.0
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: int
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+PAPLCoronagraph:
+  bases:
+  - APPCoronagraph
+  class_name: PAPLCoronagraph
+  inputs:
+    in_ef:
+      kind: single
+      type: ElectricField
+  outputs:
+  - out_ef
+  parameters:
+    beta:
+      default: 0.9
+      kind: value
+      type: float
+    contrastInDarkHole:
+      default: REQUIRED
+      kind: value
+      type: float
+    fft_res:
+      default: 3.0
+      kind: value
+      type: float
+    fpmIWAInLambdaOverD:
+      default: REQUIRED
+      kind: value
+      type: float
+    fpmOWAInLambdaOverD:
+      default: null
+      kind: value
+      type: float
+    innerStopAsRatioOfPupil:
+      default: 0.0
+      kind: value
+      type: float
+    iwaInLambdaOverD:
+      default: REQUIRED
+      kind: value
+      type: float
+    knife_edge:
+      default: true
+      kind: value
+      type: bool
+    make_symmetric:
+      default: false
+      kind: value
+      type: bool
+    outerStopAsRatioOfPupil:
+      default: 1.0
+      kind: value
+      type: float
+    owaInLambdaOverD:
+      default: REQUIRED
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: int
+    pupil:
+      default: REQUIRED
+      kind: value
+      type: Any
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    wavelengthInNm:
+      default: REQUIRED
+      kind: value
+      type: float
+PSF:
+  bases:
+  - BaseProcessingObj
+  class_name: PSF
+  inputs:
+    in_ef:
+      kind: single
+      type: ElectricField
+  outputs:
+  - out_sr
+  - out_psf
+  - out_int_sr
+  - out_int_psf
+  - out_std_psf
+  parameters:
+    nd:
+      default: null
+      kind: value
+      type: float
+    pixel_size_mas:
+      default: null
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: int
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    start_time:
+      default: 0.0
+      kind: value
+      type: float
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    verbose:
+      default: true
+      kind: value
+      type: bool
+    wavelengthInNm:
+      default: REQUIRED
+      kind: value
+      type: float
+PhaseFlattening:
+  bases:
+  - BaseProcessingObj
+  class_name: PhaseFlattening
+  inputs:
+    in_ef:
+      kind: single
+      type: ElectricField
+  outputs:
+  - out_ef
+  parameters:
+    precision:
+      default: null
+      kind: value
+      type: int
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+PolyChromSH:
+  bases:
+  - PolyChromWFS
+  class_name: PolyChromSH
+  inputs:
+    in_ef:
+      kind: single
+      type: ElectricField
+  outputs:
+  - out_i
+  parameters:
+    FoVres30mas:
+      default: false
+      kind: value
+      type: bool
+    do_not_double_fov_ovs:
+      default: false
+      kind: value
+      type: bool
+    flux_factor:
+      default: REQUIRED
+      kind: value
+      type: list
+    fov_ovs_coeff:
+      default: 0
+      kind: value
+      type: float
+    laser_launch_tel:
+      default: null
+      kind: value
+      type: LaserLaunchTelescope
+    precision:
+      default: null
+      kind: value
+      type: int
+    rotAnglePhInDeg:
+      default: 0
+      kind: value
+      type: float
+    sensor_pxscale:
+      default: REQUIRED
+      kind: value
+      type: float
+    set_fov_res_to_turbpxsc:
+      default: false
+      kind: value
+      type: bool
+    squaremask:
+      default: true
+      kind: value
+      type: bool
+    subap_npx:
+      default: REQUIRED
+      kind: value
+      type: int
+    subap_on_diameter:
+      default: REQUIRED
+      kind: value
+      type: int
+    subap_rows_slice:
+      default: null
+      kind: value
+      type: Any
+    subap_wanted_fov:
+      default: REQUIRED
+      kind: value
+      type: float
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    wavelengthInNm:
+      default: REQUIRED
+      kind: value
+      type: list
+    xShiftPhInPixel:
+      default: 0
+      kind: value
+      type: float
+    xy_tilts_in_arcsec:
+      default: null
+      kind: value
+      type: list
+    yShiftPhInPixel:
+      default: 0
+      kind: value
+      type: float
+PolyChromWFS:
+  bases:
+  - BaseProcessingObj
+  class_name: PolyChromWFS
+  inputs:
+    in_ef:
+      kind: single
+      type: ElectricField
+  outputs:
+  - out_i
+  parameters:
+    ccd_side:
+      default: REQUIRED
+      kind: value
+      type: int
+    flux_factor:
+      default: REQUIRED
+      kind: value
+      type: list
+    precision:
+      default: null
+      kind: value
+      type: int
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    wavelengthInNm:
+      default: REQUIRED
+      kind: value
+      type: list
+    xy_tilts_in_arcsec:
+      default: null
+      kind: value
+      type: list
+PolyCromPyramid:
+  bases:
+  - PolyChromWFS
+  class_name: PolyCromPyramid
+  inputs:
+    in_ef:
+      kind: single
+      type: ElectricField
+  outputs:
+  - out_i
+  parameters:
+    fft_res:
+      default: 3.0
+      kind: value
+      type: float
+    flux_factor:
+      default: REQUIRED
+      kind: value
+      type: list
+    fov:
+      default: REQUIRED
+      kind: value
+      type: float
+    fov_errinf:
+      default: 0.5
+      kind: value
+      type: float
+    fov_errsup:
+      default: 2
+      kind: value
+      type: float
+    fp_obs:
+      default: null
+      kind: value
+      type: float
+    min_pup_dist:
+      default: null
+      kind: value
+      type: float
+    mod_amp:
+      default: 3.0
+      kind: value
+      type: float
+    mod_step:
+      default: null
+      kind: value
+      type: int
+    mod_type:
+      default: circular
+      kind: value
+      type: str
+    output_resolution:
+      default: REQUIRED
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: int
+    pup_diam:
+      default: REQUIRED
+      kind: value
+      type: int
+    pup_dist:
+      default: null
+      kind: value
+      type: int
+    pup_margin:
+      default: 2
+      kind: value
+      type: int
+    pup_shifts:
+      default:
+      - 0.0
+      - 0.0
+      kind: value
+      type: Any
+    pyr_edge_def_ld:
+      default: 0.0
+      kind: value
+      type: float
+    pyr_tip_def_ld:
+      default: 0.0
+      kind: value
+      type: float
+    pyr_tip_maya_ld:
+      default: 0.0
+      kind: value
+      type: float
+    pyr_tlt_coeff:
+      default: null
+      kind: value
+      type: float
+    rotAnglePhInDeg:
+      default: 0.0
+      kind: value
+      type: float
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    wavelengthInNm:
+      default: REQUIRED
+      kind: value
+      type: list
+    xShiftPhInPixel:
+      default: 0.0
+      kind: value
+      type: float
+    xy_tilts_in_arcsec:
+      default: null
+      kind: value
+      type: list
+    yShiftPhInPixel:
+      default: 0.0
+      kind: value
+      type: float
+PowerLoss:
+  bases:
+  - BaseProcessingObj
+  class_name: PowerLoss
+  inputs:
+    se_sr:
+      kind: single
+      type: BaseValue
+  outputs:
+  - out_power_loss
+  parameters:
+    nd:
+      default: REQUIRED
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: int
+    prop_distance:
+      default: REQUIRED
+      kind: value
+      type: float
+    receiver_diam:
+      default: REQUIRED
+      kind: value
+      type: float
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    wavelengthInNm:
+      default: REQUIRED
+      kind: value
+      type: float
+PsfCoronagraph:
+  bases:
+  - PSF
+  class_name: PsfCoronagraph
+  inputs:
+    in_ef:
+      kind: single
+      type: ElectricField
+  outputs:
+  - out_coronagraph_psf
+  - out_int_coronagraph_psf
+  - out_std_coronagraph_psf
+  - out_sr
+  - out_psf
+  - out_int_sr
+  - out_int_psf
+  - out_std_psf
+  parameters:
+    nd:
+      default: null
+      kind: value
+      type: float
+    pixel_size_mas:
+      default: null
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: int
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    start_time:
+      default: 0.0
+      kind: value
+      type: float
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    verbose:
+      default: true
+      kind: value
+      type: bool
+    wavelengthInNm:
+      default: REQUIRED
+      kind: value
+      type: float
+PushPullGenerator:
+  bases:
+  - BaseGenerator
+  class_name: PushPullGenerator
+  inputs: {}
+  outputs:
+  - output
+  parameters:
+    amp:
+      default: null
+      kind: value
+      type: float
+    constant_amp:
+      default: false
+      kind: value
+      type: bool
+    first_mode:
+      default: 0
+      kind: value
+      type: int
+    ncycles:
+      default: 1
+      kind: value
+      type: int
+    nmodes:
+      default: REQUIRED
+      kind: value
+      type: int
+    nsamples:
+      default: 1
+      kind: value
+      type: int
+    pattern:
+      default:
+      - 1
+      - -1
+      kind: value
+      type: list
+    precision:
+      default: null
+      kind: value
+      type: int
+    push_pull_type:
+      default: PUSHPULL
+      kind: value
+      type: str
+    repeat_cycles:
+      default: false
+      kind: value
+      type: bool
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    vect_amplitude:
+      default: null
+      kind: value
+      type: list
+PyrPupdataCalibrator:
+  bases:
+  - BaseProcessingObj
+  class_name: PyrPupdataCalibrator
+  inputs:
+    in_i:
+      kind: single
+      type: Intensity
+  outputs: []
+  parameters:
+    auto_detect_obstruction:
+      default: true
+      kind: value
+      type: bool
+    data_dir:
+      default: REQUIRED
+      kind: value
+      type: str
+    display_debug:
+      default: false
+      kind: value
+      type: bool
+    min_obstruction_ratio:
+      default: 0.05
+      kind: value
+      type: float
+    obs_thr:
+      default: 0.8
+      kind: value
+      type: float
+    output_tag:
+      default: null
+      kind: value
+      type: str
+    overwrite:
+      default: false
+      kind: value
+      type: bool
+    precision:
+      default: null
+      kind: value
+      type: int
+    slopes_from_intensity:
+      default: false
+      kind: value
+      type: bool
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    thr1:
+      default: 0.1
+      kind: value
+      type: float
+    thr2:
+      default: 0.25
+      kind: value
+      type: float
+PyrSlopec:
+  bases:
+  - Slopec
+  class_name: PyrSlopec
+  inputs:
+    in_pixels:
+      kind: single
+      type: Pixels
+  outputs:
+  - out_pupdata
+  - out_slopes
+  - out_flux_per_subaperture
+  - out_total_counts
+  - out_subap_counts
+  parameters:
+    norm_factor:
+      default: null
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: int
+    pupdata:
+      default: REQUIRED
+      kind: value
+      type: PupData
+    shlike:
+      default: false
+      kind: value
+      type: bool
+    slopes_from_intensity:
+      default: false
+      kind: value
+      type: bool
+    sn:
+      default: null
+      kind: value
+      type: Slopes
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    thr_value:
+      default: 0
+      kind: value
+      type: float
+RandomGenerator:
+  bases:
+  - BaseGenerator
+  class_name: RandomGenerator
+  inputs: {}
+  outputs:
+  - output
+  parameters:
+    amp:
+      default: 1.0
+      kind: value
+      type: float
+    constant:
+      default: 0.0
+      kind: value
+      type: float
+    distribution:
+      default: NORMAL
+      kind: value
+      type: Any
+    output_size:
+      default: 1
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: int
+    seed:
+      default: null
+      kind: value
+      type: int
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    vsize:
+      default: 1
+      kind: value
+      type: int
+RecCalibrator:
+  bases:
+  - BaseProcessingObj
+  class_name: RecCalibrator
+  inputs:
+    in_intmat:
+      kind: single
+      type: Intmat
+  outputs: []
+  parameters:
+    L0:
+      default: 25.0
+      kind: value
+      type: float
+    data_dir:
+      default: REQUIRED
+      kind: value
+      type: str
+    dm:
+      default: null
+      kind: value
+      type: DM
+    first_mode:
+      default: 0
+      kind: value
+      type: int
+    mmse:
+      default: false
+      kind: value
+      type: bool
+    nmodes:
+      default: REQUIRED
+      kind: value
+      type: int
+    noise_cov:
+      default: null
+      kind: value
+      type: Union[float, np.ndarray, list]
+    overwrite:
+      default: false
+      kind: value
+      type: bool
+    precision:
+      default: null
+      kind: value
+      type: int
+    pupdata_tag:
+      default: null
+      kind: value
+      type: str
+    r0:
+      default: 0.15
+      kind: value
+      type: float
+    rec_tag:
+      default: REQUIRED
+      kind: value
+      type: str
+    tag_template:
+      default: null
+      kind: value
+      type: str
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+SH:
+  bases:
+  - BaseProcessingObj
+  class_name: SH
+  inputs:
+    in_ef:
+      kind: single
+      type: ElectricField
+    sodium_altitude:
+      kind: single
+      type: BaseValue
+    sodium_intensity:
+      kind: single
+      type: BaseValue
+  outputs:
+  - out_i
+  parameters:
+    FoVres30mas:
+      default: false
+      kind: value
+      type: bool
+    data_dir:
+      default: ''
+      kind: value
+      type: str
+    do_not_double_fov_ovs:
+      default: false
+      kind: value
+      type: bool
+    fov_ovs_coeff:
+      default: 0
+      kind: value
+      type: float
+    laser_launch_tel:
+      default: null
+      kind: value
+      type: LaserLaunchTelescope
+    precision:
+      default: null
+      kind: value
+      type: int
+    rotAnglePhInDeg:
+      default: 0
+      kind: value
+      type: float
+    sensor_pxscale:
+      default: REQUIRED
+      kind: value
+      type: float
+    set_fov_res_to_turbpxsc:
+      default: false
+      kind: value
+      type: bool
+    squaremask:
+      default: true
+      kind: value
+      type: bool
+    subap_npx:
+      default: REQUIRED
+      kind: value
+      type: int
+    subap_on_diameter:
+      default: REQUIRED
+      kind: value
+      type: int
+    subap_rows_slice:
+      default: null
+      kind: value
+      type: Any
+    subap_wanted_fov:
+      default: REQUIRED
+      kind: value
+      type: float
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    wavelengthInNm:
+      default: REQUIRED
+      kind: value
+      type: float
+    xShiftPhInPixel:
+      default: 0
+      kind: value
+      type: float
+    yShiftPhInPixel:
+      default: 0
+      kind: value
+      type: float
+ScheduleGenerator:
+  bases:
+  - BaseGenerator
+  class_name: ScheduleGenerator
+  inputs: {}
+  outputs:
+  - output
+  parameters:
+    modes_per_group:
+      default: REQUIRED
+      kind: value
+      type: list
+    precision:
+      default: null
+      kind: value
+      type: int
+    scheduled_times:
+      default: REQUIRED
+      kind: value
+      type: list
+    scheduled_values:
+      default: REQUIRED
+      kind: value
+      type: list
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+ShSlopec:
+  bases:
+  - Slopec
+  class_name: ShSlopec
+  inputs:
+    in_pixels:
+      kind: single
+      type: Pixels
+  outputs:
+  - out_subapdata
+  - out_slopes
+  - out_flux_per_subaperture
+  - out_total_counts
+  - out_subap_counts
+  parameters:
+    exp_weight:
+      default: 1.0
+      kind: value
+      type: float
+    filtmat:
+      default: null
+      kind: value
+      type: Any
+    interleave:
+      default: false
+      kind: value
+      type: bool
+    precision:
+      default: null
+      kind: value
+      type: int
+    sn:
+      default: null
+      kind: value
+      type: Slopes
+    subapdata:
+      default: REQUIRED
+      kind: value
+      type: SubapData
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    thr_value:
+      default: -1
+      kind: value
+      type: float
+    vecWeiPixRadT:
+      default: null
+      kind: value
+      type: list
+    weight_int_pixel_dt:
+      default: 0
+      kind: value
+      type: float
+    weightedPixRad:
+      default: 0.0
+      kind: value
+      type: float
+    window_int_pixel:
+      default: false
+      kind: value
+      type: bool
+    window_int_threshold:
+      default: 1.0
+      kind: value
+      type: float
+    windowing:
+      default: false
+      kind: value
+      type: bool
+ShSubapCalibrator:
+  bases:
+  - BaseProcessingObj
+  class_name: ShSubapCalibrator
+  inputs:
+    in_i:
+      kind: single
+      type: Intensity
+    in_pixels:
+      kind: single
+      type: Pixels
+  outputs: []
+  parameters:
+    data_dir:
+      default: REQUIRED
+      kind: value
+      type: str
+    energy_th:
+      default: REQUIRED
+      kind: value
+      type: float
+    output_tag:
+      default: null
+      kind: value
+      type: str
+    overwrite:
+      default: false
+      kind: value
+      type: bool
+    precision:
+      default: null
+      kind: value
+      type: int
+    subap_on_diameter:
+      default: REQUIRED
+      kind: value
+      type: int
+    tag_template:
+      default: null
+      kind: value
+      type: str
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+Slopec:
+  bases:
+  - BaseProcessingObj
+  class_name: Slopec
+  inputs:
+    in_pixels:
+      kind: single
+      type: Pixels
+  outputs:
+  - out_slopes
+  - out_flux_per_subaperture
+  - out_total_counts
+  - out_subap_counts
+  parameters:
+    filt_intmat:
+      default: null
+      kind: value
+      type: Intmat
+    filt_recmat:
+      default: null
+      kind: value
+      type: Recmat
+    filtmat:
+      default: null
+      kind: value
+      type: Any
+    interleave:
+      default: false
+      kind: value
+      type: bool
+    precision:
+      default: null
+      kind: value
+      type: int
+    recmat:
+      default: null
+      kind: value
+      type: Recmat
+    sn:
+      default: null
+      kind: value
+      type: Slopes
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    weight_int_pixel_dt:
+      default: 0
+      kind: value
+      type: float
+SnCalibrator:
+  bases:
+  - BaseProcessingObj
+  class_name: SnCalibrator
+  inputs:
+    in_slopes:
+      kind: single
+      type: Slopes
+  outputs: []
+  parameters:
+    data_dir:
+      default: REQUIRED
+      kind: value
+      type: str
+    output_tag:
+      default: null
+      kind: value
+      type: str
+    overwrite:
+      default: false
+      kind: value
+      type: bool
+    precision:
+      default: null
+      kind: value
+      type: int
+    tag_template:
+      default: null
+      kind: value
+      type: str
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+SpotMonitor:
+  bases:
+  - BaseProcessingObj
+  class_name: SpotMonitor
+  inputs:
+    in_pixels:
+      kind: single
+      type: Pixels
+  outputs:
+  - out_sum_pixels
+  - out_model_pixels
+  - out_residual_pixels
+  - out_params
+  parameters:
+    bounds_alpha:
+      default:
+      - 0.5
+      - 10.0
+      kind: value
+      type: Any
+    bounds_gamma:
+      default:
+      - 0.1
+      - null
+      kind: value
+      type: Any
+    initial_alpha:
+      default: 2.0
+      kind: value
+      type: float
+    initial_gamma:
+      default: 3.0
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: int
+    subapdata:
+      default: REQUIRED
+      kind: value
+      type: SubapData
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+SsrFilter:
+  bases:
+  - BaseFilter
+  class_name: SsrFilter
+  inputs:
+    delta_comm:
+      kind: single
+      type: BaseValue
+    gain_mod:
+      kind: single
+      type: BaseValue
+  outputs:
+  - out_comm
+  - out_comm_no_delay
+  parameters:
+    delay:
+      default: 0
+      kind: value
+      type: float
+    output_uses_new_state:
+      default: true
+      kind: value
+      type: bool
+    precision:
+      default: null
+      kind: value
+      type: Any
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    ssr_filter_data:
+      default: REQUIRED
+      kind: value
+      type: SsrFilterData
+    target_device_idx:
+      default: null
+      kind: value
+      type: Any
+TimeHistoryGenerator:
+  bases:
+  - BaseGenerator
+  class_name: TimeHistoryGenerator
+  inputs: {}
+  outputs:
+  - output
+  parameters:
+    precision:
+      default: null
+      kind: value
+      type: int
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    time_hist:
+      default: REQUIRED
+      kind: value
+      type: TimeHistory
+VibrationGenerator:
+  bases:
+  - BaseGenerator
+  class_name: VibrationGenerator
+  inputs: {}
+  outputs:
+  - output
+  parameters:
+    freq:
+      default: REQUIRED
+      kind: value
+      type: Any
+    nmodes:
+      default: REQUIRED
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: int
+    psd:
+      default: REQUIRED
+      kind: value
+      type: Any
+    seed:
+      default: 1987
+      kind: value
+      type: int
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    start_from_zero:
+      default: false
+      kind: value
+      type: bool
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+VortexCoronagraph:
+  bases:
+  - Coronagraph
+  class_name: VortexCoronagraph
+  inputs:
+    in_ef:
+      kind: single
+      type: ElectricField
+  outputs:
+  - out_ef
+  parameters:
+    addInVortex:
+      default: false
+      kind: value
+      type: bool
+    fft_res:
+      default: 3.0
+      kind: value
+      type: float
+    inVortexCharge:
+      default: null
+      kind: value
+      type: int
+    inVortexRadInLambdaOverD:
+      default: null
+      kind: value
+      type: float
+    inVortexShift:
+      default: null
+      kind: value
+      type: float
+    innerStopAsRatioOfPupil:
+      default: 0.0
+      kind: value
+      type: float
+    outerStopAsRatioOfPupil:
+      default: 1.0
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: int
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    vortexCharge:
+      default: REQUIRED
+      kind: value
+      type: float
+    wavelengthInNm:
+      default: REQUIRED
+      kind: value
+      type: float
+WaveGenerator:
+  bases:
+  - BaseGenerator
+  class_name: WaveGenerator
+  inputs: {}
+  outputs:
+  - output
+  parameters:
+    amp:
+      default: 0.0
+      kind: value
+      type: float
+    constant:
+      default: 0.0
+      kind: value
+      type: float
+    freq:
+      default: 0.0
+      kind: value
+      type: float
+    offset:
+      default: 0.0
+      kind: value
+      type: float
+    output_size:
+      default: 1
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: int
+    slope:
+      default: 0.0
+      kind: value
+      type: float
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    vsize:
+      default: 1
+      kind: value
+      type: int
+    wave_type:
+      default: SIN
+      kind: value
+      type: Any
+WindowedIntegration:
+  bases:
+  - BaseProcessingObj
+  class_name: WindowedIntegration
+  inputs:
+    input:
+      kind: single
+      type: BaseValue
+  outputs:
+  - output
+  parameters:
+    dt:
+      default: REQUIRED
+      kind: value
+      type: float
+    n_elem:
+      default: REQUIRED
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: int
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    start_time:
+      default: 0
+      kind: value
+      type: float
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    update_time_on_dt:
+      default: false
+      kind: value
+      type: bool
+ZernikeSensor:
+  bases:
+  - ModulatedPyramid
+  class_name: ZernikeSensor
+  inputs:
+    in_ef:
+      kind: single
+      type: ElectricField
+  outputs:
+  - out_i
+  - out_psf_tot
+  - out_psf_bfm
+  - out_transmission
+  parameters:
+    fft_res:
+      default: 16.0
+      kind: value
+      type: float
+    fov:
+      default: REQUIRED
+      kind: value
+      type: float
+    output_resolution:
+      default: REQUIRED
+      kind: value
+      type: int
+    phase_shift:
+      default: 3.141592653589793 / 2
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: int
+    pup_diam:
+      default: REQUIRED
+      kind: value
+      type: int
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    spot_radius_lambda:
+      default: 1.06
+      kind: value
+      type: float
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    wavelengthInNm:
+      default: REQUIRED
+      kind: value
+      type: float

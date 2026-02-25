@@ -6,19 +6,19 @@ Slopec:
     sn:
       type: Slopes
       default: null
-      kind: object
+      kind: value
     recmat:
       type: Recmat
       default: null
-      kind: object
+      kind: value
     filt_intmat:
       type: Intmat
       default: null
-      kind: object
+      kind: value
     filt_recmat:
       type: Recmat
       default: null
-      kind: object
+      kind: value
     filtmat:
       type: Any
       default: null

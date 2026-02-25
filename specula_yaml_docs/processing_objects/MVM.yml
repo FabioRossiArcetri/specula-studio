@@ -6,7 +6,7 @@ MVM:
     recmat:
       type: Recmat
       default: REQUIRED
-      kind: object
+      kind: value
     target_device_idx:
       type: int
       default: null

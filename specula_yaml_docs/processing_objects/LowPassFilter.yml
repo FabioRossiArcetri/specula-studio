@@ -23,14 +23,6 @@ LowPassFilter:
       type: float
       default: 0
       kind: value
-    offset:
-      type: list
-      default: null
-      kind: value
-    og_shaper:
-      type: float
-      default: null
-      kind: value
     target_device_idx:
       type: int
       default: null
@@ -48,3 +40,4 @@ LowPassFilter:
       kind: single
   outputs:
   - out_comm
+  - out_comm_no_delay

@@ -13,7 +13,7 @@ class SpeculaMetadataParser(ast.NodeVisitor):
     def __init__(self):
         self.found_classes = {}
         # Base classes that define a "Specula Object"
-        self.data_base_classes = {'BaseDataObj', 'Layer', 'ElectricField'}
+        self.data_base_classes = {'BaseDataObj', 'Layer', 'ElectricField', 'SimulParams'}
         self.proc_base_classes = {
             'BaseProcessingObj', 'BaseOperation', 'BaseSlopec', 'IirFilter', 'Slopec',
             'BaseCalibrator', 'BaseWFS', 'BaseWavefront', 'BaseGenerator'
@@ -156,47 +156,180 @@ class SpeculaMetadataParser(ast.NodeVisitor):
                                 info["outputs"].append(out)
 
                 # --- Step C: Kind Assignment ---
-                self._assign_parameter_kinds(info)
+                    self._assign_parameter_kinds(info)
 
     def _assign_parameter_kinds(self, info):
         """
-        Assign 'kind' to parameters based on type and hardcoded rules:
-        - Data Objects in reference_data_objects set -> 'reference'
-        - Other Data Objects -> 'object'
-        - Keywords + not in block list -> 'reference'
-        - Everything else -> 'value'
+        Assign 'kind' to parameters based on type and explicit rules:
+        - If parameter type is in reference_data_objects -> 'reference'
+        - Else if parameter type is a Data Object -> 'object' (loaded from disk)
+        - Else -> 'value'
         """
-        ref_keywords = ['telescope', 'atmo', 'target', 'wfs', 'dm', 'source']
-        
         for param, meta in info["parameters"].items():
             p_type = meta.get("type")
-            is_ref_keyword = any(k in param.lower() for k in ref_keywords)
             
             # First check block list
             if param in self.ref_block_list:
                 meta["kind"] = "value"
+                continue
             
-            # Check if type is a known Data Object class
-            elif p_type in self.found_classes:
-                # Check if this Data Object is in the reference set
-                if p_type in self.reference_data_objects:
-                    meta["kind"] = "reference"
-                else:
-                    # For other Data Objects, check their category
-                    type_info = self.found_classes.get(p_type, {})
-                    if any(base in self.data_base_classes for base in type_info.get("bases", [])):
-                        meta["kind"] = "object"  # Data Object that's not a reference
+            # Helper function to check if a type is a Data Object
+            def is_data_object_type(type_str):
+                """Check if a type string represents a Data Object."""
+                if not type_str:
+                    return False
+                    
+                # Check if it's a known class
+                if type_str in self.found_classes:
+                    class_info = self.found_classes[type_str]
+                    bases = class_info.get("bases", [])
+                    
+                    # Check direct inheritance from Data Object bases
+                    for base in bases:
+                        # Get base name without module prefix
+                        base_name = base.split('.')[-1]
+                        if base_name in self.data_base_classes:
+                            return True
+                        # Also check recursively
+                        if is_data_object_type(base_name):
+                            return True
+                return False
+            
+            # Helper function to extract inner type from generic annotations
+            def extract_inner_type(type_str):
+                """Extract inner type from generic annotations like list[T], dict[K, V]."""
+                if not type_str:
+                    return None
+                    
+                import re
+                # Match patterns like list[T], List[T], dict[K, V], Dict[K, V]
+                list_pattern = r'^(list|List)\[([^]]+)\]$'
+                dict_pattern = r'^(dict|Dict)\[([^]]+),([^]]+)\]$'
+                
+                list_match = re.match(list_pattern, type_str)
+                if list_match:
+                    inner_type = list_match.group(2).strip()
+                    return inner_type
+                
+                dict_match = re.match(dict_pattern, type_str)
+                if dict_match:
+                    # For dict, check the value type (third group)
+                    value_type = dict_match.group(3).strip()
+                    return value_type
+                
+                return None
+            
+            # Check if it's a generic type (list/dict)
+            inner_type = extract_inner_type(p_type)
+            is_generic = inner_type is not None
+            
+            if is_generic:
+                # Check if the inner type is a Data Object
+                if is_data_object_type(inner_type):
+                    # Generic of Data Objects
+                    # Check if the inner type is in reference_data_objects
+                    if inner_type in self.reference_data_objects:
+                        meta["kind"] = "reference"
                     else:
-                        meta["kind"] = "value"  # Not a Data Object
+                        # Generic of non-reference Data Objects
+                        meta["kind"] = "object"
+                else:
+                    # Generic of non-Data Objects -> value
+                    meta["kind"] = "value"
             
-            # Check keyword-based references (not in block list)
-            elif is_ref_keyword and param not in self.ref_block_list:
+            # Check if type is a known class
+            elif p_type in self.found_classes:
+                # Check if it's a Data Object
+                if is_data_object_type(p_type):
+                    # Check if it's in the reference set
+                    if p_type in self.reference_data_objects:
+                        meta["kind"] = "reference"
+                    else:
+                        # Data Object not in reference set -> object (loaded from disk)
+                        meta["kind"] = "object"
+                else:
+                    # Not a Data Object -> value
+                    meta["kind"] = "value"
+            
+            else:
+                # Not a known class -> treat as value
+                meta["kind"] = "value"
+            
+            # Debug output
+            class_name = info.get('class_name', 'unknown')
+            print(f"[KIND_DEBUG] {class_name}.{param}: type={p_type}, kind={meta['kind']}")
+    def _assign_parameter_kinds(self, info):
+        """
+        Assign 'kind' to parameters based on type:
+        - If type is a known class that inherits from Data Object bases -> 'reference'
+        - If type is a list/dict of Data Objects -> 'reference'
+        - Otherwise -> 'value'
+        """
+        for param, meta in info["parameters"].items():
+            p_type = meta.get("type")
+            
+            # First check block list
+            if param in self.ref_block_list:
+                meta["kind"] = "value"
+                continue
+            
+            # Helper function to check if a type is a Data Object
+            def is_data_object_type(type_str):
+                """Check if a type string represents a Data Object."""
+                if not type_str:
+                    return False
+                    
+                # First check if it's a data base class
+                if type_str in self.data_base_classes:
+                    return True
+                    
+                # Check if it's a known class
+                if type_str in self.found_classes:
+                    class_info = self.found_classes[type_str]
+                    bases = class_info.get("bases", [])
+                    
+                    # Check direct inheritance
+                    for base in bases:
+                        # Get base name without module prefix for comparison
+                        base_name = base.split('.')[-1]
+                        if base_name in self.data_base_classes or is_data_object_type(base_name):
+                            return True
+                return False
+            
+            # Helper function to check if it's a generic type (list/dict) of Data Objects
+            def is_generic_of_data_object(type_str):
+                """Check if type is list[T] or dict[K, V] where T/V is a Data Object."""
+                if not type_str:
+                    return False
+                    
+                # Check for list[T]
+                import re
+                # Match patterns like list[T], List[T], dict[K, V], Dict[K, V]
+                list_pattern = r'^(list|List)\[([^]]+)\]$'
+                dict_pattern = r'^(dict|Dict)\[([^]]+),([^]]+)\]$'
+                
+                list_match = re.match(list_pattern, type_str)
+                if list_match:
+                    inner_type = list_match.group(2).strip()
+                    return is_data_object_type(inner_type)
+                
+                dict_match = re.match(dict_pattern, type_str)
+                if dict_match:
+                    # For dict, check the value type (second group)
+                    value_type = dict_match.group(3).strip()
+                    return is_data_object_type(value_type)
+                
+                return False
+            
+            # Determine the kind
+            if is_data_object_type(p_type) or is_generic_of_data_object(p_type):
+                # ALL Data Objects and generics of Data Objects should be references
                 meta["kind"] = "reference"
-            
-            # Default to value
             else:
                 meta["kind"] = "value"
-
+            
+            # Debug
+            print(f"[KIND_DEBUG] {info.get('class_name', 'unknown')}.{param}: type={p_type}, kind={meta['kind']}")
 
 def run_parser(input_folders, output_folder):
     parser = SpeculaMetadataParser()
@@ -216,6 +349,11 @@ def run_parser(input_folders, output_folder):
     # Pass 2: Merge data
     parser.resolve_inheritance()
 
+    # Debug: Print all found classes
+    print(f"\n[DEBUG] Found {len(parser.found_classes)} classes:")
+    for class_name, data in parser.found_classes.items():
+        print(f"  - {class_name}: bases={data.get('bases', [])}, has_io={bool(data.get('inputs') or data.get('outputs'))}")
+
     # Create directories
     base_path = Path(output_folder)
     subfolders = {
@@ -226,24 +364,64 @@ def run_parser(input_folders, output_folder):
     for folder in subfolders.values(): 
         folder.mkdir(parents=True, exist_ok=True)
 
-    # Save to YAML
+    # Track which classes are referenced as parameter types
+    referenced_classes = set()
+    for class_name, class_info in parser.found_classes.items():
+        for param_name, param_info in class_info.get("parameters", {}).items():
+            param_type = param_info.get("type")
+            if param_type and param_type in parser.found_classes:
+                referenced_classes.add(param_type)
+                print(f"[DEBUG] Class {class_name} references {param_type} in parameter {param_name}")
+
+    # Save to YAML - be more inclusive
     count = 0
+    saved_classes = set()
     for class_name, data in parser.found_classes.items():
-        # Check if class is valid Specula node
+        # Check if class is valid Specula node OR is referenced as a parameter type
         is_target = any(b in parser.target_bases for b in data["bases"])
         has_io = bool(data["inputs"] or data["outputs"])
+        is_referenced = class_name in referenced_classes
         
-        if not (is_target or has_io):
+        # ALWAYS include classes that are in reference_data_objects
+        is_special_ref = class_name in parser.reference_data_objects
+        
+        if not (is_target or has_io or is_referenced or is_special_ref):
             continue
-
+        
         category = data.pop("category", "other")
         target_dir = subfolders.get(category, subfolders["other"])
+        
+        # Debug: Check parameter kinds
+        print(f"\n[DEBUG] Saving class {class_name} (category: {category})")
+        print(f"[DEBUG] Parameters:")
+        for param_name, param_info in data.get("parameters", {}).items():
+            print(f"  - {param_name}: type={param_info.get('type')}, kind={param_info.get('kind')}, default={param_info.get('default')}")
         
         with open(target_dir / f"{class_name}.yml", "w", encoding="utf-8") as yf:
             yaml.dump({class_name: data}, yf, sort_keys=False, default_flow_style=False)
         count += 1
+        saved_classes.add(class_name)
 
-    print(f"Successfully generated {count} YAML templates.")
+    # Debug: Print which classes weren't saved
+    unsaved = set(parser.found_classes.keys()) - saved_classes
+    if unsaved:
+        print(f"\n[DEBUG] Classes NOT saved to templates ({len(unsaved)}):")
+        for class_name in sorted(unsaved):
+            data = parser.found_classes[class_name]
+            print(f"  - {class_name}: bases={data.get('bases', [])}")
+
+    print(f"\nSuccessfully generated {count} YAML templates.")
+
+    # Also create a merged template file for debugging
+    merged_data = {}
+    for class_name in saved_classes:
+        merged_data[class_name] = parser.found_classes[class_name]
+    
+    merged_path = base_path / "all_templates_merged.yml"
+    with open(merged_path, "w", encoding="utf-8") as yf:
+        yaml.dump(merged_data, yf, sort_keys=True, default_flow_style=False)
+    print(f"Created merged template file: {merged_path}")
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:

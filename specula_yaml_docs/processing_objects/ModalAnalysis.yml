@@ -6,11 +6,11 @@ ModalAnalysis:
     ifunc:
       type: IFunc
       default: null
-      kind: object
+      kind: value
     ifunc_inv:
       type: IFuncInv
       default: null
-      kind: object
+      kind: value
     type_str:
       type: str
       default: null
@@ -34,7 +34,7 @@ ModalAnalysis:
     pupilstop:
       type: Pupilstop
       default: null
-      kind: reference
+      kind: value
     nmodes:
       type: int
       default: null

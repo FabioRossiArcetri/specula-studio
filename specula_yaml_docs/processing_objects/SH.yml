@@ -58,7 +58,7 @@ SH:
     laser_launch_tel:
       type: LaserLaunchTelescope
       default: null
-      kind: object
+      kind: value
     subap_rows_slice:
       type: Any
       default: null

@@ -1,0 +1,39 @@
+SsrFilter:
+  class_name: SsrFilter
+  bases:
+  - BaseFilter
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    ssr_filter_data:
+      type: SsrFilterData
+      default: REQUIRED
+      kind: value
+    delay:
+      type: float
+      default: 0
+      kind: value
+    output_uses_new_state:
+      type: bool
+      default: true
+      kind: value
+    target_device_idx:
+      type: Any
+      default: null
+      kind: value
+    precision:
+      type: Any
+      default: null
+      kind: value
+  inputs:
+    delta_comm:
+      type: BaseValue
+      kind: single
+    gain_mod:
+      type: BaseValue
+      kind: single
+  outputs:
+  - out_comm
+  - out_comm_no_delay

@@ -1,0 +1,35 @@
+SsrFilterData:
+  class_name: SsrFilterData
+  bases:
+  - BaseDataObj
+  parameters:
+    A:
+      type: Any
+      default: REQUIRED
+      kind: value
+    B:
+      type: Any
+      default: REQUIRED
+      kind: value
+    C:
+      type: Any
+      default: REQUIRED
+      kind: value
+    D:
+      type: Any
+      default: REQUIRED
+      kind: value
+    n_modes:
+      type: Any
+      default: null
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs: []

@@ -6,11 +6,11 @@ PyrSlopec:
     pupdata:
       type: PupData
       default: REQUIRED
-      kind: object
+      kind: value
     sn:
       type: Slopes
       default: null
-      kind: object
+      kind: value
     shlike:
       type: bool
       default: false
