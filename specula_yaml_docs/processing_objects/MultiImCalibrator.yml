@@ -30,11 +30,11 @@ MultiImCalibrator:
     pupilstop:
       type: Pupilstop
       default: null
-      kind: reference
+      kind: value
     source_dict:
       type: list
       default: null
-      kind: reference
+      kind: value
     dm:
       type: DM
       default: null

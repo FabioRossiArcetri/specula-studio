@@ -18,7 +18,7 @@ AtmoRandomPhase:
     source_dict:
       type: dict
       default: {}
-      kind: reference
+      kind: value
     wavelengthInNm:
       type: float
       default: 500.0

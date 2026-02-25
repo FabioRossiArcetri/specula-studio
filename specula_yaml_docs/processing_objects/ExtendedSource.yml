@@ -14,7 +14,7 @@ ExtendedSource:
     source_type:
       type: str
       default: REQUIRED
-      kind: reference
+      kind: value
     sampling_lambda_over_d:
       type: float
       default: 1.0

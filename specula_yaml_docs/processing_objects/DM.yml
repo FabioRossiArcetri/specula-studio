@@ -14,11 +14,11 @@ DM:
     ifunc:
       type: IFunc
       default: null
-      kind: object
+      kind: value
     m2c:
       type: M2C
       default: null
-      kind: object
+      kind: value
     type_str:
       type: str
       default: null
@@ -58,7 +58,7 @@ DM:
     pupilstop:
       type: Pupilstop
       default: null
-      kind: reference
+      kind: value
     sign:
       type: int
       default: -1

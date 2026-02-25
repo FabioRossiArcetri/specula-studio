@@ -10,15 +10,15 @@ ModalrecImplicitPolc:
     recmat:
       type: Recmat
       default: null
-      kind: object
+      kind: value
     projmat:
       type: Recmat
       default: null
-      kind: object
+      kind: value
     intmat:
       type: Intmat
       default: null
-      kind: object
+      kind: value
     ncutmodes:
       type: int
       default: null
@@ -30,7 +30,7 @@ ModalrecImplicitPolc:
     dmNumber:
       type: int
       default: 0
-      kind: reference
+      kind: value
     input_modes_index:
       type: list
       default: null

@@ -97,6 +97,18 @@ ExtSourcePyramid:
       type: float
       default: 0.0
       kind: value
+    max_batch_size:
+      type: int
+      default: 128
+      kind: value
+    max_flux_ratio_thr:
+      type: float
+      default: 0.001
+      kind: value
+    cuda_stream_enable:
+      type: bool
+      default: true
+      kind: value
     target_device_idx:
       type: int
       default: null

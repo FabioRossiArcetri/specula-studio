@@ -62,7 +62,7 @@ DistributedSH:
     laser_launch_tel:
       type: LaserLaunchTelescope
       default: null
-      kind: object
+      kind: value
     target_device_idx:
       type: int
       default: null

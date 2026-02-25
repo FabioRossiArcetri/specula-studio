@@ -26,7 +26,7 @@ ImCalibrator:
     pupilstop:
       type: Pupilstop
       default: null
-      kind: reference
+      kind: value
     dm:
       type: DM
       default: null
@@ -34,7 +34,7 @@ ImCalibrator:
     source:
       type: Source
       default: null
-      kind: reference
+      kind: value
     sensor:
       type: BaseProcessingObj
       default: null

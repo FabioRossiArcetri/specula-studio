@@ -10,7 +10,7 @@ IdealDerivativeSensor:
     subapdata:
       type: SubapData
       default: REQUIRED
-      kind: object
+      kind: value
     fov:
       type: float
       default: REQUIRED

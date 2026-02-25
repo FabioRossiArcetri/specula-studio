@@ -10,7 +10,7 @@ GainOptimizer:
     iir_filter_data:
       type: IirFilterData
       default: REQUIRED
-      kind: object
+      kind: value
     opt_dt:
       type: float
       default: 1.0

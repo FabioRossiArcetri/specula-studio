@@ -74,11 +74,11 @@ IFunc:
       default: null
       kind: value
     target_device_idx:
-      type: int
+      type: Any
       default: null
       kind: value
     precision:
-      type: int
+      type: Any
       default: null
       kind: value
   inputs: {}

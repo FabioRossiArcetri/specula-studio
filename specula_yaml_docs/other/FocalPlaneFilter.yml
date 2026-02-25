@@ -1,7 +1,7 @@
 FocalPlaneFilter:
   class_name: FocalPlaneFilter
   bases:
-  - Coronograph
+  - Coronagraph
   parameters:
     simul_params:
       type: SimulParams

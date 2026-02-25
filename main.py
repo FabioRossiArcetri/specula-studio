@@ -3,7 +3,7 @@ import os
 import yaml
 from collections import OrderedDict
 from node_manager import NodeManager
-from file_handler import FileHandler
+from file_handler import FileHandler, auto_layout_nodes
 from graph_manager import GraphManager
 import dpg_utils
 import node_manager
@@ -114,8 +114,10 @@ class SpeculaEditor:
                     for node_type in sorted(self.data_obj_templates.keys()):
                         dpg.add_menu_item(label=node_type, callback=self._on_menu_create, user_data=node_type)
 
-                with dpg.menu(label="Monitors"):
-                    dpg.add_menu_item(label="Close All Monitors", callback=lambda: self.nm.close_all_monitors())
+                # In your main UI setup code
+                with dpg.menu(label="Layout"):
+                    dpg.add_menu_item(label="Auto Layout", callback=lambda: auto_layout_nodes(self.nm.graph, self.nm.uuid_to_dpg))
+                    dpg.add_menu_item(label="Debug Info", callback=lambda: print(f"Nodes: {len(self.nm.graph.nodes)}, Connections: {len(self.nm.graph.connections)}"))
   
 
             # 2. Split Workspace
@@ -242,7 +244,6 @@ class SpeculaEditor:
             dpg.start_dearpygui()
         finally:
             # Clean up monitors before destroying context
-            self.nm.close_all_monitors()
             dpg.destroy_context()
 
 if __name__ == "__main__":

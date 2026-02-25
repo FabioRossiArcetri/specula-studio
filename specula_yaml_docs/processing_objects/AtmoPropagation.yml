@@ -10,7 +10,7 @@ AtmoPropagation:
     source_dict:
       type: dict
       default: REQUIRED
-      kind: reference
+      kind: value
     doFresnel:
       type: bool
       default: false
@@ -31,6 +31,14 @@ AtmoPropagation:
       type: bool
       default: false
       kind: value
+    padding_factor:
+      type: int
+      default: 1
+      kind: value
+    band_limit_factor:
+      type: float
+      default: 1.0
+      kind: value
     target_device_idx:
       type: Any
       default: null
@@ -46,3 +54,5 @@ AtmoPropagation:
     common_layer_list:
       type: Layer
       kind: single
+  outputs:
+  - out_' + name + '_ef
