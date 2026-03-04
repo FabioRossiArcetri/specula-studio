@@ -7,8 +7,9 @@ import socketio
 import uuid
 import os
 import dearpygui.dearpygui as dpg
-from dpg_utils import apply_ref_link_style, apply_feedback_link_style, create_data_node_theme, create_proc_node_theme, create_data_node_theme_incomplete, create_proc_node_theme_incomplete
+from dpg_utils import apply_link_style, create_data_node_theme, create_proc_node_theme, create_data_node_theme_incomplete, create_proc_node_theme_incomplete
 from dpg_plotting import DPGPlotter
+import traceback
 
 # Reference shapes (Squares) vs Data shapes (Circles)
 REF_SHAPE = dpg.mvNode_PinShape_QuadFilled
@@ -18,7 +19,7 @@ DEFAULT_PARAM_COLOR = [110, 110, 110]
 MODIFIED_PARAM_COLOR = [240, 240, 240]
 
 class NodeManager:
-    def __init__(self, graph_manager, all_templates, socketio_server='http://127.0.0.1:5000'):
+    def __init__(self, graph_manager, all_templates, socketio_server='http://127.0.0.1:5000', debug=True):
         
         self.graph = graph_manager
         self.all_templates = all_templates
@@ -71,7 +72,7 @@ class NodeManager:
         self.monitor_running = False                
         self._update_loop_active = False  # Prevent multiple update loops
         # Debug
-        self.debug = True
+        self.debug = debug
         # Setup Socket.IO event handlers BEFORE connecting
         self._setup_socketio_handlers()    
         # Try to connect immediately
@@ -205,9 +206,9 @@ class NodeManager:
             
             # Check what type of link this is and reapply appropriate style
             if dst_attr.endswith("_ref") or "params" in dst_attr.lower():
-                apply_ref_link_style(link_id)
+                apply_link_style(link_id, color=[200, 200, 200, 60])
             elif ":-" in str(src_attr):
-                apply_feedback_link_style(link_id)
+                apply_link_style(link_id, color=[255, 0, 0, 255])
             else:
                 # Default link style
                 dpg.configure_item(link_id)
@@ -485,8 +486,7 @@ class NodeManager:
                         print(f"[SOCKET.IO] Queued data for monitor {monitor_id}")
                         
             except Exception as e:
-                print(f"[SOCKET.IO] Error in data_update handler: {e}")
-                import traceback
+                print(f"[SOCKET.IO] Error in data_update handler: {e}")                
                 traceback.print_exc()
         
         @self.sio.event
@@ -801,7 +801,7 @@ class NodeManager:
         # Update link style based on delay
         if delay == -1:
             # Feedback connection - special style
-            apply_feedback_link_style(link_id)
+            apply_link_style(link_id, color=[255, 0, 0, 255])
             
             # Also update the output attribute display if needed
             # For feedback connections like "dm.out_layer:-1"
@@ -809,7 +809,7 @@ class NodeManager:
         elif delay == 0:
             # Check if this is a reference connection
             if dst_attr.endswith("_ref") or "params" in dst_attr.lower():
-                apply_ref_link_style(link_id)
+                apply_link_style(link_id, color=[200, 200, 200, 60])
             else:
                 # Normal data connection
                 dpg.configure_item(link_id, color=[255, 255, 255, 255])
@@ -1275,7 +1275,6 @@ class NodeManager:
             
         except Exception as e:
             print(f"[SOCKET.IO] Connection failed: {e}")
-            import traceback
             traceback.print_exc()
             self.socketio_connected = False
 
@@ -1382,7 +1381,6 @@ class NodeManager:
                     
             except Exception as e:
                 print(f"[MAIN_PLOT] Error converting data: {e}")
-                import traceback
                 traceback.print_exc()
                 return False
             
@@ -1415,7 +1413,7 @@ class NodeManager:
                     if not success:
                         print(f"[MAIN_PLOT] plot_vector failed, trying line plot")
                         # Try alternative plotting method
-                        success = plotter.plot_line(data_array)
+                        success = plotter.plot_vector(data_array)
                     if not success:
                         print(f"[MAIN_PLOT] line plot failed, trying scatter")
                         # Try scatter as last resort
@@ -1430,7 +1428,6 @@ class NodeManager:
                         
                 except Exception as e:
                     print(f"[MAIN_PLOT] Error plotting 1D vector: {e}")
-                    import traceback
                     traceback.print_exc()
                     success = False
                     
@@ -1502,7 +1499,6 @@ class NodeManager:
                 
         except Exception as e:
             print(f"[MAIN_PLOT] Error: {e}")
-            import traceback
             traceback.print_exc()
             return False
 
@@ -1742,7 +1738,6 @@ class NodeManager:
                 
         except Exception as e:
             print(f"[MONITOR] Critical error in update loop: {e}")
-            import traceback
             traceback.print_exc()
         
         finally:
@@ -2289,9 +2284,9 @@ class NodeManager:
 
         # Apply appropriate link style
         if is_feedback:
-            apply_feedback_link_style(link_id)
+            apply_link_style(link_id, color=[255, 0, 0, 255])
         elif is_ref_connection:
-            apply_ref_link_style(link_id)
+            apply_link_style(link_id, color=[200, 200, 200, 60])
         
         # refresh UI if needed
         if self._last_selected_uuid == in_node_uuid:
@@ -2501,9 +2496,9 @@ class NodeManager:
             
             # STYLING:
             if is_feedback:
-                apply_feedback_link_style(link_id)
+                apply_link_style(link_id, color=[255, 0, 0, 255])
             elif dst_attr.endswith("_ref") or "params" in dst_attr.lower():
-                apply_ref_link_style(link_id)
+                apply_link_style(link_id, color=[200, 200, 200, 60])
 
             # Register the connection
             self.link_registry[link_id] = (src_uuid, base_src_attr, dst_uuid, dst_attr)

@@ -3,11 +3,12 @@ import numpy as np
 import dearpygui.dearpygui as dpg
 import time
 from matplotlib import cm
+import traceback
 
 class DPGPlotter:
     """Unified plotting class with multiple visualization modes and reduced flickering."""
     
-    def __init__(self, parent_tag=None, width=780, height=400):
+    def __init__(self, parent_tag=None, width=780, height=400, debug=True):
         self.parent = parent_tag
         self.width = width
         self.height = height
@@ -30,10 +31,45 @@ class DPGPlotter:
         self.current_image_dtype = None
         
         # Debug info
-        self.debug = True
+        self.debug = debug
         
         if self.debug:
             print(f"[DPGPlotter] Initialized with parent: {parent_tag}, size: {width}x{height}")
+
+
+    @staticmethod
+    def _ensure_1d(data: np.ndarray) -> np.ndarray | None:
+        """Return a 1-D view of data, or None if not possible."""
+        if data.ndim == 1:
+            return data
+        if data.ndim == 0:
+            return np.array([float(data)])
+        if data.ndim == 2:
+            if data.shape[0] == 1:
+                return data[0]
+            if data.shape[1] == 1:
+                return data[:, 0]
+        # Last resort
+        return data.flatten()
+    
+    def _create_or_update_line_plot(self, x_data, y_data, label, series_factory=dpg.add_line_series):
+        """Create a new DPG line-style plot or update the existing series."""
+        if self.plot_tag is None or not dpg.does_item_exist(self.plot_tag):
+            with dpg.plot(label=label, parent=self.parent,
+                        height=self.height, width=self.width) as plot_id:
+                dpg.add_plot_legend()
+                dpg.add_plot_axis(dpg.mvXAxis, label="Index")
+                y_axis = dpg.add_plot_axis(dpg.mvYAxis, label="Value")
+                self.plot_tag = plot_id
+                self.line_series_tag = series_factory(x_data, y_data,
+                                                    label=label, parent=y_axis)
+        else:
+            if self.line_series_tag and dpg.does_item_exist(self.line_series_tag):
+                dpg.set_value(self.line_series_tag, [x_data, y_data])
+            else:
+                children = dpg.get_item_children(self.plot_tag, slot=1)
+                if len(children) >= 2:
+                    self.line_series_tag = series_factory(x_data, y_data, label=label, parent=children[1])                    
 
     def _debug(self, message):
         """Debug logging."""
@@ -95,204 +131,7 @@ class DPGPlotter:
             
         except Exception as e:
             print(f"[DPGPlotter.clear] Error: {e}")
-
-    def plot_line(self, data, label="Line"):
-        """Plot 1D data as a line plot (alternative to plot_vector)."""
-        try:
-            # If we're not already in vector mode, clear and switch
-            if self.current_mode != 'vector':
-                self._clear_previous()
-                self._cleanup_image_resources()
-                self.current_mode = 'vector'
-            
-            # Ensure data is 1D
-            if data.ndim != 1:
-                if data.ndim == 2 and data.shape[0] == 1:
-                    data = data[0]
-                elif data.ndim == 2 and data.shape[1] == 1:
-                    data = data[:, 0]
-                else:
-                    print(f"[DPGPlotter] Cannot convert shape {data.shape} to 1D")
-                    return False
-            
-            x_data = list(range(len(data)))
-            y_data = data.tolist()
-            
-            # Create or update plot
-            if self.plot_tag is None or not dpg.does_item_exist(self.plot_tag):
-                # Create new plot
-                with dpg.plot(label=label, parent=self.parent, 
-                            height=self.height, width=self.width) as plot_id:
-                    dpg.add_plot_legend()
-                    x_axis = dpg.add_plot_axis(dpg.mvXAxis, label="Index")
-                    y_axis = dpg.add_plot_axis(dpg.mvYAxis, label="Value")
-                    self.plot_tag = plot_id
-                    
-                    # Create line series
-                    self.line_series_tag = dpg.add_line_series(
-                        x_data, y_data, label=label, parent=y_axis
-                    )
-            else:
-                # Update existing line series
-                if self.line_series_tag and dpg.does_item_exist(self.line_series_tag):
-                    dpg.set_value(self.line_series_tag, [x_data, y_data])
-                else:
-                    # Recreate line series if it doesn't exist
-                    children = dpg.get_item_children(self.plot_tag, slot=1)
-                    if len(children) >= 2:
-                        y_axis = children[1]
-                        self.line_series_tag = dpg.add_line_series(
-                            x_data, y_data, label=label, parent=y_axis
-                        )
-            
-            return True
-            
-        except Exception as e:
-            print(f"[DPGPlotter.plot_line] Error: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
-        
-    def plot_history(self, value, label="History"):
-        """Plot scalar values as a history line plot."""
-        try:
-            # If we're not already in history mode, clear and switch
-            if self.current_mode != 'history':
-                self._clear_previous()
-                self._cleanup_image_resources()
-                self.current_mode = 'history'
-            
-            # Update history
-            self.history_data.append(float(value))
-            if len(self.history_data) > self.max_history:
-                self.history_data.pop(0)
-            
-            x_data = list(range(len(self.history_data)))
-            y_data = self.history_data.copy()
-            
-            # Create or update plot
-            if self.plot_tag is None or not dpg.does_item_exist(self.plot_tag):
-                # Create new plot
-                with dpg.plot(label=label, parent=self.parent, 
-                             height=self.height, width=self.width) as plot_id:
-                    dpg.add_plot_legend()
-                    x_axis = dpg.add_plot_axis(dpg.mvXAxis, label="Frame")
-                    y_axis = dpg.add_plot_axis(dpg.mvYAxis, label="Value")
-                    self.plot_tag = plot_id
-                    
-                    # Create line series
-                    self.line_series_tag = dpg.add_line_series(
-                        x_data, y_data, label=label, parent=y_axis
-                    )
-            else:
-                # Update existing line series
-                if self.line_series_tag and dpg.does_item_exist(self.line_series_tag):
-                    dpg.set_value(self.line_series_tag, [x_data, y_data])
-                else:
-                    # Recreate line series if it doesn't exist
-                    children = dpg.get_item_children(self.plot_tag, slot=1)
-                    if len(children) >= 2:
-                        y_axis = children[1]
-                        self.line_series_tag = dpg.add_line_series(
-                            x_data, y_data, label=label, parent=y_axis
-                        )
-            
-            return True
-            
-        except Exception as e:
-            print(f"[DPGPlotter.plot_history] Error: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
-
-    def plot_vector(self, vector, label="Vector"):
-        """Plot a 1D vector."""
-        try:
-            # Ensure data is 1D
-            if vector.ndim != 1:
-                print(f"[DPGPlotter] Vector has {vector.ndim} dimensions, trying to flatten...")
-                if vector.ndim == 0:
-                    # Scalar - convert to 1D array
-                    vector = np.array([float(vector)])
-                elif vector.ndim == 2:
-                    if vector.shape[0] == 1:
-                        vector = vector[0]
-                    elif vector.shape[1] == 1:
-                        vector = vector[:, 0]
-                    else:
-                        print(f"[DPGPlotter] Cannot convert 2D shape {vector.shape} to 1D")
-                        # Try to flatten
-                        try:
-                            vector = vector.flatten()
-                            print(f"[DPGPlotter] Flattened to shape {vector.shape}")
-                        except:
-                            print(f"[DPGPlotter] Failed to flatten")
-                            return False
-                else:
-                    # Try to flatten
-                    try:
-                        vector = vector.flatten()
-                        print(f"[DPGPlotter] Flattened {vector.ndim}D to 1D")
-                    except:
-                        print(f"[DPGPlotter] Cannot convert shape {vector.shape} to 1D")
-                        return False
-            
-            print(f"[DPGPlotter] Plotting 1D vector with length {len(vector)}")
-            
-            # If we're not already in vector mode, clear and switch
-            if self.current_mode != 'vector':
-                self._clear_previous()
-                self._cleanup_image_resources()
-                self.current_mode = 'vector'
-            
-            x_data = list(range(len(vector)))
-            y_data = vector.tolist()
-            
-            # Debug: check data
-            if len(y_data) == 0:
-                print("[DPGPlotter] Warning: Empty vector data")
-                y_data = [0.0]
-                x_data = [0]
-            
-            # Create or update plot
-            if self.plot_tag is None or not dpg.does_item_exist(self.plot_tag):
-                print(f"[DPGPlotter] Creating new plot for vector")
-                # Create new plot
-                with dpg.plot(label=label, parent=self.parent, 
-                            height=self.height, width=self.width) as plot_id:
-                    dpg.add_plot_legend()
-                    x_axis = dpg.add_plot_axis(dpg.mvXAxis, label="Index")
-                    y_axis = dpg.add_plot_axis(dpg.mvYAxis, label="Value")
-                    self.plot_tag = plot_id
-                    
-                    # Create line series
-                    self.line_series_tag = dpg.add_line_series(
-                        x_data, y_data, label=label, parent=y_axis
-                    )
-                    print(f"[DPGPlotter] Created new plot with {len(y_data)} points")
-            else:
-                # Update existing line series
-                if self.line_series_tag and dpg.does_item_exist(self.line_series_tag):
-                    print(f"[DPGPlotter] Updating existing line series")
-                    dpg.set_value(self.line_series_tag, [x_data, y_data])
-                else:
-                    # Recreate line series if it doesn't exist
-                    print(f"[DPGPlotter] Recreating line series")
-                    children = dpg.get_item_children(self.plot_tag, slot=1)
-                    if len(children) >= 2:
-                        y_axis = children[1]
-                        self.line_series_tag = dpg.add_line_series(
-                            x_data, y_data, label=label, parent=y_axis
-                        )
-            
-            return True
-            
-        except Exception as e:
-            print(f"[DPGPlotter.plot_vector] Error: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
-
+    
 
     def plot_2d_heatmap(self, data_2d, label="2D Heatmap"):
         """Plot 2D data as a heatmap using DPG's heat series."""
@@ -376,7 +215,6 @@ class DPGPlotter:
                 
         except Exception as e:
             print(f"[DPGPlotter.plot_2d_heatmap] Error: {e}")
-            import traceback
             traceback.print_exc()
             return False
         
@@ -439,10 +277,6 @@ class DPGPlotter:
             print(f"Plot 2D Error: {e}")
             return False
 
-    def update_image_data(self, data_2d):
-        """Redirects to main function to handle dynamic updates safely."""
-        return self.plot_2d_image_clean(data_2d)
-    
 
     def update_existing_plot(self, data_array):
         """Update existing plot without recreating everything (universal method)."""
@@ -481,97 +315,84 @@ class DPGPlotter:
                 
         except Exception as e:
             print(f"[DPGPlotter.update_existing_plot] Error: {e}")
-            import traceback
             traceback.print_exc()
             return False
 
-    def plot_scatter(self, data, label="Scatter"):
-        """Plot 1D data as a scatter plot (simple alternative)."""
+
+    def plot_vector(self, vector: np.ndarray, label: str = "Vector") -> bool:
+        """Plot a 1D vector as a line series."""
         try:
-            # Ensure data is 1D
-            if data.ndim != 1:
-                if data.ndim == 2 and data.shape[0] == 1:
-                    data = data[0]
-                elif data.ndim == 2 and data.shape[1] == 1:
-                    data = data[:, 0]
-                else:
-                    print(f"[DPGPlotter] Cannot convert shape {data.shape} to 1D for scatter")
-                    return False
-            
-            x_data = list(range(len(data)))
-            y_data = data.tolist()
-            
-            # If we're not already in scatter mode, clear and switch
-            if self.current_mode != 'scatter':
+            vector = self._ensure_1d(vector)
+            if vector is None:
+                return False
+
+            if not len(vector):
+                print("[DPGPlotter] Warning: empty vector, substituting zero")
+                vector = np.array([0.0])
+
+            if self.current_mode != "vector":
                 self._clear_previous()
                 self._cleanup_image_resources()
-                self.current_mode = 'scatter'
-            
-            # Create or update plot
-            if self.plot_tag is None or not dpg.does_item_exist(self.plot_tag):
-                # Create new plot
-                with dpg.plot(label=label, parent=self.parent, 
-                            height=self.height, width=self.width) as plot_id:
-                    dpg.add_plot_legend()
-                    x_axis = dpg.add_plot_axis(dpg.mvXAxis, label="Index")
-                    y_axis = dpg.add_plot_axis(dpg.mvYAxis, label="Value")
-                    self.plot_tag = plot_id
-                    
-                    # Create scatter series
-                    self.line_series_tag = dpg.add_scatter_series(
-                        x_data, y_data, label=label, parent=y_axis
-                    )
-            else:
-                # Update existing scatter series
-                if self.line_series_tag and dpg.does_item_exist(self.line_series_tag):
-                    dpg.set_value(self.line_series_tag, [x_data, y_data])
-                else:
-                    # Recreate scatter series if it doesn't exist
-                    children = dpg.get_item_children(self.plot_tag, slot=1)
-                    if len(children) >= 2:
-                        y_axis = children[1]
-                        self.line_series_tag = dpg.add_scatter_series(
-                            x_data, y_data, label=label, parent=y_axis
-                        )
-            
+                self.current_mode = "vector"
+
+            self._create_or_update_line_plot(
+                list(range(len(vector))), vector.tolist(), label
+            )
             return True
-            
+
         except Exception as e:
-            print(f"[DPGPlotter.plot_scatter] Error: {e}")
-            import traceback
+            print(f"[DPGPlotter.plot_vector] Error: {e}")
             traceback.print_exc()
             return False
 
-    def update_2d_heatmap(self, data_2d):
-        """Update existing heatmap plot."""
+
+    def plot_history(self, value: float, label: str = "History") -> bool:
+        """Append a scalar to a rolling history and plot it as a line series."""
         try:
-            if data_2d.ndim != 2:
-                return False
-            
-            rows, cols = data_2d.shape
-            
-            # Check if we can update
-            if (self.current_mode == 'heatmap' and 
-                self.heat_series_tag and 
-                dpg.does_item_exist(self.heat_series_tag) and
-                self.current_shape == (rows, cols)):
-                
-                # Normalize data
-                data_min = data_2d.min()
-                data_max = data_2d.max()
-                if data_max > data_min:
-                    normalized_data = (data_2d - data_min) / (data_max - data_min)
-                else:
-                    normalized_data = np.zeros_like(data_2d)
-                
-                flat_data = normalized_data.flatten().tolist()
-                dpg.set_value(self.heat_series_tag, flat_data)
-                return True
-            
-            else:
-                # Need to recreate
-                return self.plot_2d_heatmap(data_2d)
-                
+            if self.current_mode != "history":
+                self._clear_previous()
+                self._cleanup_image_resources()
+                self.current_mode = "history"
+
+            self.history_data.append(float(value))
+            if len(self.history_data) > self.max_history:
+                self.history_data.pop(0)
+
+            self._create_or_update_line_plot(
+                list(range(len(self.history_data))),
+                self.history_data.copy(),
+                label,
+                x_axis_label="Frame",
+            )
+            return True
+
         except Exception as e:
-            print(f"[DPGPlotter.update_2d_heatmap] Error: {e}")
+            print(f"[DPGPlotter.plot_history] Error: {e}")
+            traceback.print_exc()
+            return False
+
+
+    def plot_scatter(self, data: np.ndarray, label: str = "Scatter") -> bool:
+        """Plot a 1D array as a scatter series."""
+        try:
+            data = self._ensure_1d(data)
+            if data is None:
+                return False
+
+            if self.current_mode != "scatter":
+                self._clear_previous()
+                self._cleanup_image_resources()
+                self.current_mode = "scatter"
+
+            self._create_or_update_line_plot(
+                list(range(len(data))),
+                data.tolist(),
+                label,
+                series_factory=dpg.add_scatter_series,
+            )
+            return True
+
+        except Exception as e:
+            print(f"[DPGPlotter.plot_scatter] Error: {e}")
+            traceback.print_exc()
             return False

@@ -3,11 +3,24 @@ import os
 import dearpygui.dearpygui as dpg
 from dpg_utils import auto_layout_nodes
 import uuid
+import traceback
 
 class FileHandler:
     def __init__(self, node_manager):
         self.nm = node_manager
 
+    # Refresh all node themes after import
+    def refresh_all_themes(self):
+        for node_uuid in self.nm.graph.nodes:
+            self.nm._refresh_node_theme(node_uuid)
+
+    # Schedule UI update for imported values
+    def update_ui_values(self):
+        for u_id, node_data in self.nm.graph.nodes.items():
+            if u_id in self.nm.uuid_to_dpg and 'values' in node_data:
+                # Update property panel if this node is selected
+                if self.nm._last_selected_uuid == u_id:
+                    self.nm.update_property_panel(u_id, "property_panel")
 
     def import_simulation(self, file_path):
         with open(file_path, "r") as f:
@@ -146,25 +159,12 @@ class FileHandler:
                     self.nm.graph.nodes[dst_u]['filename_map'] = {}
                 conn_key = f"{src_u}.{src_a}"
                 self.nm.graph.nodes[dst_u]['filename_map'][conn_key] = filename
-            
-        # Refresh all node themes after import
-        def refresh_all_themes():
-            for node_uuid in self.nm.graph.nodes:
-                self.nm._refresh_node_theme(node_uuid)
+                    
+        current_frame = dpg.get_frame_count()
+        dpg.set_frame_callback(current_frame + 3, self.refresh_all_themes)
         
         current_frame = dpg.get_frame_count()
-        dpg.set_frame_callback(current_frame + 3, refresh_all_themes)
-
-        # Schedule UI update for imported values
-        def update_ui_values():
-            for u_id, node_data in self.nm.graph.nodes.items():
-                if u_id in self.nm.uuid_to_dpg and 'values' in node_data:
-                    # Update property panel if this node is selected
-                    if self.nm._last_selected_uuid == u_id:
-                        self.nm.update_property_panel(u_id, "property_panel")
-        
-        current_frame = dpg.get_frame_count()
-        dpg.set_frame_callback(current_frame + 3, update_ui_values)
+        dpg.set_frame_callback(current_frame + 3, self.update_ui_values)
         
         # Auto-layout (existing code remains)
         def try_auto_layout(attempt=1, max_attempts=5):
@@ -188,8 +188,7 @@ class FileHandler:
                 auto_layout_nodes(self.nm.graph, self.nm.uuid_to_dpg)
                 print("[AUTO_LAYOUT] Layout completed successfully")
             except Exception as e:
-                print(f"[AUTO_LAYOUT] Error: {e}")
-                import traceback
+                print(f"[AUTO_LAYOUT] Error: {e}")                
                 traceback.print_exc()
         
         current_frame = dpg.get_frame_count()
@@ -485,37 +484,4 @@ class FileHandler:
             return node_name, attr_name, delay
         
         return None, None, 0
-
-
-    def _parse_node_attr(self, node_attr_str):
-        """Parse a node.attr string that might include delay suffix."""
-        if not node_attr_str:
-            return None, None, 0
-        
-        delay = 0
-        
-        # Check if there's a delay suffix (e.g., "attr:-1")
-        if ":-" in node_attr_str:
-            # Split into base and delay
-            base_part, delay_part = node_attr_str.rsplit(":-", 1)
-            try:
-                delay = int(delay_part)
-            except ValueError:
-                delay = 0
-                # If parsing fails, treat the whole thing as base
-                base_part = node_attr_str
-        else:
-            base_part = node_attr_str
-        
-        # Now parse the base part (node.attr)
-        if "." in base_part:
-            parts = base_part.split(".")
-            node_name = parts[0]
-            attr_name = ".".join(parts[1:])
-        else:
-            # If no dot (e.g., simul_params_ref: 'main'), default to 'ref' pin
-            node_name = base_part
-            attr_name = "ref"
-        
-        return node_name, attr_name, delay        
 

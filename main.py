@@ -60,13 +60,6 @@ class SpeculaEditor:
         print('_toggle_export_defaults', app_data)
         self.export_include_defaults = app_data
 
-    # Update the Export Bridge Callback
-    def _export_cb(self, s, a): 
-        self.fh.export_simulation(
-            a['file_path_name'], 
-            include_defaults=self.export_include_defaults
-        )
-
 
     # In the create_ui method, add this to the global handlers section:
     def _on_key_press(self, sender, app_data):
