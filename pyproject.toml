@@ -18,6 +18,7 @@ dependencies = [
     "matplotlib>=3.8",
     "numpy>=1.26",
     "PyYAML>=6.0",
+    "python-socketio>=5.0.0"    
 ]
 
 [project.optional-dependencies]
