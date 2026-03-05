@@ -8,10 +8,10 @@ from graph_manager import GraphManager
 import dpg_utils
 import node_manager
 
-
 # Constants
-# FONT_PATH = "C:/Windows/Fonts/DejaVuSerif.ttf"
-FONT_PATH = "/opt/anaconda3/envs/base11/lib/python3.11/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSerif.ttf"
+import matplotlib
+FONT_PATH = matplotlib.get_data_path() + '/fonts/ttf/'
+FONT_PATH += "DejaVuSerif.ttf"
 
 # Define a loader that preserves order
 def ordered_load(stream, Loader=yaml.SafeLoader, object_pairs_hook=OrderedDict):
