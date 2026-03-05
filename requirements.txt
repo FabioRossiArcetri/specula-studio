@@ -1,0 +1,5 @@
+dearpygui==2.1.1
+matplotlib>=3.8
+numpy>=1.26
+PyYAML>=6.0
+deepdiff>=6.7

@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "specula-studio"
+version = "0.1.0"
+description = "Node-based visual editor for SPECULA AO simulation pipelines"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+    { name = "FabioRossiArcetri" }
+]
+requires-python = ">=3.11"
+
+dependencies = [
+    "dearpygui>=2.1.1",
+    "matplotlib>=3.8",
+    "numpy>=1.26",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+# Only required for utils/compare_yamls.py
+utils = [
+    "deepdiff>=6.7",
+]
+# Full development environment
+dev = [
+    "deepdiff>=6.7",
+    "pytest>=8.0",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+# Requires wrapping the __main__ block in a main() function first — see note below
+# specula-studio = "main:main"
+# specula-parse  = "parse_classes:run_parser"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["utils*"]
+
+# ── Ruff (linter + formatter) ────────────────────────────────────────────────
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes (unused imports, undefined names, etc.)
+    "I",   # isort (import ordering)
+    "UP",  # pyupgrade (modernise syntax)
+    "B",   # flake8-bugbear (likely bugs)
+]
+ignore = [
+    "E501",  # line-too-long — handled by formatter
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["dpg_plotting", "dpg_utils", "file_handler", "graph_manager", "parse_classes"]
+
+# ── Pytest ───────────────────────────────────────────────────────────────────
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
