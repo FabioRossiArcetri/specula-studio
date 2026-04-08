@@ -1,3 +1,4 @@
+"""
 DPG node-graph UI manager and orchestrator.
 
 After refactoring, this module is responsible only for:

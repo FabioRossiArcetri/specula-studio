@@ -23,7 +23,7 @@ def ordered_load(stream, Loader=yaml.SafeLoader, object_pairs_hook=OrderedDict):
     OrderedLoader.add_constructor(
         yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
         construct_mapping)
-    return yaml.safe_load(stream, OrderedLoader)
+    return yaml.load(stream, OrderedLoader)
 
 class SpeculaEditor:
     def __init__(self, yaml_folder):

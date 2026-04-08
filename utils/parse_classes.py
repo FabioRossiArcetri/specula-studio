@@ -243,7 +243,6 @@ class SpeculaMetadataParser(ast.NodeVisitor):
         if not type_str:
             return None
             
-        import re
         # Match patterns like list[T], List[T], dict[K, V], Dict[K, V]
         list_pattern = r'^(list|List)\[([^]]+)\]$'
         dict_pattern = r'^(dict|Dict)\[([^]]+),([^]]+)\]$'
