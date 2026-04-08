@@ -24,8 +24,12 @@ class FileHandler:
 
     def import_simulation(self, file_path):
         with open(file_path, "r") as f:
-            sim_data = yaml.load(f, Loader=yaml.FullLoader)
+            sim_data = yaml.safe_load(f)
 
+        if not isinstance(sim_data, dict):
+            print(f"[IMPORT] Error: YAML root must be a mapping, got {type(sim_data)}")
+            return
+        
         # Clear existing graph
         self.nm.clear_all()
         self.nm.graph.nodes.clear()
@@ -36,6 +40,14 @@ class FileHandler:
 
         # --- PASS 1: Pre-populate Graph Model with ALL data ---
         for node_name, content in sim_data.items():
+
+            if not isinstance(content, dict):
+                print(f"[IMPORT] Warning: Skipping '{node_name}' — expected dict, got {type(content)}")
+                continue
+            if 'class' not in content:
+                print(f"[IMPORT] Warning: Skipping '{node_name}' — missing 'class' key")
+                continue
+
             node_type = content.get('class')
             u = str(uuid.uuid4())[:8]
             name_to_uuid[node_name] = u
@@ -452,12 +464,15 @@ class FileHandler:
         Returns (node_name, attr_name, delay)
         """
         delay = 0  # Default no delay
-        
+
         # Handle cases where it's a list
         if isinstance(source_val, list):
-            # If it's a list, take the first element for now
-            source_val = source_val[0] if source_val else ""
-        
+            # Caller should iterate; parse only one at a time
+            # Raise or return list of results instead of silently dropping
+            if not source_val:
+                return None, None, 0
+            source_val = source_val[0]  # document this is intentional if kept
+
         if isinstance(source_val, str):
             # Check for delay suffix (e.g., "out_layer:-1")
             if ":-" in source_val:

@@ -4,11 +4,12 @@ import dearpygui.dearpygui as dpg
 import time
 from matplotlib import cm
 import traceback
+from constants import MAX_PLOT_HISTORY, DEFAULT_PLOT_WIDTH, DEFAULT_PLOT_HEIGHT
 
 class DPGPlotter:
     """Unified plotting class with multiple visualization modes and reduced flickering."""
     
-    def __init__(self, parent_tag=None, width=780, height=400, debug=True):
+    def __init__(self, parent_tag=None, width=DEFAULT_PLOT_WIDTH, height=DEFAULT_PLOT_HEIGHT, debug=True):
         self.parent = parent_tag
         self.width = width
         self.height = height
@@ -25,7 +26,7 @@ class DPGPlotter:
         
         # Data tracking
         self.history_data = []
-        self.max_history = 200
+        self.max_history = MAX_PLOT_HISTORY
         self.current_mode = None  # 'history', 'vector', 'heatmap', 'texture'
         self.current_shape = None
         self.current_image_dtype = None
@@ -262,7 +263,10 @@ class DPGPlotter:
                 parent=self.texture_registry_tag
             )
 
-            # Create Display Image
+            if width == 0 or height == 0:
+                print(f"[DPGPlotter] Skipping image display: zero dimension ({width}x{height})")
+                return False
+
             display_width = min(width, self.width)
             display_height = int(display_width * (height / width))
             display_width *= 2

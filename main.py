@@ -6,7 +6,7 @@ from node_manager import NodeManager
 from file_handler import FileHandler, auto_layout_nodes
 from graph_manager import GraphManager
 import dpg_utils
-import node_manager
+import pathlib
 
 # Constants
 import matplotlib
@@ -23,7 +23,7 @@ def ordered_load(stream, Loader=yaml.SafeLoader, object_pairs_hook=OrderedDict):
     OrderedLoader.add_constructor(
         yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
         construct_mapping)
-    return yaml.load(stream, OrderedLoader)
+    return yaml.safe_load(stream, OrderedLoader)
 
 class SpeculaEditor:
     def __init__(self, yaml_folder):
@@ -126,12 +126,11 @@ class SpeculaEditor:
                         pass
 
                 # Right Side: Properties Panel
-                with dpg.child_window(width=430, tag="property_panel", border=True):
-                    self._show_property()
+                # with dpg.child_window(width=430, tag="property_panel", border=True):
+                #     self._show_property()
 
         # --- Global Handlers ---
         with dpg.handler_registry():
-            dpg.add_mouse_click_handler(button=0, callback=self._on_canvas_click)
             dpg.add_key_press_handler(callback=self._on_key_press)  # Add this line
 
 
@@ -167,66 +166,16 @@ class SpeculaEditor:
     def _on_menu_create(self, sender, app_data, user_data):
         self.nm.create_node(node_type=user_data)
 
-    def _on_canvas_click(self):
-        if dpg.is_item_hovered("property_panel"): return
-        
-        selected = dpg.get_selected_nodes("specula_editor")
-        if selected:
-            node_uuid = self.nm.dpg_to_uuid.get(selected[0])
-            if self.nm._last_selected_uuid != node_uuid:
-                self.nm._last_selected_uuid = node_uuid
-                self.nm.update_property_panel(node_uuid, "property_panel")
-        else:
-            self.nm._last_selected_uuid = None
-            self._show_property()
-
-    def _show_property(self):
-        dpg.delete_item("property_panel", children_only=True)
-        
-        selected = dpg.get_selected_nodes("specula_editor")
-        if not selected: return
-        
-        node_uuid = selected[0].split("_")[1]
-        node_data = self.nm.graph.nodes[node_uuid]
-        node_values = node_data.get('values', {})
-        template = self.nm.all_templates.get(node_data['type'], {})
-        template_params = template.get('parameters', {})
-
-        # --- UI Header ---
-        dpg.add_text(f"Class: {node_data['type']}", color=[100, 200, 255], parent="property_panel")
-        dpg.add_input_text(label="Name", default_value=node_data['name'], 
-                           callback=self.nm.update_node_name, user_data=node_uuid, parent="property_panel")
-        dpg.add_separator(parent="property_panel")
-
-        # --- Parameters ---
-        # We combine template keys and actual value keys to ensure nothing is hidden
-        all_param_names = set(template_params.keys()) | set(node_values.keys())
-
-        for p_name in sorted(all_param_names):
-            p_meta = template_params.get(p_name, {})
-            val = node_values.get(p_name, p_meta.get('default'))
-            p_type = p_meta.get('type', 'str')
-            
-            # Determine if this is an _object reference
-            is_data_ref = self.nm.is_data_class_type(p_type) or p_name in node_data.get('suffixes', [])
-
-            with dpg.group(parent="property_panel"):
-                color = [150, 255, 150] if is_data_ref else [255, 255, 255]
-                dpg.add_text(f"{p_name}:", color=color)
-                
-                # Use Input Text for all strings or Data Object filenames
-                if isinstance(val, bool):
-                    dpg.add_checkbox(default_value=val, callback=self.nm.update_node_value, user_data=(node_uuid, p_name))
-                elif isinstance(val, (int, float)) and not is_data_ref:
-                    dpg.add_input_double(default_value=float(val), width=-1, step=0,
-                                         callback=self.nm.update_node_value, user_data=(node_uuid, p_name))
-                else:
-                    # This covers strings and Data Objects
-                    dpg.add_input_text(default_value=str(val) if val is not None else "", 
-                                       width=-1, callback=self.nm.update_node_value, user_data=(node_uuid, p_name))
-                    
     # --- File Bridge Callbacks ---
-    def _import_cb(self, s, a): self.fh.import_simulation(a['file_path_name'])
+
+    def _import_cb(self, s, a):
+        path = pathlib.Path(a['file_path_name']).resolve()
+        # Optional: restrict to allowed directories
+        # if not path.is_relative_to(pathlib.Path.cwd()):
+        #     print(f"[SECURITY] Blocked path traversal: {path}")
+        #     return
+        self.fh.import_simulation(str(path))
+
     def _export_cb(self, s, a): self.fh.export_simulation(a['file_path_name'], self.export_include_defaults)
     def _save_scene_cb(self, s, a): self.fh.save_scene(a['file_path_name'])
     def _load_scene_cb(self, s, a): self.fh.load_scene(a['file_path_name'])

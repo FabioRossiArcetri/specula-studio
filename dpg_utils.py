@@ -1,6 +1,7 @@
 import dearpygui.dearpygui as dpg
 from collections import deque
-    
+from constants import LAYOUT_HORIZONTAL_SPACING, LAYOUT_VERTICAL_SPACING
+
 def create_node_theme(
     node_background,
     node_outline,
@@ -237,8 +238,8 @@ def auto_layout_nodes(graph, uuid_to_dpg, debug=False):
                 continue
             
             # Calculate position - this is the original grid layout from your code
-            x = 30 + level * 330
-            y = 30 + i * 220
+            x = 30 + level * LAYOUT_HORIZONTAL_SPACING
+            y = 30 + i * LAYOUT_VERTICAL_SPACING
             
             node_name = graph.nodes[node_id].get('name', node_id[:4])
             if debug: print(f"[AUTO_LAYOUT] Positioning {node_name} at ({x}, {y})")
