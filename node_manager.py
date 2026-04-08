@@ -10,6 +10,9 @@ import dearpygui.dearpygui as dpg
 from dpg_utils import apply_link_style, create_data_node_theme, create_proc_node_theme, create_data_node_theme_incomplete, create_proc_node_theme_incomplete
 from dpg_plotting import DPGPlotter
 import traceback
+from constants import SOCKETIO_SERVER, STATUS_QUEUE_SIZE, MONITOR_QUEUE_SIZE, MAX_QUEUE_ITEMS_PER_FRAME
+import psutil
+import ast
 
 # Reference shapes (Squares) vs Data shapes (Circles)
 REF_SHAPE = dpg.mvNode_PinShape_QuadFilled
@@ -19,7 +22,7 @@ DEFAULT_PARAM_COLOR = [110, 110, 110]
 MODIFIED_PARAM_COLOR = [240, 240, 240]
 
 class NodeManager:
-    def __init__(self, graph_manager, all_templates, socketio_server='http://127.0.0.1:5000', debug=True):
+    def __init__(self, graph_manager, all_templates, socketio_server=SOCKETIO_SERVER, debug=True):
         
         self.graph = graph_manager
         self.all_templates = all_templates
@@ -55,7 +58,7 @@ class NodeManager:
         else:
             self.sio = socketio.Client(logger=True, engineio_logger=False)
 
-        self.status_update_queue = Queue(maxsize=50)
+        self.status_update_queue = Queue(maxsize=STATUS_QUEUE_SIZE)
         self.monitor_lock = threading.RLock()
         self._last_queue_log = 0
         self.socketio_server = socketio_server
@@ -68,7 +71,7 @@ class NodeManager:
         # Monitor tracking
         self.active_monitors = {}  # {server_output_name: monitor_info}
         self.subscribed_outputs = set()  # Set of outputs we're subscribed to
-        self.monitor_data_queue = Queue(maxsize=100)  # Limit to 100 items
+        self.monitor_data_queue = Queue(maxsize=MONITOR_QUEUE_SIZE)  # Limit to MONITOR_QUEUE_SIZE items
         self.monitor_running = False                
         self._update_loop_active = False  # Prevent multiple update loops
         # Debug
@@ -219,6 +222,21 @@ class NodeManager:
             self._reset_link_style(self._selected_link_id)
             self._selected_link_id = None
 
+    # this was removed, should be already implemented in on_click_editor: 
+    #
+    #def _on_canvas_click(self):
+    #    if dpg.is_item_hovered("property_panel"):
+    #        return
+    #    selected = dpg.get_selected_nodes("specula_editor")
+    #    if selected:
+    #        node_uuid = self.nm.dpg_to_uuid.get(selected[0])
+    #        if node_uuid and self.nm._last_selected_uuid != node_uuid:
+    #            self.nm._last_selected_uuid = node_uuid
+    #            self.nm.update_property_panel(node_uuid, "property_panel")
+    #    else:
+    #        self.nm._last_selected_uuid = None
+    #        dpg.delete_item("property_panel", children_only=True)
+
     def on_click_editor(self, sender, app_data):
         """Check selection and update property panel, also handle link clicks."""        
             
@@ -361,7 +379,8 @@ class NodeManager:
                 # Remove oldest if full
                 try:
                     self.status_update_queue.get_nowait()
-                except:
+                except Exception as e:
+                    print(f"[MONITOR] Error clearing status queue: {e}")
                     pass
             
             self.status_update_queue.put({
@@ -370,8 +389,9 @@ class NodeManager:
                 'status': status,
                 'timestamp': time.time()
             })
-        except:
-            pass
+        except Exception as e:
+            print(f"[MONITOR] Error updating monitor status: {e}")
+
    
         
     def _setup_socketio_handlers(self):
@@ -402,9 +422,9 @@ class NodeManager:
             try:
                 self.sio.emit('get_params')
                 print(f"[SOCKET.IO] Requested params via 'get_params'")
-            except:
+            except Exception as e:
                 # Fallback: the server should send params automatically on connect
-                print(f"[SOCKET.IO] Server should auto-send params on connect")
+                print(f"[SOCKET.IO] Server should auto-send params on connect: {e}")
        
 
         @self.sio.event
@@ -457,8 +477,8 @@ class NodeManager:
                 qsize = self.monitor_data_queue.qsize()
                 print(f"[SOCKET.IO] Current queue size: {qsize}")
                 
-                if qsize >= 100:
-                    print(f"[SOCKET.IO] Queue full (100), dropping data for {name}")
+                if qsize >= MONITOR_QUEUE_SIZE:
+                    print(f"[SOCKET.IO] Queue full (MONITOR_QUEUE_SIZE), dropping data for {name}")
                     return
                 
                 # Use lock to safely access active_monitors
@@ -1167,14 +1187,16 @@ class NodeManager:
                     temp_queue.put(item)
                 else:
                     queue_items_removed += 1
-            except:
+            except Exception as e:
+                print(f"[CLOSE_MONITOR] Error processing queue item: {e}")
                 break
         
         # Put back non-matching items
         while not temp_queue.empty():
             try:
                 self.monitor_data_queue.put(temp_queue.get_nowait())
-            except:
+            except Exception as e:
+                print(f"[CLOSE_MONITOR] Error putting item back in queue: {e}")                
                 break
         
         print(f"[CLOSE_MONITOR] Removed {queue_items_removed} items from queue")
@@ -1263,13 +1285,10 @@ class NodeManager:
         
         try:
             print(f"[SOCKET.IO] Connecting to {self.socketio_server}...")
-            
+            self.socketio_connected = False
             # Explicitly specify namespace
-            self.sio.connect(self.socketio_server, namespaces=['/'])
-            
-            self.socketio_connected = True
-            print(f"[SOCKET.IO] Connected! SID: {self.sio.sid}")
-            
+            self.sio.connect(self.socketio_server, namespaces=['/'])            
+            print(f"[SOCKET.IO] Connected! SID: {self.sio.sid}")            
             # Test the connection immediately
             self.sio.emit('test_connection', {'client': 'node_editor'})
             
@@ -1335,7 +1354,8 @@ class NodeManager:
                         # Scalar or other type
                         try:
                             data_array = np.array([float(data_value)], dtype=np.float32)
-                        except:
+                        except Exception as e:
+                            print(f"[MAIN_PLOT] Error converting scalar data: {e}")
                             data_array = np.array([0.0], dtype=np.float32)
                     
                     # Handle shape if provided
@@ -1369,7 +1389,8 @@ class NodeManager:
                             if shape and np.prod(shape) == data_array.size:
                                 try:
                                     data_array = data_array.reshape(shape)
-                                except:
+                                except Exception as e:
+                                    print(f"[MAIN_PLOT] Error reshaping multi_data array: {e}")                                    
                                     pass
                     else:
                         print(f"[MAIN_PLOT] Empty multi_data")
@@ -1410,10 +1431,6 @@ class NodeManager:
                 try:
                     # Try vector plot first
                     success = plotter.plot_vector(data_array)
-                    if not success:
-                        print(f"[MAIN_PLOT] plot_vector failed, trying line plot")
-                        # Try alternative plotting method
-                        success = plotter.plot_vector(data_array)
                     if not success:
                         print(f"[MAIN_PLOT] line plot failed, trying scatter")
                         # Try scatter as last resort
@@ -1509,7 +1526,7 @@ class NodeManager:
             qsize = self.monitor_data_queue.qsize()
             
             # If queue is getting too full, aggressively clear it
-            if qsize > 50:
+            if qsize > STATUS_QUEUE_SIZE:
                 print(f"[HEALTH] Queue overloaded ({qsize}), clearing old items...")
                 
                 # Keep only the latest item for each monitor
@@ -1526,14 +1543,16 @@ class NodeManager:
                             latest_items[monitor_id] = item
                         else:
                             temp_items.append(item)  # Keep non-data items
-                    except:
+                    except Exception as e:
+                        print(f"[HEALTH] Error draining queue: {e}")
                         break
                 
                 # Put back latest items and non-data items
                 for item in list(latest_items.values()) + temp_items:
                     try:
                         self.monitor_data_queue.put(item)
-                    except:
+                    except Exception as e:
+                        print(f"[HEALTH] Error putting item back in queue: {e}")                        
                         break
                 
                 print(f"[HEALTH] Queue reduced from {qsize} to {self.monitor_data_queue.qsize()} items")
@@ -1630,11 +1649,12 @@ class NodeManager:
                                 
                                 dpg.set_value(f"{window_tag}_status", f"{symbol} {status.capitalize()}")
                                 dpg.configure_item(f"{window_tag}_status", color=color)
-                except:
+                except Exception as e:
+                    print(f"[MONITOR] Error processing status update: {e}")
                     break
             
             # Process only a limited number of items per frame to prevent overload
-            max_items_per_frame = 5
+            max_items_per_frame = MAX_QUEUE_ITEMS_PER_FRAME
             
 
             for _ in range(max_items_per_frame):
@@ -1783,12 +1803,13 @@ class NodeManager:
             if not window_tag or not dpg.does_item_exist(window_tag):
                 print(f"[CLEANUP] Removing dead monitor: {monitor_id}")
                 dead_monitors.append(monitor_id)
-        
-        for monitor_id in dead_monitors:
-            if monitor_id in self.simple_displays:
-                self.simple_displays[monitor_id].cleanup()
-                del self.simple_displays[monitor_id]
-            del self.active_monitors[monitor_id]
+
+        with self.monitor_lock:
+            for monitor_id in dead_monitors:
+                if monitor_id in self.simple_displays:
+                    self.simple_displays[monitor_id].cleanup()
+                    del self.simple_displays[monitor_id]
+                del self.active_monitors[monitor_id]
         
         # Force garbage collection
         gc.collect()
@@ -1803,8 +1824,6 @@ class NodeManager:
                 
     def _check_memory_usage(self):
         """Check and log memory usage."""
-        import psutil
-        import os
         
         process = psutil.Process(os.getpid())
         mem_info = process.memory_info()
@@ -1829,7 +1848,8 @@ class NodeManager:
             if self.socketio_connected:
                 try:
                     self.sio.emit('unsubscribe', {'output': output_name})
-                except:
+                except Exception as e:
+                    print(f"[CLEANUP] Error unsubscribing from {output_name}: {e}")
                     pass
         
         # Stop monitor updater
@@ -2382,11 +2402,6 @@ class NodeManager:
         self._refresh_node_theme(dst_uuid)
         self._refresh_node_theme(src_uuid)
 
-
-        # 7 Remove visual link
-        if dpg.does_item_exist(link_id):
-            dpg.delete_item(link_id)
-
             
     def add_dynamic_io(self, node_uuid):
         parent = self.uuid_to_dpg[node_uuid]
@@ -2420,7 +2435,7 @@ class NodeManager:
         dpg.delete_item("specula_editor", children_only=True)
 
 
-    def manual_link(self, src_uuid, src_attr, dst_uuid, dst_attr, delay=0):
+    def manual_link(self, src_uuid, src_attr, dst_uuid, dst_attr, delay=0)-> bool:
         """Robustly links nodes, creating pins for indices like 'out_layer:-1'."""
         src_id = None
         dst_id = None
@@ -2512,6 +2527,11 @@ class NodeManager:
             # Refresh themes of both nodes
             self._refresh_node_theme(dst_uuid)
             self._refresh_node_theme(src_uuid)
+            return True
+        else:
+            print(f"[MANUAL_LINK] Failed: src_id={src_id}, dst_id={dst_id} "
+              f"for {src_uuid}.{src_attr} -> {dst_uuid}.{dst_attr}")
+            return False
 
     def _update_data_object_param(self, sender, app_data, user_data):
         """Update data object parameter value."""
@@ -3147,7 +3167,6 @@ class NodeManager:
         try:
             # 1. Handle List / Complex parsing from Text Inputs
             if target_type == 'list' or (isinstance(app_data, str) and app_data.startswith("[")):
-                import ast
                 try:
                     # Safely convert "[1, 2]" -> [1, 2]
                     final_val = ast.literal_eval(app_data)

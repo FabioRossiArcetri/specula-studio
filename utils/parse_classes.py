@@ -1,8 +1,8 @@
-import os
 import ast
 import yaml
 import sys
 from pathlib import Path
+import re
 
 def represent_tuple(dumper, data):
     return dumper.represent_sequence('tag:yaml.org,2002:seq', data)
@@ -78,7 +78,8 @@ class SpeculaMetadataParser(ast.NodeVisitor):
                 default_node = defaults[i - diff]
                 try:
                     default_val = ast.literal_eval(default_node)
-                except:
+                except Exception as e:
+                    print(f"[INIT_PARSE] Could not evaluate default for {name} in {info['class_name']}: {e}")                    
                     default_val = ast.unparse(default_node)
             
             # Save as a standard parameter
@@ -109,8 +110,11 @@ class SpeculaMetadataParser(ast.NodeVisitor):
 
     def _get_key(self, node):
         if isinstance(node, ast.Constant): return node.value
-        try: return ast.unparse(node).strip("'").strip('"')
-        except: return str(node)
+        try: 
+            return ast.unparse(node).strip("'").strip('"')
+        except Exception as e:
+            print(f"[KEY_PARSE] Error parsing key from node: {e}")
+            return str(node)
 
     def resolve_inheritance(self):
         """
@@ -156,108 +160,11 @@ class SpeculaMetadataParser(ast.NodeVisitor):
                                 info["outputs"].append(out)
 
                 # --- Step C: Kind Assignment ---
-                    self._assign_parameter_kinds(info)
+                self._assign_parameter_kinds(info)
 
-    def _assign_parameter_kinds(self, info):
-        """
-        Assign 'kind' to parameters based on type and explicit rules:
-        - If parameter type is in reference_data_objects -> 'reference'
-        - Else if parameter type is a Data Object -> 'object' (loaded from disk)
-        - Else -> 'value'
-        """
-        for param, meta in info["parameters"].items():
-            p_type = meta.get("type")
-            
-            # First check block list
-            if param in self.ref_block_list:
-                meta["kind"] = "value"
-                continue
-            
-            # Helper function to check if a type is a Data Object
-            def is_data_object_type(type_str):
-                """Check if a type string represents a Data Object."""
-                if not type_str:
-                    return False
-                    
-                # Check if it's a known class
-                if type_str in self.found_classes:
-                    class_info = self.found_classes[type_str]
-                    bases = class_info.get("bases", [])
-                    
-                    # Check direct inheritance from Data Object bases
-                    for base in bases:
-                        # Get base name without module prefix
-                        base_name = base.split('.')[-1]
-                        if base_name in self.data_base_classes:
-                            return True
-                        # Also check recursively
-                        if is_data_object_type(base_name):
-                            return True
-                return False
-            
-            # Helper function to extract inner type from generic annotations
-            def extract_inner_type(type_str):
-                """Extract inner type from generic annotations like list[T], dict[K, V]."""
-                if not type_str:
-                    return None
-                    
-                import re
-                # Match patterns like list[T], List[T], dict[K, V], Dict[K, V]
-                list_pattern = r'^(list|List)\[([^]]+)\]$'
-                dict_pattern = r'^(dict|Dict)\[([^]]+),([^]]+)\]$'
-                
-                list_match = re.match(list_pattern, type_str)
-                if list_match:
-                    inner_type = list_match.group(2).strip()
-                    return inner_type
-                
-                dict_match = re.match(dict_pattern, type_str)
-                if dict_match:
-                    # For dict, check the value type (third group)
-                    value_type = dict_match.group(3).strip()
-                    return value_type
-                
-                return None
-            
-            # Check if it's a generic type (list/dict)
-            inner_type = extract_inner_type(p_type)
-            is_generic = inner_type is not None
-            
-            if is_generic:
-                # Check if the inner type is a Data Object
-                if is_data_object_type(inner_type):
-                    # Generic of Data Objects
-                    # Check if the inner type is in reference_data_objects
-                    if inner_type in self.reference_data_objects:
-                        meta["kind"] = "reference"
-                    else:
-                        # Generic of non-reference Data Objects
-                        meta["kind"] = "object"
-                else:
-                    # Generic of non-Data Objects -> value
-                    meta["kind"] = "value"
-            
-            # Check if type is a known class
-            elif p_type in self.found_classes:
-                # Check if it's a Data Object
-                if is_data_object_type(p_type):
-                    # Check if it's in the reference set
-                    if p_type in self.reference_data_objects:
-                        meta["kind"] = "reference"
-                    else:
-                        # Data Object not in reference set -> object (loaded from disk)
-                        meta["kind"] = "object"
-                else:
-                    # Not a Data Object -> value
-                    meta["kind"] = "value"
-            
-            else:
-                # Not a known class -> treat as value
-                meta["kind"] = "value"
-            
-            # Debug output
-            class_name = info.get('class_name', 'unknown')
-            print(f"[KIND_DEBUG] {class_name}.{param}: type={p_type}, kind={meta['kind']}")
+
+   
+    
     def _assign_parameter_kinds(self, info):
         """
         Assign 'kind' to parameters based on type:
@@ -271,58 +178,10 @@ class SpeculaMetadataParser(ast.NodeVisitor):
             # First check block list
             if param in self.ref_block_list:
                 meta["kind"] = "value"
-                continue
-            
-            # Helper function to check if a type is a Data Object
-            def is_data_object_type(type_str):
-                """Check if a type string represents a Data Object."""
-                if not type_str:
-                    return False
-                    
-                # First check if it's a data base class
-                if type_str in self.data_base_classes:
-                    return True
-                    
-                # Check if it's a known class
-                if type_str in self.found_classes:
-                    class_info = self.found_classes[type_str]
-                    bases = class_info.get("bases", [])
-                    
-                    # Check direct inheritance
-                    for base in bases:
-                        # Get base name without module prefix for comparison
-                        base_name = base.split('.')[-1]
-                        if base_name in self.data_base_classes or is_data_object_type(base_name):
-                            return True
-                return False
-            
-            # Helper function to check if it's a generic type (list/dict) of Data Objects
-            def is_generic_of_data_object(type_str):
-                """Check if type is list[T] or dict[K, V] where T/V is a Data Object."""
-                if not type_str:
-                    return False
-                    
-                # Check for list[T]
-                import re
-                # Match patterns like list[T], List[T], dict[K, V], Dict[K, V]
-                list_pattern = r'^(list|List)\[([^]]+)\]$'
-                dict_pattern = r'^(dict|Dict)\[([^]]+),([^]]+)\]$'
-                
-                list_match = re.match(list_pattern, type_str)
-                if list_match:
-                    inner_type = list_match.group(2).strip()
-                    return is_data_object_type(inner_type)
-                
-                dict_match = re.match(dict_pattern, type_str)
-                if dict_match:
-                    # For dict, check the value type (second group)
-                    value_type = dict_match.group(3).strip()
-                    return is_data_object_type(value_type)
-                
-                return False
+                continue                         
             
             # Determine the kind
-            if is_data_object_type(p_type) or is_generic_of_data_object(p_type):
+            if self.is_data_object_type(p_type) or self.is_generic_of_data_object(p_type):
                 # ALL Data Objects and generics of Data Objects should be references
                 meta["kind"] = "reference"
             else:
@@ -331,6 +190,77 @@ class SpeculaMetadataParser(ast.NodeVisitor):
             # Debug
             print(f"[KIND_DEBUG] {info.get('class_name', 'unknown')}.{param}: type={p_type}, kind={meta['kind']}")
 
+    # Helper function to check if a type is a Data Object
+    def is_data_object_type(self, type_str):
+        """Check if a type string represents a Data Object."""
+        if not type_str:
+            return False
+            
+        # First check if it's a data base class
+        if type_str in self.data_base_classes:
+            return True
+            
+        # Check if it's a known class
+        if type_str in self.found_classes:
+            class_info = self.found_classes[type_str]
+            bases = class_info.get("bases", [])
+            
+            # Check direct inheritance
+            for base in bases:
+                # Get base name without module prefix for comparison
+                base_name = base.split('.')[-1]
+                if base_name in self.data_base_classes or self.is_data_object_type(base_name):
+                    return True
+        return False
+    
+    # Helper function to check if it's a generic type (list/dict) of Data Objects
+    def is_generic_of_data_object(self, type_str):
+        """Check if type is list[T] or dict[K, V] where T/V is a Data Object."""
+        if not type_str:
+            return False
+            
+        # Check for list[T]                
+        # Match patterns like list[T], List[T], dict[K, V], Dict[K, V]
+        list_pattern = r'^(list|List)\[([^]]+)\]$'
+        dict_pattern = r'^(dict|Dict)\[([^]]+),([^]]+)\]$'
+        
+        list_match = re.match(list_pattern, type_str)
+        if list_match:
+            inner_type = list_match.group(2).strip()
+            return self.is_data_object_type(inner_type)
+        
+        dict_match = re.match(dict_pattern, type_str)
+        if dict_match:
+            # For dict, check the value type (second group)
+            value_type = dict_match.group(3).strip()
+            return self.is_data_object_type(value_type)
+        
+        return False
+    
+    # Helper function to extract inner type from generic annotations
+    def extract_inner_type(self, type_str):
+        """Extract inner type from generic annotations like list[T], dict[K, V]."""
+        if not type_str:
+            return None
+            
+        import re
+        # Match patterns like list[T], List[T], dict[K, V], Dict[K, V]
+        list_pattern = r'^(list|List)\[([^]]+)\]$'
+        dict_pattern = r'^(dict|Dict)\[([^]]+),([^]]+)\]$'
+        
+        list_match = re.match(list_pattern, type_str)
+        if list_match:
+            inner_type = list_match.group(2).strip()
+            return inner_type
+        
+        dict_match = re.match(dict_pattern, type_str)
+        if dict_match:
+            # For dict, check the value type (third group)
+            value_type = dict_match.group(3).strip()
+            return value_type
+        
+        return None
+    
 def run_parser(input_folders, output_folder):
     parser = SpeculaMetadataParser()
     
