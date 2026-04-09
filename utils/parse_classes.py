@@ -1,6 +1,9 @@
 import ast
 import yaml
 import sys
+import importlib
+import inspect
+import pkgutil
 from pathlib import Path
 import re
 
@@ -259,7 +262,97 @@ class SpeculaMetadataParser(ast.NodeVisitor):
             return value_type
         
         return None
-    
+
+    @staticmethod
+    def _type_name(type_obj):
+        """Return the string name of a Python type object."""
+        return type_obj.__name__ if hasattr(type_obj, '__name__') else str(type_obj)
+
+    def enrich_from_runtime(self, input_folders):
+        """
+        Pass 3: For processing_objects classes that define input_names() and/or
+        output_names() classmethods, call them at runtime and use the returned
+        data to *replace* the AST-parsed inputs/outputs.
+        """
+        try:
+            import specula
+            specula.init(0)
+        except Exception as e:
+            print(f"[RUNTIME] Could not initialize specula: {e}")
+            print("[RUNTIME] Skipping runtime enrichment — AST-only mode.")
+            return
+
+        try:
+            import specula.processing_objects as proc_pkg
+            import specula.data_objects as data_pkg
+        except ImportError as e:
+            print(f"[RUNTIME] Could not import specula packages: {e}")
+            return
+
+        runtime_classes = {}
+        for pkg in [proc_pkg, data_pkg]:
+            for _, module_name, _ in pkgutil.iter_modules(pkg.__path__):
+                full_name = f"{pkg.__name__}.{module_name}"
+                try:
+                    module = importlib.import_module(full_name)
+                except Exception as e:
+                    print(f"[RUNTIME] Could not import {full_name}: {e}")
+                    continue
+                for cname, klass in inspect.getmembers(module, inspect.isclass):
+                    if klass.__module__ == module.__name__:
+                        runtime_classes[cname] = klass
+
+        enriched_count = 0
+        for class_name, info in self.found_classes.items():
+            if class_name not in runtime_classes:
+                continue
+            klass = runtime_classes[class_name]
+
+            # Enrich inputs from input_names()
+            if hasattr(klass, 'input_names') and callable(klass.input_names):
+                try:
+                    input_dict = klass.input_names()
+                    if isinstance(input_dict, dict) and len(input_dict) > 0:
+                        new_inputs = {}
+                        for inp_name, inp_desc in input_dict.items():
+                            inp_type_name = self._type_name(inp_desc.type)
+                            inp_description = inp_desc.desc if hasattr(inp_desc, 'desc') else ''
+                            existing_kind = info["inputs"].get(inp_name, {}).get("kind", "single")
+                            if class_name in self.variadic_input_classes and inp_name == "input_list":
+                                existing_kind = "variadic"
+                            new_inputs[inp_name] = {
+                                "type": inp_type_name,
+                                "kind": existing_kind,
+                                "desc": inp_description,
+                            }
+                        info["inputs"] = new_inputs
+                        enriched_count += 1
+                except Exception as e:
+                    print(f"[RUNTIME] {class_name}.input_names() failed: {e}")
+
+            # Enrich outputs from output_names()
+            if hasattr(klass, 'output_names') and callable(klass.output_names):
+                try:
+                    output_dict = klass.output_names()
+                    if isinstance(output_dict, dict) and len(output_dict) > 0:
+                        new_outputs = []
+                        new_output_details = {}
+                        for out_name, out_desc in output_dict.items():
+                            out_type_name = self._type_name(out_desc.type)
+                            out_description = out_desc.desc if hasattr(out_desc, 'desc') else ''
+                            new_outputs.append(out_name)
+                            new_output_details[out_name] = {
+                                "type": out_type_name,
+                                "desc": out_description,
+                            }
+                        info["outputs"] = new_outputs
+                        info["output_details"] = new_output_details
+                        enriched_count += 1
+                except Exception as e:
+                    print(f"[RUNTIME] {class_name}.output_names() failed: {e}")
+
+        print(f"[RUNTIME] Enriched {enriched_count} class(es) from runtime input_names/output_names.")
+
 def run_parser(input_folders, output_folder):
     parser = SpeculaMetadataParser()
     
@@ -277,6 +370,9 @@ def run_parser(input_folders, output_folder):
 
     # Pass 2: Merge data
     parser.resolve_inheritance()
+
+    # Pass 3: Runtime enrichment from input_names() / output_names()
+    parser.enrich_from_runtime(input_folders)
 
     # Debug: Print all found classes
     print(f"\n[DEBUG] Found {len(parser.found_classes)} classes:")
