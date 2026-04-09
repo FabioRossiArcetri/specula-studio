@@ -1,11 +1,10 @@
 import ast
-import yaml
-import sys
 import importlib
-import inspect
 import pkgutil
-from pathlib import Path
 import re
+import sys
+import yaml
+from pathlib import Path
 
 def represent_tuple(dumper, data):
     return dumper.represent_sequence('tag:yaml.org,2002:seq', data)
@@ -264,31 +263,27 @@ class SpeculaMetadataParser(ast.NodeVisitor):
         return None
 
     @staticmethod
-    def _type_name(type_obj):
-        """Return the string name of a Python type object."""
-        return type_obj.__name__ if hasattr(type_obj, '__name__') else str(type_obj)
+    def _type_name(descriptor):
+        """Return the string name of a runtime descriptor's .type attribute."""
+        t = descriptor.type
+        return t.__name__ if hasattr(t, '__name__') else str(t)
 
-    def enrich_from_runtime(self, input_folders):
+    def enrich_from_runtime(self):
         """
-        Pass 3: For processing_objects classes that define input_names() and/or
-        output_names() classmethods, call them at runtime and use the returned
-        data to *replace* the AST-parsed inputs/outputs.
+        Pass 3: For classes that define input_names() and/or output_names()
+        classmethods, call them at runtime and REPLACE the AST-parsed
+        inputs/outputs with the authoritative runtime data.
+
+        specula is assumed to always be installed.
         """
-        try:
-            import specula
-            specula.init(0)
-        except Exception as e:
-            print(f"[RUNTIME] Could not initialize specula: {e}")
-            print("[RUNTIME] Skipping runtime enrichment — AST-only mode.")
-            return
+        import inspect
+        import specula
+        import specula.processing_objects as proc_pkg
+        import specula.data_objects as data_pkg
 
-        try:
-            import specula.processing_objects as proc_pkg
-            import specula.data_objects as data_pkg
-        except ImportError as e:
-            print(f"[RUNTIME] Could not import specula packages: {e}")
-            return
+        specula.init(0)  # CPU-only mode
 
+        # Build map of class_name -> actual class
         runtime_classes = {}
         for pkg in [proc_pkg, data_pkg]:
             for _, module_name, _ in pkgutil.iter_modules(pkg.__path__):
@@ -308,14 +303,14 @@ class SpeculaMetadataParser(ast.NodeVisitor):
                 continue
             klass = runtime_classes[class_name]
 
-            # Enrich inputs from input_names()
+            # Replace inputs from input_names() if available
             if hasattr(klass, 'input_names') and callable(klass.input_names):
                 try:
                     input_dict = klass.input_names()
                     if isinstance(input_dict, dict) and len(input_dict) > 0:
                         new_inputs = {}
                         for inp_name, inp_desc in input_dict.items():
-                            inp_type_name = self._type_name(inp_desc.type)
+                            inp_type_name = self._type_name(inp_desc)
                             inp_description = inp_desc.desc if hasattr(inp_desc, 'desc') else ''
                             existing_kind = info["inputs"].get(inp_name, {}).get("kind", "single")
                             if class_name in self.variadic_input_classes and inp_name == "input_list":
@@ -326,11 +321,12 @@ class SpeculaMetadataParser(ast.NodeVisitor):
                                 "desc": inp_description,
                             }
                         info["inputs"] = new_inputs
+                        print(f"[RUNTIME] {class_name}: replaced inputs from input_names() -> {list(new_inputs.keys())}")
                         enriched_count += 1
                 except Exception as e:
                     print(f"[RUNTIME] {class_name}.input_names() failed: {e}")
 
-            # Enrich outputs from output_names()
+            # Replace outputs from output_names() if available
             if hasattr(klass, 'output_names') and callable(klass.output_names):
                 try:
                     output_dict = klass.output_names()
@@ -338,7 +334,7 @@ class SpeculaMetadataParser(ast.NodeVisitor):
                         new_outputs = []
                         new_output_details = {}
                         for out_name, out_desc in output_dict.items():
-                            out_type_name = self._type_name(out_desc.type)
+                            out_type_name = self._type_name(out_desc)
                             out_description = out_desc.desc if hasattr(out_desc, 'desc') else ''
                             new_outputs.append(out_name)
                             new_output_details[out_name] = {
@@ -347,15 +343,17 @@ class SpeculaMetadataParser(ast.NodeVisitor):
                             }
                         info["outputs"] = new_outputs
                         info["output_details"] = new_output_details
+                        print(f"[RUNTIME] {class_name}: replaced outputs from output_names() -> {new_outputs}")
                         enriched_count += 1
                 except Exception as e:
                     print(f"[RUNTIME] {class_name}.output_names() failed: {e}")
 
         print(f"[RUNTIME] Enriched {enriched_count} class(es) from runtime input_names/output_names.")
 
+
 def run_parser(input_folders, output_folder):
     parser = SpeculaMetadataParser()
-    
+
     # Pass 1: Scan files
     for folder in input_folders:
         path = Path(folder)
@@ -372,7 +370,7 @@ def run_parser(input_folders, output_folder):
     parser.resolve_inheritance()
 
     # Pass 3: Runtime enrichment from input_names() / output_names()
-    parser.enrich_from_runtime(input_folders)
+    parser.enrich_from_runtime()
 
     # Debug: Print all found classes
     print(f"\n[DEBUG] Found {len(parser.found_classes)} classes:")
