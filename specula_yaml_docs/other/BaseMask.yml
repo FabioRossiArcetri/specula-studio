@@ -1,9 +1,0 @@
-BaseMask:
-  bases: []
-  parameters:
-    mask_array:
-      type: Any
-      default: REQUIRED
-  inputs: {}
-  outputs: []
-  references: []

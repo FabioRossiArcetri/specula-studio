@@ -14,11 +14,11 @@ DM:
     ifunc:
       type: IFunc
       default: null
-      kind: value
+      kind: object
     m2c:
       type: M2C
       default: null
-      kind: value
+      kind: object
     type_str:
       type: str
       default: null
@@ -34,10 +34,6 @@ DM:
     start_mode:
       type: int
       default: null
-      kind: value
-    input_offset:
-      type: int
-      default: 0
       kind: value
     idx_modes:
       type: Any
@@ -58,7 +54,7 @@ DM:
     pupilstop:
       type: Pupilstop
       default: null
-      kind: value
+      kind: object
     sign:
       type: int
       default: -1
@@ -75,5 +71,10 @@ DM:
     in_command:
       type: BaseValue
       kind: single
+      desc: Input command vector for DM actuators
   outputs:
+  - name: out_layer
+    type: Layer
+    desc: Output wavefront layer produced by the DM
+  output_names:
   - out_layer

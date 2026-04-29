@@ -1,0 +1,36 @@
+BaseInserter:
+  class_name: BaseInserter
+  bases:
+  - BaseProcessingObj
+  parameters:
+    output_size:
+      type: Any
+      default: REQUIRED
+      kind: value
+    indices:
+      type: Any
+      default: null
+      kind: value
+    slice_args:
+      type: Any
+      default: null
+      kind: value
+    target_device_idx:
+      type: Any
+      default: null
+      kind: value
+    precision:
+      type: Any
+      default: null
+      kind: value
+  inputs:
+    in_value:
+      type: BaseValue
+      kind: single
+      desc: Input vector to insert into the larger output vector
+  outputs:
+  - name: out_value
+    type: BaseValue
+    desc: Output vector with inserted values
+  output_names:
+  - out_value

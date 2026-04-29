@@ -83,7 +83,7 @@ ModulatedPyramid:
       kind: value
     min_pup_dist:
       type: float
-      default: null
+      default: 0.0
       kind: value
     rotAnglePhInDeg:
       type: float
@@ -97,6 +97,14 @@ ModulatedPyramid:
       type: float
       default: 0.0
       kind: value
+    magnification:
+      type: float
+      default: 1.0
+      kind: value
+    force_extrapolation:
+      type: bool
+      default: false
+      kind: value
     target_device_idx:
       type: int
       default: null
@@ -109,8 +117,27 @@ ModulatedPyramid:
     in_ef:
       type: ElectricField
       kind: single
+      desc: Input electric field from the telescope pupil.Contains complex amplitude
+        and phase information that will be modulated and propagated through the pyramid.
   outputs:
+  - name: out_i
+    type: Intensity
+    desc: "Output intensity on detector CCD (shape: final_ccd_side \xD7 final_ccd_side)"
+  - name: out_psf_tot
+    type: BaseValue
+    desc: "Total PSF after focal plane mask application (shape: fft_totsize \xD7 fft_totsize)"
+  - name: out_psf_bfm
+    type: BaseValue
+    desc: "PSF before focal plane mask (shape: fft_totsize \xD7 fft_totsize)"
+  - name: out_transmission
+    type: BaseValue
+    desc: Scalar value representing total flux transmission through the system
+  - name: out_flux_frac_inside_detector
+    type: BaseValue
+    desc: Fraction of total flux that falls inside the CCD area
+  output_names:
   - out_i
   - out_psf_tot
   - out_psf_bfm
   - out_transmission
+  - out_flux_frac_inside_detector

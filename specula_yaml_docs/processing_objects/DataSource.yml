@@ -15,6 +15,10 @@ DataSource:
       type: str
       default: fits
       kind: value
+    global_precision:
+      type: int
+      default: null
+      kind: value
   inputs: {}
   outputs:
   - k

@@ -1,0 +1,60 @@
+DynamicDarkCalibrator:
+  class_name: DynamicDarkCalibrator
+  bases:
+  - BaseProcessingObj
+  parameters:
+    data_dir:
+      type: str
+      default: REQUIRED
+      kind: value
+    nframes:
+      type: int
+      default: REQUIRED
+      kind: value
+    overwrite:
+      type: bool
+      default: false
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_pixels:
+      type: Pixels
+      kind: single
+      desc: Input pixel frame to be dark-subtracted
+    in_trigger:
+      type: BaseValue
+      kind: single
+      desc: Trigger signal to start dark frame acquisition (optional)
+    in_nframes:
+      type: BaseValue
+      kind: single
+      desc: Dynamically updates the number of integration frames (optional)
+    in_load:
+      type: BaseValue
+      kind: single
+      desc: Filename of a dark frame to load from disk (optional)
+    in_save:
+      type: BaseValue
+      kind: single
+      desc: Filename to save the current dark frame to disk (optional)
+    in_reset:
+      type: BaseValue
+      kind: single
+      desc: Resets the current dark frame to zero (optional)
+  outputs:
+  - name: out_darkframe
+    type: Pixels
+    desc: Current dark frame computed by averaging input frames
+  - name: out_subtracted_pixels
+    type: Pixels
+    desc: Input pixels with the dark frame subtracted
+  output_names:
+  - out_darkframe
+  - out_subtracted_pixels

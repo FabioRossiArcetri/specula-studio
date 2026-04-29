@@ -1,0 +1,20 @@
+TerminalInput:
+  class_name: TerminalInput
+  bases:
+  - SpeculaInput
+  parameters:
+    output_list:
+      type: list
+      default: REQUIRED
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs:
+  - name

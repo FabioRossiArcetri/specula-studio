@@ -1,0 +1,59 @@
+GaussianConvolutionKernel:
+  class_name: GaussianConvolutionKernel
+  bases:
+  - ConvolutionKernel
+  parameters:
+    dimx:
+      type: int
+      default: REQUIRED
+      kind: value
+    dimy:
+      type: int
+      default: REQUIRED
+      kind: value
+    pxscale:
+      type: float
+      default: REQUIRED
+      kind: value
+    dimension:
+      type: int
+      default: REQUIRED
+      kind: value
+    spot_size:
+      type: float
+      default: REQUIRED
+      kind: value
+    pupil_size_m:
+      type: '0.0'
+      default: float
+      kind: value
+    oversampling:
+      type: int
+      default: 1
+      kind: value
+    return_fft:
+      type: bool
+      default: true
+      kind: value
+    positive_shift_tt:
+      type: bool
+      default: true
+      kind: value
+    airmass:
+      type: float
+      default: 1.0
+      kind: value
+    data_dir:
+      type: str
+      default: ''
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs: []

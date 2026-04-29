@@ -8,7 +8,7 @@ CCD:
       default: REQUIRED
       kind: reference
     size:
-      type: int
+      type: list
       default: REQUIRED
       kind: value
     dt:
@@ -123,6 +123,14 @@ CCD:
     in_i:
       type: Intensity
       kind: single
+      desc: Input intensity field from wavefront sensor
   outputs:
+  - name: out_pixels
+    type: Pixels
+    desc: Output pixel data after noise and binning
+  - name: integrated_i
+    type: Intensity
+    desc: Integrated intensity over the exposure
+  output_names:
   - out_pixels
   - integrated_i

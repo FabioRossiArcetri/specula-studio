@@ -1,66 +1,18 @@
 Modalrec:
   class_name: Modalrec
   bases:
-  - BaseProcessingObj
+  - BaseModalrec
   parameters:
+    recmat:
+      type: Recmat
+      default: REQUIRED
+      kind: object
     nmodes:
       type: int
       default: null
       kind: value
-    recmat:
-      type: Recmat
-      default: null
-      kind: value
-    projmat:
-      type: Recmat
-      default: null
-      kind: value
-    intmat:
-      type: Intmat
-      default: null
-      kind: value
-    polc:
-      type: bool
-      default: false
-      kind: value
-    in_commands_size:
-      type: int
-      default: null
-      kind: value
-    filtmat:
-      type: Any
-      default: null
-      kind: value
-    identity:
-      type: bool
-      default: false
-      kind: value
     ncutmodes:
       type: int
-      default: null
-      kind: value
-    nSlopesToBeDiscarded:
-      type: int
-      default: null
-      kind: value
-    dmNumber:
-      type: int
-      default: 0
-      kind: value
-    noProj:
-      type: bool
-      default: false
-      kind: value
-    input_modes_index:
-      type: list
-      default: null
-      kind: value
-    input_modes_slice:
-      type: list
-      default: null
-      kind: value
-    output_slice:
-      type: list
       default: null
       kind: value
     target_device_idx:
@@ -75,15 +27,14 @@ Modalrec:
     in_slopes:
       type: Slopes
       kind: single
+      desc: Input wavefront slope vector (optional)
     in_slopes_list:
       type: Slopes
       kind: single
-    in_commands:
-      type: BaseValue
-      kind: single
-    in_commands_list:
-      type: BaseValue
-      kind: single
+      desc: List of input slope vectors (optional)
   outputs:
+  - name: out_modes
+    type: BaseValue
+    desc: Reconstructed modal command vector
+  output_names:
   - out_modes
-  - out_pseudo_ol_modes

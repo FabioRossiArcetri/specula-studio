@@ -31,4 +31,5 @@ DataPrint:
     in_value:
       type: BaseValue
       kind: single
+      desc: Input value to print
   outputs: []

@@ -15,5 +15,10 @@ AVC:
     in_measurement:
       type: BaseValue
       kind: single
+      desc: Input measurement signal
   outputs:
+  - name: out_comm
+    type: BaseValue
+    desc: Output correction command
+  output_names:
   - out_comm

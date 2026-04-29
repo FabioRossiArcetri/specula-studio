@@ -1,0 +1,48 @@
+PhaseScreenCube:
+  class_name: PhaseScreenCube
+  bases:
+  - BaseProcessingObj
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    cube:
+      type: SpatioTempArray
+      default: REQUIRED
+      kind: reference
+    pixel_scale:
+      type: float
+      default: REQUIRED
+      kind: value
+    source_dict:
+      type: dict
+      default: null
+      kind: reference
+    layer_height:
+      type: float
+      default: 0.0
+      kind: value
+    scale_factor:
+      type: float
+      default: 1.0
+      kind: value
+    target_device_idx:
+      type: Any
+      default: null
+      kind: value
+  inputs:
+    pupilstop:
+      type: Pupilstop
+      kind: single
+      desc: Pupil stop defining the valid telescope aperture
+  outputs:
+  - name: out_layer
+    type: Layer
+    desc: Output atmospheric phase layer (default single-source name)
+  - name: out_ef
+    type: ElectricField
+    desc: Output electric field for the line of sight (default single-source name)
+  output_names:
+  - out_layer
+  - out_ef

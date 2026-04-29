@@ -1,0 +1,78 @@
+CiaoCiaoSensor:
+  class_name: CiaoCiaoSensor
+  bases:
+  - BaseProcessingObj
+  parameters:
+    wavelengthInNm:
+      type: float
+      default: REQUIRED
+      kind: value
+    number_px:
+      type: int
+      default: REQUIRED
+      kind: value
+    diffRotAngleInDeg:
+      type: float
+      default: 180.0
+      kind: value
+    tiltInArcsec:
+      type: Any
+      default:
+      - 0.0
+      - 0.0
+      kind: value
+    rotAnglePhInDeg:
+      type: float
+      default: 0.0
+      kind: value
+    xShiftPhInPixel:
+      type: float
+      default: 0.0
+      kind: value
+    yShiftPhInPixel:
+      type: float
+      default: 0.0
+      kind: value
+    magnification:
+      type: float
+      default: 1.0
+      kind: value
+    xShiftDiffPhInPixel:
+      type: float
+      default: 0.0
+      kind: value
+    yShiftDiffPhInPixel:
+      type: float
+      default: 0.0
+      kind: value
+    magnificationDiff:
+      type: float
+      default: 1.0
+      kind: value
+    channel_flux:
+      type: float
+      default: 0.5
+      kind: value
+    normalize_flux:
+      type: bool
+      default: true
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_ef:
+      type: ElectricField
+      kind: single
+      desc: Input electric field
+  outputs:
+  - name: out_i
+    type: Intensity
+    desc: Output interference intensity pattern
+  output_names:
+  - out_i

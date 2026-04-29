@@ -1,0 +1,20 @@
+SpeculaInput:
+  class_name: SpeculaInput
+  bases:
+  - BaseProcessingObj
+  parameters:
+    output_list:
+      type: list
+      default: REQUIRED
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs:
+  - name

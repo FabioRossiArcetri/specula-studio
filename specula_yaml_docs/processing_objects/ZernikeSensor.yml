@@ -1,0 +1,73 @@
+ZernikeSensor:
+  class_name: ZernikeSensor
+  bases:
+  - ModulatedPyramid
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    wavelengthInNm:
+      type: float
+      default: REQUIRED
+      kind: value
+    fov:
+      type: float
+      default: REQUIRED
+      kind: value
+    pup_diam:
+      type: int
+      default: REQUIRED
+      kind: value
+    output_resolution:
+      type: int
+      default: REQUIRED
+      kind: value
+    spot_radius_lambda:
+      type: float
+      default: 1.0
+      kind: value
+    phase_shift_pi:
+      type: float
+      default: 0.5
+      kind: value
+    fft_res:
+      type: float
+      default: 4.0
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_ef:
+      type: ElectricField
+      kind: single
+      desc: Input electric field from the telescope pupil.Contains complex amplitude
+        and phase information that will be modulated and propagated through the pyramid.
+  outputs:
+  - name: out_i
+    type: Intensity
+    desc: "Output intensity on detector CCD (shape: final_ccd_side \xD7 final_ccd_side)"
+  - name: out_psf_tot
+    type: BaseValue
+    desc: "Total PSF after focal plane mask application (shape: fft_totsize \xD7 fft_totsize)"
+  - name: out_psf_bfm
+    type: BaseValue
+    desc: "PSF before focal plane mask (shape: fft_totsize \xD7 fft_totsize)"
+  - name: out_transmission
+    type: BaseValue
+    desc: Scalar value representing total flux transmission through the system
+  - name: out_flux_frac_inside_detector
+    type: BaseValue
+    desc: Fraction of total flux that falls inside the CCD area
+  output_names:
+  - out_i
+  - out_psf_tot
+  - out_psf_bfm
+  - out_transmission
+  - out_flux_frac_inside_detector

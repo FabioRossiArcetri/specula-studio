@@ -75,5 +75,10 @@ ExtendedSource:
     psf:
       type: BaseValue
       kind: single
+      desc: PSF data for extended source modeling from PSF (optional)
   outputs:
+  - name: coeff
+    type: BaseValue
+    desc: Extended source coefficients as a column-stacked array
+  output_names:
   - coeff

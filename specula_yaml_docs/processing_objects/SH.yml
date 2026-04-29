@@ -23,17 +23,13 @@ SH:
       type: int
       default: REQUIRED
       kind: value
-    FoVres30mas:
-      type: bool
-      default: false
-      kind: value
     squaremask:
       type: bool
       default: true
       kind: value
     fov_ovs_coeff:
       type: float
-      default: 0
+      default: 2.0
       kind: value
     xShiftPhInPixel:
       type: float
@@ -47,10 +43,6 @@ SH:
       type: float
       default: 0
       kind: value
-    do_not_double_fov_ovs:
-      type: bool
-      default: false
-      kind: value
     set_fov_res_to_turbpxsc:
       type: bool
       default: false
@@ -58,7 +50,7 @@ SH:
     laser_launch_tel:
       type: LaserLaunchTelescope
       default: null
-      kind: value
+      kind: reference
     subap_rows_slice:
       type: Any
       default: null
@@ -79,11 +71,18 @@ SH:
     in_ef:
       type: ElectricField
       kind: single
+      desc: Input electric field from the telescope pupil
     sodium_altitude:
       type: BaseValue
       kind: single
+      desc: Sodium layer altitude profile (optional)
     sodium_intensity:
       type: BaseValue
       kind: single
+      desc: Sodium layer intensity profile (optional)
   outputs:
+  - name: out_i
+    type: Intensity
+    desc: Output Shack-Hartmann focal-plane intensity image
+  output_names:
   - out_i

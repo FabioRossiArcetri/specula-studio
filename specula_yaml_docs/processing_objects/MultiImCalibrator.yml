@@ -30,7 +30,7 @@ MultiImCalibrator:
     pupilstop:
       type: Pupilstop
       default: null
-      kind: value
+      kind: object
     source_dict:
       type: list
       default: null
@@ -59,9 +59,18 @@ MultiImCalibrator:
     in_slopes_list:
       type: Slopes
       kind: single
+      desc: List of input slope vectors, one per WFS/sensor pair
     in_commands_list:
       type: BaseValue
       kind: single
+      desc: List of input command vectors, one per WFS/sensor pair
   outputs:
+  - name: out_intmat_list
+    type: Intmat
+    desc: List of per-WFS/sensor interaction matrices
+  - name: out_intmat_full
+    type: Intmat
+    desc: Full stacked interaction matrix from all sensors
+  output_names:
   - out_intmat_list
   - out_intmat_full

@@ -4,10 +4,15 @@ APPCoronagraph:
   class_name: APPCoronagraph
   inputs:
     in_ef:
+      desc: Input electric field from the telescope pupil
       kind: single
       type: ElectricField
-  outputs:
+  output_names:
   - out_ef
+  outputs:
+  - desc: Output electric field after coronagraph mask application
+    name: out_ef
+    type: ElectricField
   parameters:
     beta:
       default: 0.9
@@ -63,10 +68,15 @@ AVC:
   class_name: AVC
   inputs:
     in_measurement:
+      desc: Input measurement signal
       kind: single
       type: BaseValue
-  outputs:
+  output_names:
   - out_comm
+  outputs:
+  - desc: Output correction command
+    name: out_comm
+    type: BaseValue
   parameters:
     precision:
       default: null
@@ -82,16 +92,23 @@ AtmoEvolution:
   class_name: AtmoEvolution
   inputs:
     seeing:
+      desc: Atmospheric seeing value
       kind: single
       type: BaseValue
     wind_direction:
+      desc: Wind direction for each atmospheric layer
       kind: single
       type: BaseValue
     wind_speed:
+      desc: Wind speed for each atmospheric layer
       kind: single
       type: BaseValue
-  outputs:
+  output_names:
   - layer_list
+  outputs:
+  - desc: List of atmospheric phase screen layers
+    name: layer_list
+    type: list
   parameters:
     Cn2:
       default: REQUIRED
@@ -102,7 +119,7 @@ AtmoEvolution:
       kind: value
       type: list
     data_dir:
-      default: REQUIRED
+      default: ''
       kind: value
       type: str
     extra_delta_time:
@@ -147,28 +164,37 @@ AtmoEvolution:
       default: null
       kind: value
       type: int
-    verbose:
-      default: false
-      kind: value
-      type: bool
 AtmoEvolutionUpDown:
   bases:
   - AtmoEvolution
   class_name: AtmoEvolutionUpDown
   inputs:
     seeing:
+      desc: Atmospheric seeing value
       kind: single
       type: BaseValue
     wind_direction:
+      desc: Wind direction for each atmospheric layer
       kind: single
       type: BaseValue
     wind_speed:
+      desc: Wind speed for each atmospheric layer
       kind: single
       type: BaseValue
-  outputs:
+  output_names:
+  - layer_list
   - layer_list_down
   - layer_list_up
-  - layer_list
+  outputs:
+  - desc: List of atmospheric phase screen layers
+    name: layer_list
+    type: list
+  - desc: List of atmospheric phase screen layers for downward propagation
+    name: layer_list_down
+    type: list
+  - desc: List of atmospheric phase screen layers for upward propagation
+    name: layer_list_up
+    type: list
   parameters:
     Cn2:
       default: REQUIRED
@@ -179,7 +205,7 @@ AtmoEvolutionUpDown:
       kind: value
       type: list
     data_dir:
-      default: REQUIRED
+      default: ''
       kind: value
       type: str
     extra_delta_time_down:
@@ -228,26 +254,29 @@ AtmoEvolutionUpDown:
       default: null
       kind: value
       type: int
-    verbose:
-      default: false
-      kind: value
-      type: bool
 AtmoInfiniteEvolution:
   bases:
   - BaseProcessingObj
   class_name: AtmoInfiniteEvolution
   inputs:
     seeing:
+      desc: Atmospheric seeing value
       kind: single
       type: BaseValue
     wind_direction:
+      desc: Wind direction for each atmospheric layer
       kind: single
       type: BaseValue
     wind_speed:
+      desc: Wind speed for each atmospheric layer
       kind: single
       type: BaseValue
-  outputs:
+  output_names:
   - layer_list
+  outputs:
+  - desc: List of atmospheric infinite phase screen layers
+    name: layer_list
+    type: list
   parameters:
     Cn2:
       default:
@@ -298,28 +327,37 @@ AtmoInfiniteEvolution:
       default: null
       kind: value
       type: int
-    verbose:
-      default: false
-      kind: value
-      type: bool
 AtmoInfiniteEvolutionUpDown:
   bases:
   - AtmoInfiniteEvolution
   class_name: AtmoInfiniteEvolutionUpDown
   inputs:
     seeing:
+      desc: Atmospheric seeing value
       kind: single
       type: BaseValue
     wind_direction:
+      desc: Wind direction for each atmospheric layer
       kind: single
       type: BaseValue
     wind_speed:
+      desc: Wind speed for each atmospheric layer
       kind: single
       type: BaseValue
-  outputs:
+  output_names:
+  - layer_list
   - layer_list_down
   - layer_list_up
-  - layer_list
+  outputs:
+  - desc: List of atmospheric infinite phase screen layers
+    name: layer_list
+    type: list
+  - desc: List of atmospheric phase screen layers for downward propagation
+    name: layer_list_down
+    type: list
+  - desc: List of atmospheric phase screen layers for upward propagation
+    name: layer_list_up
+    type: list
   parameters:
     Cn2:
       default:
@@ -374,29 +412,35 @@ AtmoInfiniteEvolutionUpDown:
       default: null
       kind: value
       type: int
-    verbose:
-      default: false
-      kind: value
-      type: bool
 AtmoPropagation:
   bases:
   - BaseProcessingObj
   class_name: AtmoPropagation
   inputs:
     atmo_layer_list:
+      desc: List of atmospheric turbulence layers (optional)
       kind: single
       type: Layer
     common_layer_list:
+      desc: List of common turbulence layers shared across sources
       kind: single
       type: Layer
+  output_names:
+  - out_{source_name}_ef
   outputs:
-  - out_' + name + '_ef
+  - desc: Output electric field for source channel [source_name]
+    name: out_{source_name}_ef
+    type: ElectricField
   parameters:
-    band_limit_factor:
-      default: 1.0
+    chromatic_reference_wavelengthInNm:
+      default: null
       kind: value
       type: float
     doFresnel:
+      default: false
+      kind: value
+      type: bool
+    enable_chromatic_effect:
       default: false
       kind: value
       type: bool
@@ -422,12 +466,16 @@ AtmoPropagation:
       type: SimulParams
     source_dict:
       default: REQUIRED
-      kind: value
+      kind: reference
       type: dict
     target_device_idx:
       default: null
       kind: value
       type: Any
+    telescope_altitude_m:
+      default: null
+      kind: value
+      type: float
     upwards:
       default: false
       kind: value
@@ -442,13 +490,25 @@ AtmoRandomPhase:
   class_name: AtmoRandomPhase
   inputs:
     pupilstop:
+      desc: Pupil stop mask defining the valid pupil area
       kind: single
       type: Pupilstop
     seeing:
+      desc: Atmospheric seeing value
       kind: single
       type: BaseValue
+  output_names:
+  - out_{source_name_}layer
+  - out_{source_name_}ef
   outputs:
-  - out_' + name + '_ef
+  - desc: Output phase-screen layer for named source [source_name]; if source name
+      is None, key is out_layer
+    name: out_{source_name_}layer
+    type: Layer
+  - desc: Output electric field for named source [source_name]; if source name is
+      None, key is out_ef
+    name: out_{source_name_}ef
+    type: ElectricField
   parameters:
     L0:
       default: 1.0
@@ -458,10 +518,14 @@ AtmoRandomPhase:
       default: ''
       kind: value
       type: str
-    pixel_phasescreens:
-      default: null
+    layer_height:
+      default: 0.0
       kind: value
-      type: Any
+      type: float
+    pixel_phasescreens:
+      default: 8192
+      kind: value
+      type: int
     precision:
       default: null
       kind: value
@@ -475,8 +539,8 @@ AtmoRandomPhase:
       kind: reference
       type: SimulParams
     source_dict:
-      default: {}
-      kind: value
+      default: null
+      kind: reference
       type: dict
     target_device_idx:
       default: null
@@ -486,10 +550,6 @@ AtmoRandomPhase:
       default: 1
       kind: value
       type: int
-    verbose:
-      default: null
-      kind: value
-      type: Any
     wavelengthInNm:
       default: 500.0
       kind: value
@@ -500,14 +560,23 @@ BaseFilter:
   class_name: BaseFilter
   inputs:
     delta_comm:
+      desc: Input delta command vector
       kind: single
       type: BaseValue
     gain_mod:
+      desc: Optional gain modulation vector (optional)
       kind: single
       type: BaseValue
-  outputs:
+  output_names:
   - out_comm
   - out_comm_no_delay
+  outputs:
+  - desc: Output command vector with delay applied
+    name: out_comm
+    type: BaseValue
+  - desc: Output command vector without delay (for POLC)
+    name: out_comm_no_delay
+    type: BaseValue
   parameters:
     delay:
       default: 0
@@ -534,13 +603,81 @@ BaseGenerator:
   - BaseProcessingObj
   class_name: BaseGenerator
   inputs: {}
-  outputs:
+  output_names:
   - output
+  outputs:
+  - desc: Generated output signal
+    name: output
+    type: BaseValue
   parameters:
     output_size:
       default: 1
       kind: value
       type: int
+    precision:
+      default: null
+      kind: value
+      type: int
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+BaseInserter:
+  bases:
+  - BaseProcessingObj
+  class_name: BaseInserter
+  inputs:
+    in_value:
+      desc: Input vector to insert into the larger output vector
+      kind: single
+      type: BaseValue
+  output_names:
+  - out_value
+  outputs:
+  - desc: Output vector with inserted values
+    name: out_value
+    type: BaseValue
+  parameters:
+    indices:
+      default: null
+      kind: value
+      type: Any
+    output_size:
+      default: REQUIRED
+      kind: value
+      type: Any
+    precision:
+      default: null
+      kind: value
+      type: Any
+    slice_args:
+      default: null
+      kind: value
+      type: Any
+    target_device_idx:
+      default: null
+      kind: value
+      type: Any
+BaseModalrec:
+  bases:
+  - BaseProcessingObj
+  class_name: BaseModalrec
+  inputs:
+    in_slopes:
+      desc: Input wavefront slope vector (optional)
+      kind: single
+      type: Slopes
+    in_slopes_list:
+      desc: List of input slope vectors (optional)
+      kind: single
+      type: Slopes
+  output_names:
+  - out_modes
+  outputs:
+  - desc: Reconstructed modal command vector
+    name: out_modes
+    type: BaseValue
+  parameters:
     precision:
       default: null
       kind: value
@@ -555,19 +692,33 @@ BaseOperation:
   class_name: BaseOperation
   inputs:
     in_value1:
+      desc: First input value vector
       kind: single
       type: BaseValue
     in_value2:
+      desc: Second input value vector (optional)
       kind: single
       type: BaseValue
-  outputs:
+  output_names:
   - out_value
+  outputs:
+  - desc: Output value vector after applying the operation
+    name: out_value
+    type: BaseValue
   parameters:
     concat:
       default: false
       kind: value
       type: bool
     constant_div:
+      default: null
+      kind: value
+      type: float
+    constant_max:
+      default: null
+      kind: value
+      type: float
+    constant_min:
       default: null
       kind: value
       type: float
@@ -607,10 +758,6 @@ BaseOperation:
       default: null
       kind: value
       type: int
-    value2_is_shorter:
-      default: false
-      kind: value
-      type: bool
     value2_remap:
       default: null
       kind: value
@@ -621,10 +768,15 @@ BaseSlicer:
   class_name: BaseSlicer
   inputs:
     in_value:
+      desc: Input vector to slice
       kind: single
       type: BaseValue
-  outputs:
+  output_names:
   - out_value
+  outputs:
+  - desc: Output sliced vector
+    name: out_value
+    type: BaseValue
   parameters:
     indices:
       default: null
@@ -642,17 +794,121 @@ BaseSlicer:
       default: null
       kind: value
       type: Any
+BaseSprintEstimator:
+  bases:
+  - BaseProcessingObj
+  class_name: BaseSprintEstimator
+  inputs:
+    in_slopes:
+      desc: Input slopes from wavefront sensor
+      kind: single
+      type: Slopes
+  output_names:
+  - out_intmat
+  - out_misreg_params
+  - out_convergence_error
+  outputs:
+  - desc: Estimated interaction matrix
+    name: out_intmat
+    type: Intmat
+  - desc: Misregistration parameters
+    name: out_misreg_params
+    type: BaseValue
+  - desc: Convergence error metric
+    name: out_convergence_error
+    type: BaseValue
+  parameters:
+    apply_absolute_slopes:
+      default: false
+      kind: value
+      type: bool
+    carrier_frequencies:
+      default: REQUIRED
+      kind: value
+      type: list
+    convergence_threshold:
+      default: 0.001
+      kind: value
+      type: float
+    dm:
+      default: REQUIRED
+      kind: value
+      type: DM
+    estimation_dt:
+      default: 10.0
+      kind: value
+      type: float
+    forgetting_factor:
+      default: 1.0
+      kind: value
+      type: float
+    initial_misreg:
+      default: null
+      kind: value
+      type: list
+    integration_gain:
+      default: 0.5
+      kind: value
+      type: float
+    max_iterations:
+      default: 10
+      kind: value
+      type: int
+    modes_index:
+      default: REQUIRED
+      kind: value
+      type: list
+    n_params:
+      default: 4
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: int
+    pupil_mask:
+      default: null
+      kind: object
+      type: Pupilstop
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    slopec:
+      default: REQUIRED
+      kind: value
+      type: Slopec
+    source:
+      default: REQUIRED
+      kind: reference
+      type: Source
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    wfs:
+      default: REQUIRED
+      kind: value
+      type: BaseProcessingObj
 CCD:
   bases:
   - BaseProcessingObj
   class_name: CCD
   inputs:
     in_i:
+      desc: Input intensity field from wavefront sensor
       kind: single
       type: Intensity
-  outputs:
+  output_names:
   - out_pixels
   - integrated_i
+  outputs:
+  - desc: Output pixel data after noise and binning
+    name: out_pixels
+    type: Pixels
+  - desc: Integrated intensity over the exposure
+    name: integrated_i
+    type: Intensity
   parameters:
     ADU_bias:
       default: 400
@@ -761,7 +1017,7 @@ CCD:
     size:
       default: REQUIRED
       kind: value
-      type: int
+      type: list
     start_time:
       default: 0
       kind: value
@@ -770,16 +1026,247 @@ CCD:
       default: null
       kind: value
       type: int
+CiaoCiaoSensor:
+  bases:
+  - BaseProcessingObj
+  class_name: CiaoCiaoSensor
+  inputs:
+    in_ef:
+      desc: Input electric field
+      kind: single
+      type: ElectricField
+  output_names:
+  - out_i
+  outputs:
+  - desc: Output interference intensity pattern
+    name: out_i
+    type: Intensity
+  parameters:
+    channel_flux:
+      default: 0.5
+      kind: value
+      type: float
+    diffRotAngleInDeg:
+      default: 180.0
+      kind: value
+      type: float
+    magnification:
+      default: 1.0
+      kind: value
+      type: float
+    magnificationDiff:
+      default: 1.0
+      kind: value
+      type: float
+    normalize_flux:
+      default: true
+      kind: value
+      type: bool
+    number_px:
+      default: REQUIRED
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: int
+    rotAnglePhInDeg:
+      default: 0.0
+      kind: value
+      type: float
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    tiltInArcsec:
+      default:
+      - 0.0
+      - 0.0
+      kind: value
+      type: Any
+    wavelengthInNm:
+      default: REQUIRED
+      kind: value
+      type: float
+    xShiftDiffPhInPixel:
+      default: 0.0
+      kind: value
+      type: float
+    xShiftPhInPixel:
+      default: 0.0
+      kind: value
+      type: float
+    yShiftDiffPhInPixel:
+      default: 0.0
+      kind: value
+      type: float
+    yShiftPhInPixel:
+      default: 0.0
+      kind: value
+      type: float
+CiaoCiaoSlopec:
+  bases:
+  - Slopec
+  class_name: CiaoCiaoSlopec
+  inputs:
+    in_pixels:
+      desc: Input interferogram pixel data from detector
+      kind: single
+      type: Pixels
+  output_names:
+  - out_slopes
+  - out_flux_per_subaperture
+  - out_total_counts
+  - out_subap_counts
+  outputs:
+  - desc: Computed OPD map as a flattened slope vector
+    name: out_slopes
+    type: Slopes
+  - desc: Mean flux per pixel within the pupil mask
+    name: out_flux_per_subaperture
+    type: BaseValue
+  - desc: Total photon counts
+    name: out_total_counts
+    type: BaseValue
+  - desc: Counts per subaperture
+    name: out_subap_counts
+    type: BaseValue
+  parameters:
+    diffRotAngleInDeg:
+      default: 0.0
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: int
+    pupil_mask:
+      default: REQUIRED
+      kind: object
+      type: Pupilstop
+    sn:
+      default: null
+      kind: object
+      type: Slopes
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    unwrap:
+      default: false
+      kind: value
+      type: bool
+    wavelength_in_nm:
+      default: REQUIRED
+      kind: value
+      type: float
+    window_sigma_in_pix:
+      default: REQUIRED
+      kind: value
+      type: float
+    window_x_in_pix:
+      default: REQUIRED
+      kind: value
+      type: float
+    window_y_in_pix:
+      default: REQUIRED
+      kind: value
+      type: float
+ConvolutionKernel:
+  bases:
+  - BaseDataObj
+  class_name: ConvolutionKernel
+  inputs: {}
+  outputs: []
+  parameters:
+    airmass:
+      default: 1.0
+      kind: value
+      type: float
+    data_dir:
+      default: ''
+      kind: value
+      type: str
+    dimension:
+      default: REQUIRED
+      kind: value
+      type: int
+    dimx:
+      default: REQUIRED
+      kind: value
+      type: int
+    dimy:
+      default: REQUIRED
+      kind: value
+      type: int
+    launcher_pos:
+      default:
+      - 0.0
+      - 0.0
+      - 0.0
+      kind: value
+      type: list
+    launcher_size:
+      default: 0.0
+      kind: value
+      type: float
+    oversampling:
+      default: 1
+      kind: value
+      type: int
+    positive_shift_tt:
+      default: true
+      kind: value
+      type: bool
+    precision:
+      default: null
+      kind: value
+      type: int
+    pupil_size_m:
+      default: REQUIRED
+      kind: value
+      type: float
+    pxscale:
+      default: REQUIRED
+      kind: value
+      type: float
+    return_fft:
+      default: true
+      kind: value
+      type: bool
+    seeing:
+      default: 0.0
+      kind: value
+      type: float
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    theta:
+      default:
+      - 0.0
+      - 0.0
+      kind: value
+      type: list
+    zfocus:
+      default: 90000.0
+      kind: value
+      type: float
 Coronagraph:
   bases:
   - BaseProcessingObj
   class_name: Coronagraph
   inputs:
     in_ef:
+      desc: Input electric field from the telescope pupil
       kind: single
       type: ElectricField
-  outputs:
+  output_names:
   - out_ef
+  outputs:
+  - desc: Output electric field after coronagraph mask application
+    name: out_ef
+    type: ElectricField
   parameters:
     center_on_pixel:
       default: true
@@ -817,16 +1304,133 @@ Coronagraph:
       default: REQUIRED
       kind: value
       type: float
+CurWfsSlopec:
+  bases:
+  - Slopec
+  class_name: CurWfsSlopec
+  inputs:
+    in_pixels1:
+      desc: Intra-focal pixel image from detector
+      kind: single
+      type: Pixels
+    in_pixels2:
+      desc: Extra-focal pixel image from detector
+      kind: single
+      type: Pixels
+  output_names:
+  - out_slopes
+  - out_flux_per_subaperture
+  - out_total_counts
+  - out_subap_counts
+  - out_pupdata
+  outputs:
+  - desc: Computed wavefront slopes
+    name: out_slopes
+    type: Slopes
+  - desc: Flux per subaperture
+    name: out_flux_per_subaperture
+    type: BaseValue
+  - desc: Total photon counts
+    name: out_total_counts
+    type: BaseValue
+  - desc: Counts per subaperture
+    name: out_subap_counts
+    type: BaseValue
+  - desc: Pupil data with subaperture geometry
+    name: out_pupdata
+    type: PupData
+  parameters:
+    ccd_size:
+      default: REQUIRED
+      kind: value
+      type: tuple
+    diameter:
+      default: REQUIRED
+      kind: value
+      type: int
+    interleave:
+      default: false
+      kind: value
+      type: bool
+    precision:
+      default: null
+      kind: value
+      type: int
+    sn:
+      default: null
+      kind: object
+      type: Slopes
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+CurvatureSensor:
+  bases:
+  - BaseProcessingObj
+  class_name: CurvatureSensor
+  inputs:
+    in_ef:
+      desc: Input electric field
+      kind: single
+      type: ElectricField
+  output_names:
+  - out_i1
+  - out_i2
+  outputs:
+  - desc: Intra-focal intensity image
+    name: out_i1
+    type: Intensity
+  - desc: Extra-focal intensity image
+    name: out_i2
+    type: Intensity
+  parameters:
+    defocus_rms_nm:
+      default: REQUIRED
+      kind: value
+      type: float
+    fov_ovs_coeff:
+      default: 2.0
+      kind: value
+      type: float
+    number_px:
+      default: REQUIRED
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: int
+    pxscale:
+      default: REQUIRED
+      kind: value
+      type: float
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    wanted_fov:
+      default: REQUIRED
+      kind: value
+      type: float
+    wavelengthInNm:
+      default: REQUIRED
+      kind: value
+      type: float
 DM:
   bases:
   - BaseProcessingObj
   class_name: DM
   inputs:
     in_command:
+      desc: Input command vector for DM actuators
       kind: single
       type: BaseValue
-  outputs:
+  output_names:
   - out_layer
+  outputs:
+  - desc: Output wavefront layer produced by the DM
+    name: out_layer
+    type: Layer
   parameters:
     diaratio:
       default: null
@@ -842,15 +1446,11 @@ DM:
       type: Any
     ifunc:
       default: null
-      kind: value
+      kind: object
       type: IFunc
-    input_offset:
-      default: 0
-      kind: value
-      type: int
     m2c:
       default: null
-      kind: value
+      kind: object
       type: M2C
     nmodes:
       default: null
@@ -874,7 +1474,7 @@ DM:
       type: int
     pupilstop:
       default: null
-      kind: value
+      kind: object
       type: Pupilstop
     sign:
       default: -1
@@ -916,6 +1516,7 @@ DataPrint:
   class_name: DataPrint
   inputs:
     in_value:
+      desc: Input value to print
       kind: single
       type: BaseValue
   outputs: []
@@ -956,6 +1557,10 @@ DataSource:
       default: fits
       kind: value
       type: str
+    global_precision:
+      default: null
+      kind: value
+      type: int
     outputs:
       default: REQUIRED
       kind: value
@@ -982,6 +1587,14 @@ DataStore:
       default: fits
       kind: value
       type: str
+    downsample_factor:
+      default: 1
+      kind: value
+      type: int
+    downsample_factor_by_input:
+      default: null
+      kind: reference
+      type: dict
     first_suffix:
       default: 0
       kind: value
@@ -1004,10 +1617,15 @@ Demodulator:
   class_name: Demodulator
   inputs:
     in_data:
+      desc: Input data signal to demodulate
       kind: single
       type: BaseValue
-  outputs:
+  output_names:
   - output
+  outputs:
+  - desc: Demodulated modal amplitude output
+    name: output
+    type: BaseValue
   parameters:
     carrier_frequencies:
       default: REQUIRED
@@ -1052,13 +1670,17 @@ DisplayServer:
       default: REQUIRED
       kind: value
       type: typing.Callable
+    mode:
+      default: image
+      kind: value
+      type: str
     output_ref_getter:
       default: REQUIRED
       kind: value
       type: typing.Callable
     params_dict:
       default: REQUIRED
-      kind: value
+      kind: reference
       type: dict
     port:
       default: 0
@@ -1070,32 +1692,23 @@ DistributedSH:
   class_name: DistributedSH
   inputs:
     in_ef:
+      desc: Input electric field from the telescope pupil
       kind: single
       type: ElectricField
-    sodium_altitude:
-      kind: single
-      type: BaseValue
-    sodium_intensity:
-      kind: single
-      type: BaseValue
-  outputs:
+  output_names:
   - out_i
+  outputs:
+  - desc: Output intensity on the detector (Shack-Hartmann spot pattern)
+    name: out_i
+    type: Intensity
   parameters:
-    FoVres30mas:
-      default: false
-      kind: value
-      type: bool
-    do_not_double_fov_ovs:
-      default: false
-      kind: value
-      type: bool
     fov_ovs_coeff:
       default: 0
       kind: value
       type: float
     laser_launch_tel:
       default: null
-      kind: value
+      kind: reference
       type: LaserLaunchTelescope
     n_slices:
       default: REQUIRED
@@ -1155,14 +1768,31 @@ DoubleRoofSlopec:
   class_name: DoubleRoofSlopec
   inputs:
     in_pixels:
+      desc: Input pixel data from the double-roof wavefront sensor detector
       kind: single
       type: Pixels
-  outputs:
-  - out_pupdata
+  output_names:
   - out_slopes
   - out_flux_per_subaperture
   - out_total_counts
   - out_subap_counts
+  - out_pupdata
+  outputs:
+  - desc: Computed wavefront slopes
+    name: out_slopes
+    type: Slopes
+  - desc: Flux per subaperture
+    name: out_flux_per_subaperture
+    type: BaseValue
+  - desc: Total photon counts
+    name: out_total_counts
+    type: BaseValue
+  - desc: Counts per subaperture
+    name: out_subap_counts
+    type: BaseValue
+  - desc: Pupil data with subaperture geometry
+    name: out_pupdata
+    type: PupData
   parameters:
     norm_factor:
       default: null
@@ -1174,7 +1804,7 @@ DoubleRoofSlopec:
       type: int
     pupdata:
       default: REQUIRED
-      kind: value
+      kind: object
       type: PupData
     shlike:
       default: false
@@ -1186,7 +1816,7 @@ DoubleRoofSlopec:
       type: bool
     sn:
       default: null
-      kind: value
+      kind: object
       type: Slopes
     target_device_idx:
       default: null
@@ -1196,19 +1826,348 @@ DoubleRoofSlopec:
       default: 0
       kind: value
       type: float
+DynamicDarkCalibrator:
+  bases:
+  - BaseProcessingObj
+  class_name: DynamicDarkCalibrator
+  inputs:
+    in_load:
+      desc: Filename of a dark frame to load from disk (optional)
+      kind: single
+      type: BaseValue
+    in_nframes:
+      desc: Dynamically updates the number of integration frames (optional)
+      kind: single
+      type: BaseValue
+    in_pixels:
+      desc: Input pixel frame to be dark-subtracted
+      kind: single
+      type: Pixels
+    in_reset:
+      desc: Resets the current dark frame to zero (optional)
+      kind: single
+      type: BaseValue
+    in_save:
+      desc: Filename to save the current dark frame to disk (optional)
+      kind: single
+      type: BaseValue
+    in_trigger:
+      desc: Trigger signal to start dark frame acquisition (optional)
+      kind: single
+      type: BaseValue
+  output_names:
+  - out_darkframe
+  - out_subtracted_pixels
+  outputs:
+  - desc: Current dark frame computed by averaging input frames
+    name: out_darkframe
+    type: Pixels
+  - desc: Input pixels with the dark frame subtracted
+    name: out_subtracted_pixels
+    type: Pixels
+  parameters:
+    data_dir:
+      default: REQUIRED
+      kind: value
+      type: str
+    nframes:
+      default: REQUIRED
+      kind: value
+      type: int
+    overwrite:
+      default: false
+      kind: value
+      type: bool
+    precision:
+      default: null
+      kind: value
+      type: int
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+DynamicIirFilter:
+  bases:
+  - IirFilter
+  class_name: DynamicIirFilter
+  inputs:
+    delta_comm:
+      desc: Input delta command vector
+      kind: single
+      type: BaseValue
+    gain_mod:
+      desc: Optional gain modulation vector (optional)
+      kind: single
+      type: BaseValue
+    int_gain:
+      desc: Dynamic integrator gain update (optional)
+      kind: single
+      type: BaseValue
+    reset:
+      desc: Trigger to reset internal filter state (optional)
+      kind: single
+      type: BaseValue
+  output_names:
+  - out_comm
+  - out_comm_no_delay
+  outputs:
+  - desc: Output command vector with delay applied
+    name: out_comm
+    type: BaseValue
+  - desc: Output command vector without delay (for POLC)
+    name: out_comm_no_delay
+    type: BaseValue
+  parameters:
+    delay:
+      default: 0
+      kind: value
+      type: float
+    iir_filter_data:
+      default: REQUIRED
+      kind: reference
+      type: IirFilterData
+    integration:
+      default: true
+      kind: value
+      type: bool
+    precision:
+      default: null
+      kind: value
+      type: Any
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    target_device_idx:
+      default: null
+      kind: value
+      type: Any
+DynamicIntegrator:
+  bases:
+  - Integrator
+  class_name: DynamicIntegrator
+  inputs:
+    delta_comm:
+      desc: Input delta command vector
+      kind: single
+      type: BaseValue
+    gain_mod:
+      desc: Optional gain modulation vector (optional)
+      kind: single
+      type: BaseValue
+    int_gain:
+      desc: Dynamic integrator gain update (optional)
+      kind: single
+      type: BaseValue
+    reset:
+      desc: Trigger to reset internal integrator state (optional)
+      kind: single
+      type: BaseValue
+  output_names:
+  - out_comm
+  - out_comm_no_delay
+  outputs:
+  - desc: Output command vector with delay applied
+    name: out_comm
+    type: BaseValue
+  - desc: Output command vector without delay (for POLC)
+    name: out_comm_no_delay
+    type: BaseValue
+  parameters:
+    delay:
+      default: 0
+      kind: value
+      type: float
+    ff:
+      default: null
+      kind: value
+      type: list
+    int_gain:
+      default: REQUIRED
+      kind: value
+      type: float
+    integration:
+      default: true
+      kind: value
+      type: bool
+    n_modes:
+      default: null
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: int
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+DynamicPyrPupdataCalibrator:
+  bases:
+  - PyrPupdataCalibrator
+  class_name: DynamicPyrPupdataCalibrator
+  inputs:
+    in_dt:
+      desc: Dynamically update the time step in seconds (optional)
+      kind: single
+      type: BaseValue
+    in_i:
+      desc: Input intensity from the pyramid WFS detector (optional)
+      kind: single
+      type: Intensity
+    in_output_tag:
+      desc: Dynamically update the output tag (optional)
+      kind: single
+      type: BaseValue
+    in_pixels:
+      desc: Input pixel data from the detector (optional)
+      kind: single
+      type: Pixels
+    in_save:
+      desc: Trigger to save the current calibration data (optional)
+      kind: single
+      type: BaseValue
+    in_thr1:
+      desc: Dynamically update the first threshold (optional)
+      kind: single
+      type: BaseValue
+    in_thr2:
+      desc: Dynamically update the second threshold (optional)
+      kind: single
+      type: BaseValue
+  output_names:
+  - out_pupdata
+  - out_params
+  outputs:
+  - desc: Calibrated pupil data with subaperture geometry
+    name: out_pupdata
+    type: PupData
+  - desc: Dictionary with current calibration parameters and status
+    name: out_params
+    type: BaseValue
+  parameters:
+    auto_detect_obstruction:
+      default: true
+      kind: value
+      type: bool
+    data_dir:
+      default: REQUIRED
+      kind: value
+      type: str
+    display_debug:
+      default: false
+      kind: value
+      type: bool
+    dt:
+      default: null
+      kind: value
+      type: float
+    min_obstruction_ratio:
+      default: 0.05
+      kind: value
+      type: float
+    obs_thr:
+      default: 0.8
+      kind: value
+      type: float
+    output_tag:
+      default: null
+      kind: value
+      type: str
+    overwrite:
+      default: false
+      kind: value
+      type: bool
+    precision:
+      default: null
+      kind: value
+      type: int
+    save_on_exit:
+      default: true
+      kind: value
+      type: bool
+    slopes_from_intensity:
+      default: false
+      kind: value
+      type: bool
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    thr1:
+      default: 0.1
+      kind: value
+      type: float
+    thr2:
+      default: 0.25
+      kind: value
+      type: float
+ElectricField:
+  bases:
+  - BaseDataObj
+  class_name: ElectricField
+  inputs: {}
+  outputs: []
+  parameters:
+    S0:
+      default: 0.0
+      kind: value
+      type: float
+    dimx:
+      default: REQUIRED
+      kind: value
+      type: int
+    dimy:
+      default: REQUIRED
+      kind: value
+      type: int
+    pixel_pitch:
+      default: REQUIRED
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: int
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    wavelengthInNm:
+      default: null
+      kind: value
+      type: float
+    wavelengthToleranceInNm:
+      default: 0.1
+      kind: value
+      type: float
 ElectricFieldCombinator:
   bases:
   - BaseProcessingObj
   class_name: ElectricFieldCombinator
   inputs:
     in_ef1:
+      desc: First input electric field (optional, use with in_ef2)
       kind: single
       type: ElectricField
     in_ef2:
+      desc: Second input electric field (optional, use with in_ef1)
       kind: single
       type: ElectricField
-  outputs:
+    in_ef_list:
+      desc: List of input electric fields to combine (optional)
+      kind: single
+      type: ElectricField
+  output_names:
   - out_ef
+  outputs:
+  - desc: Combined output electric field
+    name: out_ef
+    type: ElectricField
   parameters:
     precision:
       default: null
@@ -1224,10 +2183,15 @@ ElectricFieldReflection:
   class_name: ElectricFieldReflection
   inputs:
     in_ef:
+      desc: Input electric field to reflect (phase sign is inverted)
       kind: single
       type: ElectricField
-  outputs:
+  output_names:
   - out_ef
+  outputs:
+  - desc: Output electric field with reflected (sign-inverted) phase
+    name: out_ef
+    type: ElectricField
   parameters:
     precision:
       default: null
@@ -1243,16 +2207,37 @@ ExtSourcePyramid:
   class_name: ExtSourcePyramid
   inputs:
     ext_source_coeff:
+      desc: 'Extended source coefficients array of shape (n_points, 4) with columns:
+        [tip_coeff, tilt_coeff, focus_coeff, flux]'
       kind: single
       type: BaseValue
     in_ef:
+      desc: Input electric field from the telescope pupil.Contains complex amplitude
+        and phase information that will be modulated and propagated through the pyramid.
       kind: single
       type: ElectricField
-  outputs:
+  output_names:
   - out_i
   - out_psf_tot
   - out_psf_bfm
   - out_transmission
+  - out_flux_frac_inside_detector
+  outputs:
+  - desc: "Output intensity on detector CCD (shape: final_ccd_side \xD7 final_ccd_side)"
+    name: out_i
+    type: Intensity
+  - desc: "Total PSF after focal plane mask application (shape: fft_totsize \xD7 fft_totsize)"
+    name: out_psf_tot
+    type: BaseValue
+  - desc: "PSF before focal plane mask (shape: fft_totsize \xD7 fft_totsize)"
+    name: out_psf_bfm
+    type: BaseValue
+  - desc: Scalar value representing total flux transmission through the system
+    name: out_transmission
+    type: BaseValue
+  - desc: Fraction of total flux that falls inside the CCD area
+    name: out_flux_frac_inside_detector
+    type: BaseValue
   parameters:
     cuda_stream_enable:
       default: true
@@ -1287,21 +2272,9 @@ ExtSourcePyramid:
       kind: value
       type: float
     min_pup_dist:
-      default: null
+      default: 0.0
       kind: value
       type: float
-    mod_amp:
-      default: 3.0
-      kind: value
-      type: float
-    mod_step:
-      default: null
-      kind: value
-      type: int
-    mod_type:
-      default: circular
-      kind: value
-      type: str
     output_resolution:
       default: REQUIRED
       kind: value
@@ -1374,10 +2347,15 @@ ExtendedSource:
   class_name: ExtendedSource
   inputs:
     psf:
+      desc: PSF data for extended source modeling from PSF (optional)
       kind: single
       type: BaseValue
-  outputs:
+  output_names:
   - coeff
+  outputs:
+  - desc: Extended source coefficients as a column-stacked array
+    name: coeff
+    type: BaseValue
   parameters:
     crop_psf:
       default: false
@@ -1453,10 +2431,15 @@ FocalPlaneFilter:
   class_name: FocalPlaneFilter
   inputs:
     in_ef:
+      desc: Input electric field from the telescope pupil
       kind: single
       type: ElectricField
-  outputs:
+  output_names:
   - out_ef
+  outputs:
+  - desc: Output electric field after focal plane filter mask application
+    name: out_ef
+    type: ElectricField
   parameters:
     fft_res:
       default: 3.0
@@ -1500,10 +2483,15 @@ FourQuadrantCoronagraph:
   class_name: FourQuadrantCoronagraph
   inputs:
     in_ef:
+      desc: Input electric field from the telescope pupil
       kind: single
       type: ElectricField
-  outputs:
+  output_names:
   - out_ef
+  outputs:
+  - desc: Output electric field after four-quadrant coronagraph mask application
+    name: out_ef
+    type: ElectricField
   parameters:
     fft_res:
       default: 3.0
@@ -1543,16 +2531,23 @@ GainOptimizer:
   class_name: GainOptimizer
   inputs:
     delta_comm:
+      desc: Input delta command vector from the WFS
       kind: single
       type: BaseValue
     optical_gain:
+      desc: Optional optical gain for compensation (optional)
       kind: single
       type: BaseValue
     out_comm:
+      desc: Current output command vector from the controller
       kind: single
       type: BaseValue
-  outputs:
+  output_names:
   - optimized_gain
+  outputs:
+  - desc: Optimized gain vector for the IIR filter modes
+    name: optimized_gain
+    type: BaseValue
   parameters:
     delay:
       default: 2.0
@@ -1560,7 +2555,7 @@ GainOptimizer:
       type: float
     iir_filter_data:
       default: REQUIRED
-      kind: value
+      kind: reference
       type: IirFilterData
     limit_inc:
       default: true
@@ -1602,20 +2597,188 @@ GainOptimizer:
       default: null
       kind: value
       type: int
-    verbose:
+GaussianConvolutionKernel:
+  bases:
+  - ConvolutionKernel
+  class_name: GaussianConvolutionKernel
+  inputs: {}
+  outputs: []
+  parameters:
+    airmass:
+      default: 1.0
+      kind: value
+      type: float
+    data_dir:
+      default: ''
+      kind: value
+      type: str
+    dimension:
+      default: REQUIRED
+      kind: value
+      type: int
+    dimx:
+      default: REQUIRED
+      kind: value
+      type: int
+    dimy:
+      default: REQUIRED
+      kind: value
+      type: int
+    oversampling:
+      default: 1
+      kind: value
+      type: int
+    positive_shift_tt:
       default: true
       kind: value
       type: bool
+    precision:
+      default: null
+      kind: value
+      type: int
+    pupil_size_m:
+      default: float
+      kind: value
+      type: '0.0'
+    pxscale:
+      default: REQUIRED
+      kind: value
+      type: float
+    return_fft:
+      default: true
+      kind: value
+      type: bool
+    spot_size:
+      default: REQUIRED
+      kind: value
+      type: float
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+IFunc:
+  bases:
+  - BaseDataObj
+  class_name: IFunc
+  inputs: {}
+  outputs: []
+  parameters:
+    angle_offset:
+      default: 0
+      kind: value
+      type: float
+    circ_geom:
+      default: true
+      kind: value
+      type: bool
+    coupling_coeffs:
+      default:
+      - 0.31
+      - 0.05
+      kind: value
+      type: list
+    diaratio:
+      default: null
+      kind: value
+      type: float
+    do_mech_coupling:
+      default: false
+      kind: value
+      type: bool
+    do_slaving:
+      default: false
+      kind: value
+      type: bool
+    idx_modes:
+      default: null
+      kind: value
+      type: Any
+    ifunc:
+      default: null
+      kind: value
+      type: Any
+    mask:
+      default: null
+      kind: value
+      type: Any
+    n_act:
+      default: null
+      kind: value
+      type: int
+    nmodes:
+      default: null
+      kind: value
+      type: int
+    npixels:
+      default: null
+      kind: value
+      type: int
+    nzern:
+      default: null
+      kind: value
+      type: int
+    obsratio:
+      default: null
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: Any
+    slaving_thr:
+      default: 0.1
+      kind: value
+      type: float
+    start_mode:
+      default: null
+      kind: value
+      type: int
+    target_device_idx:
+      default: null
+      kind: value
+      type: Any
+    type_str:
+      default: null
+      kind: value
+      type: str
+IFuncInv:
+  bases:
+  - BaseDataObj
+  class_name: IFuncInv
+  inputs: {}
+  outputs: []
+  parameters:
+    ifunc_inv:
+      default: REQUIRED
+      kind: value
+      type: Any
+    mask:
+      default: REQUIRED
+      kind: value
+      type: Any
+    precision:
+      default: null
+      kind: value
+      type: Any
+    target_device_idx:
+      default: null
+      kind: value
+      type: Any
 IdealDerivativeSensor:
   bases:
   - BaseProcessingObj
   class_name: IdealDerivativeSensor
   inputs:
     in_ef:
+      desc: Input electric field from which wavefront slopes are derived
       kind: single
       type: ElectricField
-  outputs:
+  output_names:
   - out_slopes
+  outputs:
+  - desc: Computed wavefront slopes from the ideal derivative sensor
+    name: out_slopes
+    type: Slopes
   parameters:
     fov:
       default: REQUIRED
@@ -1631,7 +2794,7 @@ IdealDerivativeSensor:
       type: SimulParams
     subapdata:
       default: REQUIRED
-      kind: value
+      kind: reference
       type: SubapData
     target_device_idx:
       default: null
@@ -1643,14 +2806,23 @@ IirFilter:
   class_name: IirFilter
   inputs:
     delta_comm:
+      desc: Input delta command vector
       kind: single
       type: BaseValue
     gain_mod:
+      desc: Optional gain modulation vector (optional)
       kind: single
       type: BaseValue
-  outputs:
+  output_names:
   - out_comm
   - out_comm_no_delay
+  outputs:
+  - desc: Output command vector with delay applied
+    name: out_comm
+    type: BaseValue
+  - desc: Output command vector without delay (for POLC)
+    name: out_comm_no_delay
+    type: BaseValue
   parameters:
     delay:
       default: 0
@@ -1658,7 +2830,7 @@ IirFilter:
       type: float
     iir_filter_data:
       default: REQUIRED
-      kind: value
+      kind: reference
       type: IirFilterData
     integration:
       default: true
@@ -1676,20 +2848,64 @@ IirFilter:
       default: null
       kind: value
       type: Any
+IirFilterData:
+  bases:
+  - BaseDataObj
+  class_name: IirFilterData
+  inputs: {}
+  outputs: []
+  parameters:
+    den:
+      default: REQUIRED
+      kind: value
+      type: Any
+    n_modes:
+      default: null
+      kind: value
+      type: Any
+    num:
+      default: REQUIRED
+      kind: value
+      type: Any
+    ordden:
+      default: REQUIRED
+      kind: value
+      type: list
+    ordnum:
+      default: REQUIRED
+      kind: value
+      type: list
+    precision:
+      default: null
+      kind: value
+      type: int
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
 ImCalibrator:
   bases:
   - BaseProcessingObj
   class_name: ImCalibrator
   inputs:
     in_commands:
+      desc: Input command vector applied to the DM during calibration
       kind: single
       type: BaseValue
     in_slopes:
+      desc: Input wavefront slopes measured during push-pull calibration
       kind: single
       type: Slopes
-  outputs:
+  output_names:
   - out_intmat
   - out_single_im
+  outputs:
+  - desc: Accumulated interaction matrix
+    name: out_intmat
+    type: Intmat
+  - desc: Per-mode interaction matrix contributions (list)
+    name: out_single_im
+    type: list
   parameters:
     data_dir:
       default: REQUIRED
@@ -1721,7 +2937,7 @@ ImCalibrator:
       type: int
     pupilstop:
       default: null
-      kind: value
+      kind: object
       type: Pupilstop
     sensor:
       default: null
@@ -1733,26 +2949,150 @@ ImCalibrator:
       type: BaseProcessingObj
     source:
       default: null
-      kind: value
+      kind: reference
       type: Source
     target_device_idx:
       default: null
       kind: value
       type: int
+ImShSynimGenerator:
+  bases:
+  - BaseProcessingObj
+  class_name: ImShSynimGenerator
+  inputs:
+    in_misreg_params:
+      desc: Mis-registration parameters (optional, from SPRINT estimator)
+      kind: single
+      type: BaseValue
+  output_names:
+  - out_intmat
+  - out_recmat
+  outputs:
+  - desc: Computed interaction matrix from SynIM geometric model
+    name: out_intmat
+    type: Intmat
+  - desc: Computed reconstruction matrix (optional, if compute_rec=True)
+    name: out_recmat
+    type: Recmat
+  parameters:
+    L0:
+      default: 25.0
+      kind: value
+      type: float
+    compute_rec:
+      default: true
+      kind: value
+      type: bool
+    dm:
+      default: REQUIRED
+      kind: value
+      type: DM
+    mmse:
+      default: false
+      kind: value
+      type: bool
+    noise_cov:
+      default: null
+      kind: value
+      type: Union[float, np.ndarray, list]
+    precision:
+      default: null
+      kind: value
+      type: int
+    r0:
+      default: 0.15
+      kind: value
+      type: float
+    rec_nmodes:
+      default: null
+      kind: value
+      type: int
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    slopec:
+      default: REQUIRED
+      kind: value
+      type: ShSlopec
+    source:
+      default: REQUIRED
+      kind: reference
+      type: Source
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    wfs:
+      default: REQUIRED
+      kind: value
+      type: SH
+InfinitePhaseScreen:
+  bases:
+  - BaseDataObj
+  class_name: InfinitePhaseScreen
+  inputs: {}
+  outputs: []
+  parameters:
+    L0:
+      default: REQUIRED
+      kind: value
+      type: Any
+    mx_size:
+      default: REQUIRED
+      kind: value
+      type: Any
+    pixel_scale:
+      default: REQUIRED
+      kind: value
+      type: Any
+    precision:
+      default: null
+      kind: value
+      type: Any
+    r0:
+      default: REQUIRED
+      kind: value
+      type: Any
+    random_seed:
+      default: null
+      kind: value
+      type: Any
+    stencil_size_factor:
+      default: 1
+      kind: value
+      type: Any
+    target_device_idx:
+      default: null
+      kind: value
+      type: Any
+    xp:
+      default: null
+      kind: value
+      type: Any
 Integrator:
   bases:
   - IirFilter
   class_name: Integrator
   inputs:
     delta_comm:
+      desc: Input delta command vector
       kind: single
       type: BaseValue
     gain_mod:
+      desc: Optional gain modulation vector (optional)
       kind: single
       type: BaseValue
-  outputs:
+  output_names:
   - out_comm
   - out_comm_no_delay
+  outputs:
+  - desc: Output command vector with delay applied
+    name: out_comm
+    type: BaseValue
+  - desc: Output command vector without delay (for POLC)
+    name: out_comm_no_delay
+    type: BaseValue
   parameters:
     delay:
       default: 0
@@ -1765,7 +3105,7 @@ Integrator:
     int_gain:
       default: REQUIRED
       kind: value
-      type: float
+      type: list
     integration:
       default: true
       kind: value
@@ -1773,7 +3113,7 @@ Integrator:
     n_modes:
       default: null
       kind: value
-      type: int
+      type: list
     precision:
       default: null
       kind: value
@@ -1786,16 +3126,268 @@ Integrator:
       default: null
       kind: value
       type: int
+Intensity:
+  bases:
+  - BaseDataObj
+  class_name: Intensity
+  inputs: {}
+  outputs: []
+  parameters:
+    dimx:
+      default: REQUIRED
+      kind: value
+      type: int
+    dimy:
+      default: REQUIRED
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: int
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+Intmat:
+  bases:
+  - BaseDataObj
+  class_name: Intmat
+  inputs: {}
+  outputs: []
+  parameters:
+    intmat:
+      default: null
+      kind: value
+      type: Any
+    nmodes:
+      default: null
+      kind: value
+      type: int
+    norm_factor:
+      default: 0.0
+      kind: value
+      type: float
+    nslopes:
+      default: null
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: int
+    pupdata_tag:
+      default: ''
+      kind: value
+      type: str
+    slope_mm:
+      default: null
+      kind: value
+      type: list
+    slope_rms:
+      default: null
+      kind: value
+      type: list
+    subapdata_tag:
+      default: ''
+      kind: value
+      type: str
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+LaserLaunchTelescope:
+  bases:
+  - BaseDataObj
+  class_name: LaserLaunchTelescope
+  inputs: {}
+  outputs: []
+  parameters:
+    beacon_focus:
+      default: 90000.0
+      kind: value
+      type: float
+    beacon_tt:
+      default:
+      - 0.0
+      - 0.0
+      kind: value
+      type: list
+    precision:
+      default: null
+      kind: value
+      type: int
+    simul_params:
+      default: null
+      kind: reference
+      type: SimulParams
+    spot_size:
+      default: 0.0
+      kind: value
+      type: float
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    tel_position:
+      default: []
+      kind: value
+      type: list
+Layer:
+  bases:
+  - ElectricField
+  class_name: Layer
+  inputs: {}
+  outputs: []
+  parameters:
+    dimx:
+      default: REQUIRED
+      kind: value
+      type: int
+    dimy:
+      default: REQUIRED
+      kind: value
+      type: int
+    height:
+      default: REQUIRED
+      kind: value
+      type: float
+    magnification:
+      default: 1.0
+      kind: value
+      type: float
+    pixel_pitch:
+      default: REQUIRED
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: int
+    rotInDeg:
+      default: 0.0
+      kind: value
+      type: float
+    shiftXYinPixel:
+      default:
+      - 0.0
+      - 0.0
+      kind: value
+      type: tuple
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+Lenslet:
+  bases:
+  - BaseDataObj
+  class_name: Lenslet
+  inputs: {}
+  outputs: []
+  parameters:
+    n_lenses:
+      default: 1
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: int
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+Lift:
+  bases:
+  - BaseProcessingObj
+  class_name: Lift
+  inputs:
+    in_pixels:
+      desc: Input pixel data from the WFS detector
+      kind: single
+      type: Pixels
+  output_names:
+  - out_pistons
+  - out_zern
+  outputs:
+  - desc: Estimated piston coefficients per subaperture
+    name: out_pistons
+    type: BaseValue
+  - desc: Estimated Zernike modal coefficients
+    name: out_zern
+    type: BaseValue
+  parameters:
+    cropped_size:
+      default: REQUIRED
+      kind: value
+      type: int
+    fft_res:
+      default: 2
+      kind: value
+      type: int
+    fix:
+      default: false
+      kind: value
+      type: bool
+    ifunc:
+      default: REQUIRED
+      kind: object
+      type: IFunc
+    nPistons:
+      default: REQUIRED
+      kind: value
+      type: int
+    nZern:
+      default: REQUIRED
+      kind: value
+      type: int
+    n_iter:
+      default: 20
+      kind: value
+      type: int
+    npix_side:
+      default: REQUIRED
+      kind: value
+      type: int
+    pix_scale:
+      default: REQUIRED
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: int
+    ref_zern_amp:
+      default: REQUIRED
+      kind: value
+      type: Any
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    wavelengthInNm:
+      default: REQUIRED
+      kind: value
+      type: float
 LinearCombination:
   bases:
   - BaseProcessingObj
   class_name: LinearCombination
   inputs:
     in_vectors_list:
+      desc: List of input command vectors to linearly combine
       kind: single
       type: BaseValue
-  outputs:
+  output_names:
   - out_vector
+  outputs:
+  - desc: Output combined command vector
+    name: out_vector
+    type: BaseValue
   parameters:
     dm1:
       default: null
@@ -1839,14 +3431,23 @@ LowPassFilter:
   class_name: LowPassFilter
   inputs:
     delta_comm:
+      desc: Input delta command vector
       kind: single
       type: BaseValue
     gain_mod:
+      desc: Optional gain modulation vector (optional)
       kind: single
       type: BaseValue
-  outputs:
+  output_names:
   - out_comm
   - out_comm_no_delay
+  outputs:
+  - desc: Output command vector with delay applied
+    name: out_comm
+    type: BaseValue
+  - desc: Output command vector without delay (for POLC)
+    name: out_comm_no_delay
+    type: BaseValue
   parameters:
     amplif_fact:
       default: null
@@ -1882,10 +3483,15 @@ LyotCoronagraph:
   class_name: LyotCoronagraph
   inputs:
     in_ef:
+      desc: Input electric field from the telescope pupil
       kind: single
       type: ElectricField
-  outputs:
+  output_names:
   - out_ef
+  outputs:
+  - desc: Output electric field after Lyot coronagraph mask application
+    name: out_ef
+    type: ElectricField
   parameters:
     fft_res:
       default: 3.0
@@ -1927,16 +3533,48 @@ LyotCoronagraph:
       default: REQUIRED
       kind: value
       type: float
+M2C:
+  bases:
+  - BaseDataObj
+  class_name: M2C
+  inputs: {}
+  outputs: []
+  parameters:
+    m2c:
+      default: REQUIRED
+      kind: value
+      type: Any
+    nmodes:
+      default: null
+      kind: value
+      type: int
+    norm_factor:
+      default: null
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: int
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
 MVM:
   bases:
   - BaseProcessingObj
   class_name: MVM
   inputs:
     in_vector:
+      desc: Input vector to be multiplied by the reconstruction matrix
       kind: single
       type: BaseValue
-  outputs:
+  output_names:
   - out_vector
+  outputs:
+  - desc: Output vector after matrix-vector multiplication
+    name: out_vector
+    type: BaseValue
   parameters:
     precision:
       default: null
@@ -1944,7 +3582,7 @@ MVM:
       type: int
     recmat:
       default: REQUIRED
-      kind: value
+      kind: object
       type: Recmat
     target_device_idx:
       default: null
@@ -1956,21 +3594,35 @@ MirrorCommandsCombinator:
   class_name: MirrorCommandsCombinator
   inputs:
     in_commandsF:
+      desc: Focus command scalar input
       kind: single
       type: BaseValue
     in_commandsHO:
+      desc: High-order command vector input
       kind: single
       type: BaseValue
     in_commandsLO:
+      desc: Low-order command vector input
       kind: single
       type: BaseValue
     in_commandsP:
+      desc: Pointing command vector input
       kind: single
       type: BaseValue
-  outputs:
+  output_names:
   - out_result_commands1
   - out_result_commands2
   - out_result_commands3
+  outputs:
+  - desc: First chunk of combined output commands
+    name: out_result_commands1
+    type: BaseValue
+  - desc: Second chunk of combined output commands
+    name: out_result_commands2
+    type: BaseValue
+  - desc: Third chunk of combined output commands
+    name: out_result_commands3
+    type: BaseValue
   parameters:
     dims_F:
       default: 1
@@ -1998,7 +3650,7 @@ MirrorCommandsCombinator:
       type: int
     recmat:
       default: REQUIRED
-      kind: value
+      kind: object
       type: Recmat
     target_device_idx:
       default: null
@@ -2010,15 +3662,27 @@ ModalAnalysis:
   class_name: ModalAnalysis
   inputs:
     in_ef:
+      desc: Input electric field for modal analysis (optional, use with in_ef_list)
       kind: single
       type: ElectricField
     in_ef_list:
+      desc: List of input electric fields for multi-source modal analysis (optional)
       kind: single
       type: ElectricField
-  outputs:
+  output_names:
   - out_modes
   - rms
   - out_modes_list
+  outputs:
+  - desc: Modal coefficients from the combined/single input electric field
+    name: out_modes
+    type: BaseValue
+  - desc: RMS of the wavefront
+    name: rms
+    type: BaseValue
+  - desc: Per-input modal coefficient vectors (list, one per connected input)
+    name: out_modes_list
+    type: list
   parameters:
     diaratio:
       default: null
@@ -2030,11 +3694,11 @@ ModalAnalysis:
       type: bool
     ifunc:
       default: null
-      kind: value
+      kind: object
       type: IFunc
     ifunc_inv:
       default: null
-      kind: value
+      kind: object
       type: IFuncInv
     n_inputs:
       default: 1
@@ -2062,7 +3726,7 @@ ModalAnalysis:
       type: int
     pupilstop:
       default: null
-      kind: value
+      kind: object
       type: Pupilstop
     target_device_idx:
       default: null
@@ -2078,57 +3742,24 @@ ModalAnalysis:
       type: float
 Modalrec:
   bases:
-  - BaseProcessingObj
+  - BaseModalrec
   class_name: Modalrec
   inputs:
-    in_commands:
-      kind: single
-      type: BaseValue
-    in_commands_list:
-      kind: single
-      type: BaseValue
     in_slopes:
+      desc: Input wavefront slope vector (optional)
       kind: single
       type: Slopes
     in_slopes_list:
+      desc: List of input slope vectors (optional)
       kind: single
       type: Slopes
-  outputs:
+  output_names:
   - out_modes
-  - out_pseudo_ol_modes
+  outputs:
+  - desc: Reconstructed modal command vector
+    name: out_modes
+    type: BaseValue
   parameters:
-    dmNumber:
-      default: 0
-      kind: value
-      type: int
-    filtmat:
-      default: null
-      kind: value
-      type: Any
-    identity:
-      default: false
-      kind: value
-      type: bool
-    in_commands_size:
-      default: null
-      kind: value
-      type: int
-    input_modes_index:
-      default: null
-      kind: value
-      type: list
-    input_modes_slice:
-      default: null
-      kind: value
-      type: list
-    intmat:
-      default: null
-      kind: value
-      type: Intmat
-    nSlopesToBeDiscarded:
-      default: null
-      kind: value
-      type: int
     ncutmodes:
       default: null
       kind: value
@@ -2137,29 +3768,69 @@ Modalrec:
       default: null
       kind: value
       type: int
-    noProj:
-      default: false
-      kind: value
-      type: bool
-    output_slice:
+    precision:
       default: null
       kind: value
-      type: list
-    polc:
-      default: false
+      type: int
+    recmat:
+      default: REQUIRED
+      kind: object
+      type: Recmat
+    target_device_idx:
+      default: null
       kind: value
-      type: bool
+      type: int
+ModalrecExplicitPolc:
+  bases:
+  - BaseModalrec
+  class_name: ModalrecExplicitPolc
+  inputs:
+    in_commands:
+      desc: Current output command vector for explicit POLC (optional)
+      kind: single
+      type: BaseValue
+    in_commands_list:
+      desc: List of current command vectors for explicit POLC (optional)
+      kind: single
+      type: BaseValue
+    in_slopes:
+      desc: Input wavefront slope vector (optional)
+      kind: single
+      type: Slopes
+    in_slopes_list:
+      desc: List of input slope vectors (optional)
+      kind: single
+      type: Slopes
+  output_names:
+  - out_modes
+  - out_pseudo_ol_modes
+  outputs:
+  - desc: Reconstructed modal command vector
+    name: out_modes
+    type: BaseValue
+  - desc: Pseudo open-loop modal estimate
+    name: out_pseudo_ol_modes
+    type: BaseValue
+  parameters:
+    intmat:
+      default: null
+      kind: reference
+      type: Intmat
+    nSlopesToBeDiscarded:
+      default: null
+      kind: value
+      type: int
     precision:
       default: null
       kind: value
       type: int
     projmat:
       default: null
-      kind: value
+      kind: object
       type: Recmat
     recmat:
-      default: null
-      kind: value
+      default: REQUIRED
+      kind: object
       type: Recmat
     target_device_idx:
       default: null
@@ -2167,90 +3838,120 @@ Modalrec:
       type: int
 ModalrecImplicitPolc:
   bases:
-  - Modalrec
+  - BaseModalrec
   class_name: ModalrecImplicitPolc
   inputs:
     in_commands:
+      desc: Current output command vector for implicit POLC (optional)
       kind: single
       type: BaseValue
     in_commands_list:
+      desc: List of current command vectors for implicit POLC (optional)
       kind: single
       type: BaseValue
     in_slopes:
+      desc: Input wavefront slope vector (optional)
       kind: single
       type: Slopes
     in_slopes_list:
+      desc: List of input slope vectors (optional)
       kind: single
       type: Slopes
-  outputs:
+  output_names:
   - out_modes
-  - out_pseudo_ol_modes
+  outputs:
+  - desc: Reconstructed modal command vector
+    name: out_modes
+    type: BaseValue
   parameters:
-    dmNumber:
-      default: 0
-      kind: value
-      type: int
-    in_commands_size:
-      default: null
-      kind: value
-      type: int
-    input_modes_index:
-      default: null
-      kind: value
-      type: list
-    input_modes_slice:
-      default: null
-      kind: value
-      type: list
     intmat:
-      default: null
-      kind: value
+      default: REQUIRED
+      kind: reference
       type: Intmat
-    nSlopesToBeDiscarded:
-      default: null
-      kind: value
-      type: int
-    ncutmodes:
-      default: null
-      kind: value
-      type: int
-    nmodes:
-      default: null
-      kind: value
-      type: int
-    output_slice:
-      default: null
-      kind: value
-      type: list
     precision:
       default: null
       kind: value
       type: int
     projmat:
-      default: null
-      kind: value
+      default: REQUIRED
+      kind: object
       type: Recmat
     recmat:
-      default: null
-      kind: value
+      default: REQUIRED
+      kind: object
       type: Recmat
     target_device_idx:
       default: null
       kind: value
       type: int
+ModalrecMultirate:
+  bases:
+  - BaseProcessingObj
+  class_name: ModalrecMultirate
+  inputs:
+    in_slopes_list:
+      desc: Input list of sensor slopes vectors
+      kind: single
+      type: Slopes
+  output_names:
+  - out_modes_{sensor_idx}
+  outputs:
+  - desc: Output modal vector for sensor index [sensor_idx]
+    name: out_modes_{sensor_idx}
+    type: BaseValue
+  parameters:
+    n_modes_total:
+      default: REQUIRED
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: int
+    recmat_list:
+      default: REQUIRED
+      kind: reference
+      type: List[Recmat]
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    validity_masks:
+      default: REQUIRED
+      kind: value
+      type: List[List[bool]]
 ModulatedDoubleRoof:
   bases:
   - ModulatedPyramid
   class_name: ModulatedDoubleRoof
   inputs:
     in_ef:
+      desc: Input electric field from the telescope pupil.Contains complex amplitude
+        and phase information that will be modulated and propagated through the pyramid.
       kind: single
       type: ElectricField
-  outputs:
+  output_names:
   - out_i
   - out_psf_tot
   - out_psf_bfm
   - out_transmission
+  - out_flux_frac_inside_detector
+  outputs:
+  - desc: "Output intensity on detector CCD (shape: final_ccd_side \xD7 final_ccd_side)"
+    name: out_i
+    type: Intensity
+  - desc: "Total PSF after focal plane mask application (shape: fft_totsize \xD7 fft_totsize)"
+    name: out_psf_tot
+    type: BaseValue
+  - desc: "PSF before focal plane mask (shape: fft_totsize \xD7 fft_totsize)"
+    name: out_psf_bfm
+    type: BaseValue
+  - desc: Scalar value representing total flux transmission through the system
+    name: out_transmission
+    type: BaseValue
+  - desc: Fraction of total flux that falls inside the CCD area
+    name: out_flux_frac_inside_detector
+    type: BaseValue
   parameters:
     fft_res:
       default: 3.0
@@ -2273,7 +3974,7 @@ ModulatedDoubleRoof:
       kind: value
       type: float
     min_pup_dist:
-      default: null
+      default: 0.0
       kind: value
       type: float
     mod_amp:
@@ -2356,18 +4057,41 @@ ModulatedPyramid:
   class_name: ModulatedPyramid
   inputs:
     in_ef:
+      desc: Input electric field from the telescope pupil.Contains complex amplitude
+        and phase information that will be modulated and propagated through the pyramid.
       kind: single
       type: ElectricField
-  outputs:
+  output_names:
   - out_i
   - out_psf_tot
   - out_psf_bfm
   - out_transmission
+  - out_flux_frac_inside_detector
+  outputs:
+  - desc: "Output intensity on detector CCD (shape: final_ccd_side \xD7 final_ccd_side)"
+    name: out_i
+    type: Intensity
+  - desc: "Total PSF after focal plane mask application (shape: fft_totsize \xD7 fft_totsize)"
+    name: out_psf_tot
+    type: BaseValue
+  - desc: "PSF before focal plane mask (shape: fft_totsize \xD7 fft_totsize)"
+    name: out_psf_bfm
+    type: BaseValue
+  - desc: Scalar value representing total flux transmission through the system
+    name: out_transmission
+    type: BaseValue
+  - desc: Fraction of total flux that falls inside the CCD area
+    name: out_flux_frac_inside_detector
+    type: BaseValue
   parameters:
     fft_res:
       default: 3.0
       kind: value
       type: float
+    force_extrapolation:
+      default: false
+      kind: value
+      type: bool
     fov:
       default: REQUIRED
       kind: value
@@ -2384,8 +4108,12 @@ ModulatedPyramid:
       default: null
       kind: value
       type: float
+    magnification:
+      default: 1.0
+      kind: value
+      type: float
     min_pup_dist:
-      default: null
+      default: 0.0
       kind: value
       type: float
     mod_amp:
@@ -2472,14 +4200,23 @@ MultiImCalibrator:
   class_name: MultiImCalibrator
   inputs:
     in_commands_list:
+      desc: List of input command vectors, one per WFS/sensor pair
       kind: single
       type: BaseValue
     in_slopes_list:
+      desc: List of input slope vectors, one per WFS/sensor pair
       kind: single
       type: Slopes
-  outputs:
+  output_names:
   - out_intmat_list
   - out_intmat_full
+  outputs:
+  - desc: List of per-WFS/sensor interaction matrices
+    name: out_intmat_list
+    type: Intmat
+  - desc: Full stacked interaction matrix from all sensors
+    name: out_intmat_full
+    type: Intmat
   parameters:
     data_dir:
       default: REQUIRED
@@ -2515,7 +4252,7 @@ MultiImCalibrator:
       type: int
     pupilstop:
       default: null
-      kind: value
+      kind: object
       type: Pupilstop
     sensor_dict:
       default: null
@@ -2539,9 +4276,11 @@ MultiRecCalibrator:
   class_name: MultiRecCalibrator
   inputs:
     full_intmat:
+      desc: Full combined interaction matrix to invert
       kind: single
       type: Intmat
     intmat_list:
+      desc: List of per-sensor interaction matrices to invert
       kind: single
       type: Intmat
   outputs: []
@@ -2551,10 +4290,6 @@ MultiRecCalibrator:
       kind: value
       type: str
     full_rec_tag:
-      default: null
-      kind: value
-      type: str
-    full_rec_tag_template:
       default: null
       kind: value
       type: str
@@ -2574,28 +4309,109 @@ MultiRecCalibrator:
       default: null
       kind: value
       type: str
-    rec_tag_template:
-      default: null
-      kind: value
-      type: str
     target_device_idx:
       default: null
       kind: value
       type: int
+MultirateComplementaryFilter:
+  bases:
+  - BaseFilter
+  class_name: MultirateComplementaryFilter
+  inputs:
+    gain_mod:
+      desc: Optional gain modulation vector (optional)
+      kind: single
+      type: BaseValue
+    in_vec:
+      desc: Combined measurement vector (optional, alternative to in_yf+in_ys)
+      kind: single
+      type: BaseValue
+    in_yf:
+      desc: Fast sensor measurement vector (optional, use with in_ys)
+      kind: single
+      type: BaseValue
+    in_ys:
+      desc: List of slow sensor measurement vectors (optional, use with in_yf)
+      kind: single
+      type: BaseValue
+  output_names:
+  - out_comm
+  - out_comm_no_delay
+  outputs:
+  - desc: Output fused command vector with delay applied
+    name: out_comm
+    type: BaseValue
+  - desc: Output fused command vector without delay (for POLC)
+    name: out_comm_no_delay
+    type: BaseValue
+  parameters:
+    N_list:
+      default: REQUIRED
+      kind: value
+      type: list
+    delay:
+      default: 0
+      kind: value
+      type: float
+    g_track:
+      default: REQUIRED
+      kind: value
+      type: float
+    idx_yf:
+      default: null
+      kind: value
+      type: Any
+    idx_ys:
+      default: null
+      kind: value
+      type: Any
+    iir_filter_data:
+      default: REQUIRED
+      kind: reference
+      type: IirFilterData
+    precision:
+      default: null
+      kind: value
+      type: Any
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    target_device_idx:
+      default: null
+      kind: value
+      type: Any
+    validate_sync:
+      default: true
+      kind: value
+      type: bool
+    weights:
+      default: REQUIRED
+      kind: value
+      type: list
 OpticalGainEstimator:
   bases:
   - BaseProcessingObj
   class_name: OpticalGainEstimator
   inputs:
     in_demod_command:
+      desc: Demodulated absolute command vector for optical gain estimation
       kind: single
       type: BaseValue
     in_demod_delta_command:
+      desc: Demodulated delta command vector for optical gain estimation
       kind: single
       type: BaseValue
-  outputs:
+  output_names:
   - optical_gain
   - output
+  outputs:
+  - desc: Estimated optical gain scalar or vector
+    name: optical_gain
+    type: BaseValue
+  - desc: Output command vector corrected by optical gain
+    name: output
+    type: BaseValue
   parameters:
     gain:
       default: REQUIRED
@@ -2619,10 +4435,15 @@ PAPLCoronagraph:
   class_name: PAPLCoronagraph
   inputs:
     in_ef:
+      desc: Input electric field from the telescope pupil
       kind: single
       type: ElectricField
-  outputs:
+  output_names:
   - out_ef
+  outputs:
+  - desc: Output electric field after coronagraph mask application
+    name: out_ef
+    type: ElectricField
   parameters:
     beta:
       default: 0.9
@@ -2694,15 +4515,76 @@ PSF:
   class_name: PSF
   inputs:
     in_ef:
+      desc: Input electric field from the telescope pupil
       kind: single
       type: ElectricField
-  outputs:
+  output_names:
   - out_sr
   - out_psf
   - out_int_sr
   - out_int_psf
   - out_std_psf
+  - out_psf_profile
+  - out_psf_fwhm
+  - out_encircled_energy
+  - out_encircled_energy_at_radius
+  - out_int_psf_profile
+  - out_int_psf_fwhm
+  - out_int_encircled_energy
+  - out_int_encircled_energy_at_radius
+  outputs:
+  - desc: Instantaneous Strehl ratio
+    name: out_sr
+    type: BaseValue
+  - desc: Instantaneous PSF
+    name: out_psf
+    type: BaseValue
+  - desc: Time-integrated Strehl ratio
+    name: out_int_sr
+    type: BaseValue
+  - desc: Time-integrated PSF
+    name: out_int_psf
+    type: BaseValue
+  - desc: Standard deviation of PSF over time
+    name: out_std_psf
+    type: BaseValue
+  - desc: Radial profile of the instantaneous PSF
+    name: out_psf_profile
+    type: BaseValue
+  - desc: FWHM of the instantaneous PSF
+    name: out_psf_fwhm
+    type: BaseValue
+  - desc: Encircled energy of the instantaneous PSF
+    name: out_encircled_energy
+    type: BaseValue
+  - desc: Encircled energy at specified radius for instantaneous PSF
+    name: out_encircled_energy_at_radius
+    type: BaseValue
+  - desc: Radial profile of the integrated PSF
+    name: out_int_psf_profile
+    type: BaseValue
+  - desc: FWHM of the integrated PSF
+    name: out_int_psf_fwhm
+    type: BaseValue
+  - desc: Encircled energy of the integrated PSF
+    name: out_int_encircled_energy
+    type: BaseValue
+  - desc: Encircled energy at specified radius for integrated PSF
+    name: out_int_encircled_energy_at_radius
+    type: BaseValue
   parameters:
+    compute_metrics_in_trigger:
+      default: false
+      kind: value
+      type: bool
+    compute_profile_metrics:
+      default: false
+      kind: value
+      type: bool
+    ee_radius_in_lambda_d:
+      default: null
+      kind: value
+      type: Any
     nd:
       default: null
       kind: value
@@ -2727,10 +4609,6 @@ PSF:
       default: null
       kind: value
       type: int
-    verbose:
-      default: true
-      kind: value
-      type: bool
     wavelengthInNm:
       default: REQUIRED
       kind: value
@@ -2741,13 +4619,97 @@ PhaseFlattening:
   class_name: PhaseFlattening
   inputs:
     in_ef:
+      desc: Input electric field whose mean phase will be removed
       kind: single
       type: ElectricField
-  outputs:
+  output_names:
   - out_ef
+  outputs:
+  - desc: Output electric field with flattened (mean-removed) phase
+    name: out_ef
+    type: ElectricField
   parameters:
     precision:
       default: null
+      kind: value
+      type: int
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+PhaseScreenCube:
+  bases:
+  - BaseProcessingObj
+  class_name: PhaseScreenCube
+  inputs:
+    pupilstop:
+      desc: Pupil stop defining the valid telescope aperture
+      kind: single
+      type: Pupilstop
+  output_names:
+  - out_layer
+  - out_ef
+  outputs:
+  - desc: Output atmospheric phase layer (default single-source name)
+    name: out_layer
+    type: Layer
+  - desc: Output electric field for the line of sight (default single-source name)
+    name: out_ef
+    type: ElectricField
+  parameters:
+    cube:
+      default: REQUIRED
+      kind: reference
+      type: SpatioTempArray
+    layer_height:
+      default: 0.0
+      kind: value
+      type: float
+    pixel_scale:
+      default: REQUIRED
+      kind: value
+      type: float
+    scale_factor:
+      default: 1.0
+      kind: value
+      type: float
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    source_dict:
+      default: null
+      kind: reference
+      type: dict
+    target_device_idx:
+      default: null
+      kind: value
+      type: Any
+Pixels:
+  bases:
+  - BaseDataObj
+  class_name: Pixels
+  inputs: {}
+  outputs: []
+  parameters:
+    bits:
+      default: 16
+      kind: value
+      type: int
+    dimx:
+      default: REQUIRED
+      kind: value
+      type: int
+    dimy:
+      default: REQUIRED
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: int
+    signed:
+      default: 0
       kind: value
       type: int
     target_device_idx:
@@ -2760,19 +4722,16 @@ PolyChromSH:
   class_name: PolyChromSH
   inputs:
     in_ef:
+      desc: Input electric field from the telescope pupil
       kind: single
       type: ElectricField
-  outputs:
+  output_names:
   - out_i
+  outputs:
+  - desc: Output intensity on the detector
+    name: out_i
+    type: Intensity
   parameters:
-    FoVres30mas:
-      default: false
-      kind: value
-      type: bool
-    do_not_double_fov_ovs:
-      default: false
-      kind: value
-      type: bool
     flux_factor:
       default: REQUIRED
       kind: value
@@ -2783,7 +4742,7 @@ PolyChromSH:
       type: float
     laser_launch_tel:
       default: null
-      kind: value
+      kind: reference
       type: LaserLaunchTelescope
     precision:
       default: null
@@ -2847,10 +4806,15 @@ PolyChromWFS:
   class_name: PolyChromWFS
   inputs:
     in_ef:
+      desc: Input electric field from the telescope pupil
       kind: single
       type: ElectricField
-  outputs:
+  output_names:
   - out_i
+  outputs:
+  - desc: Output intensity on the detector
+    name: out_i
+    type: Intensity
   parameters:
     ccd_side:
       default: REQUIRED
@@ -2882,10 +4846,15 @@ PolyCromPyramid:
   class_name: PolyCromPyramid
   inputs:
     in_ef:
+      desc: Input electric field from the telescope pupil
       kind: single
       type: ElectricField
-  outputs:
+  output_names:
   - out_i
+  outputs:
+  - desc: Output intensity on the detector
+    name: out_i
+    type: Intensity
   parameters:
     fft_res:
       default: 3.0
@@ -3003,10 +4972,15 @@ PowerLoss:
   class_name: PowerLoss
   inputs:
     se_sr:
+      desc: Input Strehl ratio or flux value
       kind: single
       type: BaseValue
-  outputs:
+  output_names:
   - out_power_loss
+  outputs:
+  - desc: Output power loss in dB
+    name: out_power_loss
+    type: BaseValue
   parameters:
     nd:
       default: REQUIRED
@@ -3042,18 +5016,100 @@ PsfCoronagraph:
   class_name: PsfCoronagraph
   inputs:
     in_ef:
+      desc: Input electric field from the telescope pupil
       kind: single
       type: ElectricField
-  outputs:
-  - out_coronagraph_psf
-  - out_int_coronagraph_psf
-  - out_std_coronagraph_psf
+  output_names:
   - out_sr
   - out_psf
   - out_int_sr
   - out_int_psf
   - out_std_psf
+  - out_psf_profile
+  - out_psf_fwhm
+  - out_encircled_energy
+  - out_encircled_energy_at_radius
+  - out_int_psf_profile
+  - out_int_psf_fwhm
+  - out_int_encircled_energy
+  - out_int_encircled_energy_at_radius
+  - out_coronagraph_psf
+  - out_int_coronagraph_psf
+  - out_std_coronagraph_psf
+  - out_coronagraph_psf_profile
+  - out_int_coronagraph_psf_profile
+  - out_std_coronagraph_psf_profile
+  outputs:
+  - desc: Instantaneous Strehl ratio
+    name: out_sr
+    type: BaseValue
+  - desc: Instantaneous PSF
+    name: out_psf
+    type: BaseValue
+  - desc: Time-integrated Strehl ratio
+    name: out_int_sr
+    type: BaseValue
+  - desc: Time-integrated PSF
+    name: out_int_psf
+    type: BaseValue
+  - desc: Standard deviation of PSF over time
+    name: out_std_psf
+    type: BaseValue
+  - desc: Radial profile of the instantaneous PSF
+    name: out_psf_profile
+    type: BaseValue
+  - desc: FWHM of the instantaneous PSF
+    name: out_psf_fwhm
+    type: BaseValue
+  - desc: Encircled energy of the instantaneous PSF
+    name: out_encircled_energy
+    type: BaseValue
+  - desc: Encircled energy at specified radius for instantaneous PSF
+    name: out_encircled_energy_at_radius
+    type: BaseValue
+  - desc: Radial profile of the integrated PSF
+    name: out_int_psf_profile
+    type: BaseValue
+  - desc: FWHM of the integrated PSF
+    name: out_int_psf_fwhm
+    type: BaseValue
+  - desc: Encircled energy of the integrated PSF
+    name: out_int_encircled_energy
+    type: BaseValue
+  - desc: Encircled energy at specified radius for integrated PSF
+    name: out_int_encircled_energy_at_radius
+    type: BaseValue
+  - desc: Instantaneous coronagraph PSF
+    name: out_coronagraph_psf
+    type: BaseValue
+  - desc: Time-integrated coronagraph PSF
+    name: out_int_coronagraph_psf
+    type: BaseValue
+  - desc: Standard deviation of coronagraph PSF over time
+    name: out_std_coronagraph_psf
+    type: BaseValue
+  - desc: Radial profile of the instantaneous coronagraph PSF
+    name: out_coronagraph_psf_profile
+    type: BaseValue
+  - desc: Radial profile of the integrated coronagraph PSF
+    name: out_int_coronagraph_psf_profile
+    type: BaseValue
+  - desc: Radial profile of the std dev coronagraph PSF
+    name: out_std_coronagraph_psf_profile
+    type: BaseValue
   parameters:
+    compute_metrics_in_trigger:
+      default: false
+      kind: value
+      type: bool
+    compute_profile_metrics:
+      default: false
+      kind: value
+      type: bool
+    ee_radius_in_lambda_d:
+      default: null
+      kind: value
+      type: Any
     nd:
       default: null
       kind: value
@@ -3078,7 +5134,7 @@ PsfCoronagraph:
       default: null
       kind: value
       type: int
-    verbose:
+    use_average_field:
       default: true
       kind: value
       type: bool
@@ -3086,13 +5142,141 @@ PsfCoronagraph:
       default: REQUIRED
       kind: value
       type: float
+PupData:
+  bases:
+  - BaseDataObj
+  class_name: PupData
+  inputs: {}
+  outputs: []
+  parameters:
+    cx:
+      default: null
+      kind: value
+      type: Any
+    cy:
+      default: null
+      kind: value
+      type: Any
+    framesize:
+      default: null
+      kind: value
+      type: Any
+    ind_pup:
+      default: null
+      kind: value
+      type: Any
+    precision:
+      default: null
+      kind: value
+      type: int
+    radius:
+      default: null
+      kind: value
+      type: Any
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+Pupilstop:
+  bases:
+  - Layer
+  class_name: Pupilstop
+  inputs: {}
+  outputs: []
+  parameters:
+    input_mask:
+      default: null
+      kind: value
+      type: Any
+    magnification:
+      default: 1.0
+      kind: value
+      type: float
+    mask_diam:
+      default: 1.0
+      kind: value
+      type: float
+    obs_diam:
+      default: null
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: int
+    rotInDeg:
+      default: 0.0
+      kind: value
+      type: float
+    shiftXYinPixel:
+      default:
+      - 0.0
+      - 0.0
+      kind: value
+      type: tuple
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+PupilstopController:
+  bases:
+  - BaseProcessingObj
+  class_name: PupilstopController
+  inputs:
+    in_magnification:
+      desc: Scalar magnification factor (>0) (optional)
+      kind: single
+      type: BaseValue
+    in_rotation_deg:
+      desc: Scalar rotation angle [deg] (optional)
+      kind: single
+      type: BaseValue
+    in_shift_xy_px:
+      desc: '[x, y] shift in pixels (optional)'
+      kind: single
+      type: BaseValue
+  output_names:
+  - out_layer
+  outputs:
+  - desc: Updated pupilstop layer
+    name: out_layer
+    type: Layer
+  parameters:
+    mask_threshold:
+      default: 0.5
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: int
+    pupilstop:
+      default: REQUIRED
+      kind: object
+      type: Pupilstop
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    threshold_mask:
+      default: true
+      kind: value
+      type: bool
 PushPullGenerator:
   bases:
   - BaseGenerator
   class_name: PushPullGenerator
   inputs: {}
-  outputs:
+  output_names:
   - output
+  outputs:
+  - desc: Generated output signal
+    name: output
+    type: BaseValue
   parameters:
     amp:
       default: null
@@ -3132,7 +5316,11 @@ PushPullGenerator:
       default: PUSHPULL
       kind: value
       type: str
-    repeat_cycles:
+    repeat_full_sequence:
+      default: false
+      kind: value
+      type: bool
+    repeat_ncycles:
       default: false
       kind: value
       type: bool
@@ -3150,9 +5338,19 @@ PyrPupdataCalibrator:
   class_name: PyrPupdataCalibrator
   inputs:
     in_i:
+      desc: Input intensity image (optional)
       kind: single
       type: Intensity
-  outputs: []
+    in_pixels:
+      desc: Input pixel image (optional)
+      kind: single
+      type: Pixels
+  output_names:
+  - out_pupdata
+  outputs:
+  - desc: Calibrated pupil data with subaperture geometry
+    name: out_pupdata
+    type: PupData
   parameters:
     auto_detect_obstruction:
       default: true
@@ -3166,6 +5364,10 @@ PyrPupdataCalibrator:
       default: false
       kind: value
       type: bool
+    dt:
+      default: null
+      kind: value
+      type: float
     min_obstruction_ratio:
       default: 0.05
       kind: value
@@ -3186,6 +5388,10 @@ PyrPupdataCalibrator:
       default: null
       kind: value
       type: int
+    save_on_exit:
+      default: true
+      kind: value
+      type: bool
     slopes_from_intensity:
       default: false
       kind: value
@@ -3208,14 +5414,31 @@ PyrSlopec:
   class_name: PyrSlopec
   inputs:
     in_pixels:
+      desc: Input pixel data from detector
       kind: single
       type: Pixels
-  outputs:
-  - out_pupdata
+  output_names:
   - out_slopes
   - out_flux_per_subaperture
   - out_total_counts
   - out_subap_counts
+  - out_pupdata
+  outputs:
+  - desc: Computed wavefront slopes
+    name: out_slopes
+    type: Slopes
+  - desc: Flux per subaperture
+    name: out_flux_per_subaperture
+    type: BaseValue
+  - desc: Total photon counts
+    name: out_total_counts
+    type: BaseValue
+  - desc: Counts per subaperture
+    name: out_subap_counts
+    type: BaseValue
+  - desc: Pupil data with subaperture geometry
+    name: out_pupdata
+    type: PupData
   parameters:
     norm_factor:
       default: null
@@ -3227,7 +5450,7 @@ PyrSlopec:
       type: int
     pupdata:
       default: REQUIRED
-      kind: value
+      kind: object
       type: PupData
     shlike:
       default: false
@@ -3239,7 +5462,7 @@ PyrSlopec:
       type: bool
     sn:
       default: null
-      kind: value
+      kind: object
       type: Slopes
     target_device_idx:
       default: null
@@ -3254,13 +5477,17 @@ RandomGenerator:
   - BaseGenerator
   class_name: RandomGenerator
   inputs: {}
-  outputs:
+  output_names:
   - output
+  outputs:
+  - desc: Generated output signal
+    name: output
+    type: BaseValue
   parameters:
     amp:
-      default: 1.0
+      default: null
       kind: value
-      type: float
+      type: Any
     constant:
       default: 0.0
       kind: value
@@ -3269,6 +5496,14 @@ RandomGenerator:
       default: NORMAL
       kind: value
       type: Any
+    forced_zero_modes:
+      default: 0
+      kind: value
+      type: int
+    modal_rms:
+      default: null
+      kind: value
+      type: float
     output_size:
       default: 1
       kind: value
@@ -3277,6 +5512,10 @@ RandomGenerator:
       default: null
       kind: value
       type: int
+    scaling_law:
+      default: INVERSE
+      kind: value
+      type: str
     seed:
       default: null
       kind: value
@@ -3295,6 +5534,7 @@ RecCalibrator:
   class_name: RecCalibrator
   inputs:
     in_intmat:
+      desc: Input interaction matrix to invert
       kind: single
       type: Intmat
   outputs: []
@@ -3347,10 +5587,33 @@ RecCalibrator:
       default: REQUIRED
       kind: value
       type: str
-    tag_template:
+    target_device_idx:
       default: null
       kind: value
-      type: str
+      type: int
+Recmat:
+  bases:
+  - BaseDataObj
+  class_name: Recmat
+  inputs: {}
+  outputs: []
+  parameters:
+    modes2recLayer:
+      default: null
+      kind: value
+      type: Any
+    norm_factor:
+      default: 0
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: int
+    recmat:
+      default: REQUIRED
+      kind: value
+      type: Any
     target_device_idx:
       default: null
       kind: value
@@ -3361,36 +5624,35 @@ SH:
   class_name: SH
   inputs:
     in_ef:
+      desc: Input electric field from the telescope pupil
       kind: single
       type: ElectricField
     sodium_altitude:
+      desc: Sodium layer altitude profile (optional)
       kind: single
       type: BaseValue
     sodium_intensity:
+      desc: Sodium layer intensity profile (optional)
       kind: single
       type: BaseValue
-  outputs:
+  output_names:
   - out_i
+  outputs:
+  - desc: Output Shack-Hartmann focal-plane intensity image
+    name: out_i
+    type: Intensity
   parameters:
-    FoVres30mas:
-      default: false
-      kind: value
-      type: bool
     data_dir:
       default: ''
       kind: value
       type: str
-    do_not_double_fov_ovs:
-      default: false
-      kind: value
-      type: bool
     fov_ovs_coeff:
-      default: 0
+      default: 2.0
       kind: value
       type: float
     laser_launch_tel:
       default: null
-      kind: value
+      kind: reference
       type: LaserLaunchTelescope
     precision:
       default: null
@@ -3449,8 +5711,12 @@ ScheduleGenerator:
   - BaseGenerator
   class_name: ScheduleGenerator
   inputs: {}
-  outputs:
+  output_names:
   - output
+  outputs:
+  - desc: Generated output signal
+    name: output
+    type: BaseValue
   parameters:
     modes_per_group:
       default: REQUIRED
@@ -3478,14 +5744,31 @@ ShSlopec:
   class_name: ShSlopec
   inputs:
     in_pixels:
+      desc: Input pixel data from detector
       kind: single
       type: Pixels
-  outputs:
-  - out_subapdata
+  output_names:
   - out_slopes
   - out_flux_per_subaperture
   - out_total_counts
   - out_subap_counts
+  - out_subapdata
+  outputs:
+  - desc: Computed wavefront slopes
+    name: out_slopes
+    type: Slopes
+  - desc: Flux per subaperture
+    name: out_flux_per_subaperture
+    type: BaseValue
+  - desc: Total photon counts
+    name: out_total_counts
+    type: BaseValue
+  - desc: Counts per subaperture
+    name: out_subap_counts
+    type: BaseValue
+  - desc: Subaperture data with geometry information
+    name: out_subapdata
+    type: SubapData
   parameters:
     exp_weight:
       default: 1.0
@@ -3505,11 +5788,11 @@ ShSlopec:
       type: int
     sn:
       default: null
-      kind: value
+      kind: object
       type: Slopes
     subapdata:
       default: REQUIRED
-      kind: value
+      kind: reference
       type: SubapData
     target_device_idx:
       default: null
@@ -3549,9 +5832,11 @@ ShSubapCalibrator:
   class_name: ShSubapCalibrator
   inputs:
     in_i:
+      desc: Input intensity image (optional)
       kind: single
       type: Intensity
     in_pixels:
+      desc: Input pixel image (optional)
       kind: single
       type: Pixels
   outputs: []
@@ -3565,7 +5850,7 @@ ShSubapCalibrator:
       kind: value
       type: float
     output_tag:
-      default: null
+      default: REQUIRED
       kind: value
       type: str
     overwrite:
@@ -3580,35 +5865,88 @@ ShSubapCalibrator:
       default: REQUIRED
       kind: value
       type: int
-    tag_template:
-      default: null
-      kind: value
-      type: str
     target_device_idx:
       default: null
       kind: value
       type: int
+SimulParams:
+  bases:
+  - BaseDataObj
+  class_name: SimulParams
+  inputs: {}
+  outputs: []
+  parameters:
+    add_modules:
+      default: []
+      kind: value
+      type: List[str]
+    display_server:
+      default: false
+      kind: value
+      type: bool
+    pixel_pitch:
+      default: null
+      kind: value
+      type: float
+    pixel_pupil:
+      default: null
+      kind: value
+      type: int
+    root_dir:
+      default: .
+      kind: value
+      type: str
+    stepping:
+      default: false
+      kind: value
+      type: bool
+    time_step:
+      default: 0.001
+      kind: value
+      type: float
+    total_time:
+      default: 0.1
+      kind: value
+      type: float
+    zenithAngleInDeg:
+      default: 0
+      kind: value
+      type: float
 Slopec:
   bases:
   - BaseProcessingObj
   class_name: Slopec
   inputs:
     in_pixels:
+      desc: Input pixel data from detector
       kind: single
       type: Pixels
-  outputs:
+  output_names:
   - out_slopes
   - out_flux_per_subaperture
   - out_total_counts
   - out_subap_counts
+  outputs:
+  - desc: Computed wavefront slopes
+    name: out_slopes
+    type: Slopes
+  - desc: Flux per subaperture
+    name: out_flux_per_subaperture
+    type: BaseValue
+  - desc: Total photon counts
+    name: out_total_counts
+    type: BaseValue
+  - desc: Counts per subaperture
+    name: out_subap_counts
+    type: BaseValue
   parameters:
     filt_intmat:
       default: null
-      kind: value
+      kind: reference
       type: Intmat
     filt_recmat:
       default: null
-      kind: value
+      kind: object
       type: Recmat
     filtmat:
       default: null
@@ -3624,11 +5962,11 @@ Slopec:
       type: int
     recmat:
       default: null
-      kind: value
+      kind: object
       type: Recmat
     sn:
       default: null
-      kind: value
+      kind: object
       type: Slopes
     target_device_idx:
       default: null
@@ -3638,12 +5976,40 @@ Slopec:
       default: 0
       kind: value
       type: float
+Slopes:
+  bases:
+  - BaseDataObj
+  class_name: Slopes
+  inputs: {}
+  outputs: []
+  parameters:
+    interleave:
+      default: false
+      kind: value
+      type: bool
+    length:
+      default: null
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: int
+    slopes:
+      default: null
+      kind: value
+      type: Any
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
 SnCalibrator:
   bases:
   - BaseProcessingObj
   class_name: SnCalibrator
   inputs:
     in_slopes:
+      desc: Input slopes to average into a slope null
       kind: single
       type: Slopes
   outputs: []
@@ -3653,7 +6019,7 @@ SnCalibrator:
       kind: value
       type: str
     output_tag:
-      default: null
+      default: REQUIRED
       kind: value
       type: str
     overwrite:
@@ -3664,10 +6030,98 @@ SnCalibrator:
       default: null
       kind: value
       type: int
-    tag_template:
+    target_device_idx:
       default: null
       kind: value
+      type: int
+Source:
+  bases:
+  - BaseDataObj
+  class_name: Source
+  inputs: {}
+  outputs: []
+  parameters:
+    band:
+      default: ''
+      kind: value
       type: str
+    error_coord:
+      default:
+      - 0.0
+      - 0.0
+      kind: value
+      type: tuple
+    height:
+      default: float('inf')
+      kind: value
+      type: float
+    magnitude:
+      default: REQUIRED
+      kind: value
+      type: float
+    polar_coordinates:
+      default: REQUIRED
+      kind: value
+      type: list
+    precision:
+      default: null
+      kind: value
+      type: int
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    wavelengthInNm:
+      default: REQUIRED
+      kind: value
+      type: float
+    zero_point:
+      default: 0
+      kind: value
+      type: float
+SpatioTempArray:
+  bases:
+  - BaseDataObj
+  class_name: SpatioTempArray
+  inputs: {}
+  outputs: []
+  parameters:
+    array:
+      default: REQUIRED
+      kind: value
+      type: Any
+    precision:
+      default: null
+      kind: value
+      type: int
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    time_axis:
+      default: -1
+      kind: value
+      type: int
+    time_vector:
+      default: REQUIRED
+      kind: value
+      type: Any
+SpeculaInput:
+  bases:
+  - BaseProcessingObj
+  class_name: SpeculaInput
+  inputs: {}
+  outputs:
+  - name
+  parameters:
+    output_list:
+      default: REQUIRED
+      kind: value
+      type: list
+    precision:
+      default: null
+      kind: value
+      type: int
     target_device_idx:
       default: null
       kind: value
@@ -3678,13 +6132,28 @@ SpotMonitor:
   class_name: SpotMonitor
   inputs:
     in_pixels:
+      desc: Input pixel image from WFS detector
       kind: single
       type: Pixels
-  outputs:
+  output_names:
   - out_sum_pixels
   - out_model_pixels
   - out_residual_pixels
   - out_params
+  outputs:
+  - desc: Summed subaperture image
+    name: out_sum_pixels
+    type: Pixels
+  - desc: Fitted Moffat model image
+    name: out_model_pixels
+    type: Pixels
+  - desc: Residuals between data and model
+    name: out_residual_pixels
+    type: Pixels
+  - desc: Moffat fit parameters [amplitude, x0, y0, gamma, alpha, sky, fwhm, chi2,
+      success]
+    name: out_params
+    type: BaseValue
   parameters:
     bounds_alpha:
       default:
@@ -3712,26 +6181,223 @@ SpotMonitor:
       type: int
     subapdata:
       default: REQUIRED
-      kind: value
+      kind: reference
       type: SubapData
     target_device_idx:
       default: null
       kind: value
       type: int
+SprintPyr:
+  bases:
+  - BaseSprintEstimator
+  class_name: SprintPyr
+  inputs:
+    in_slopes:
+      desc: Input slopes from wavefront sensor
+      kind: single
+      type: Slopes
+  output_names:
+  - out_intmat
+  - out_misreg_params
+  - out_convergence_error
+  outputs:
+  - desc: Estimated interaction matrix
+    name: out_intmat
+    type: Intmat
+  - desc: Misregistration parameters
+    name: out_misreg_params
+    type: BaseValue
+  - desc: Convergence error metric
+    name: out_convergence_error
+    type: BaseValue
+  parameters:
+    apply_absolute_slopes:
+      default: false
+      kind: value
+      type: bool
+    carrier_frequencies:
+      default: REQUIRED
+      kind: value
+      type: list
+    convergence_threshold:
+      default: 0.001
+      kind: value
+      type: float
+    dm:
+      default: REQUIRED
+      kind: value
+      type: DM
+    estimation_dt:
+      default: 10.0
+      kind: value
+      type: float
+    forgetting_factor:
+      default: 1.0
+      kind: value
+      type: float
+    initial_misreg:
+      default: null
+      kind: value
+      type: list
+    integration_gain:
+      default: 0.5
+      kind: value
+      type: float
+    max_iterations:
+      default: 10
+      kind: value
+      type: int
+    modes_index:
+      default: REQUIRED
+      kind: value
+      type: list
+    precision:
+      default: null
+      kind: value
+      type: int
+    pupil_mask:
+      default: null
+      kind: object
+      type: Pupilstop
+    push_amp:
+      default: 10
+      kind: value
+      type: Any
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    slopec:
+      default: REQUIRED
+      kind: value
+      type: Slopec
+    source:
+      default: REQUIRED
+      kind: reference
+      type: Source
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    wfs:
+      default: REQUIRED
+      kind: value
+      type: BaseProcessingObj
+SprintShSynim:
+  bases:
+  - BaseSprintEstimator
+  class_name: SprintShSynim
+  inputs:
+    in_slopes:
+      desc: Input slopes from wavefront sensor
+      kind: single
+      type: Slopes
+  output_names:
+  - out_intmat
+  - out_misreg_params
+  - out_convergence_error
+  outputs:
+  - desc: Estimated interaction matrix
+    name: out_intmat
+    type: Intmat
+  - desc: Misregistration parameters
+    name: out_misreg_params
+    type: BaseValue
+  - desc: Convergence error metric
+    name: out_convergence_error
+    type: BaseValue
+  parameters:
+    apply_absolute_slopes:
+      default: false
+      kind: value
+      type: bool
+    carrier_frequencies:
+      default: REQUIRED
+      kind: value
+      type: list
+    convergence_threshold:
+      default: 0.001
+      kind: value
+      type: float
+    dm:
+      default: REQUIRED
+      kind: value
+      type: DM
+    enable_wpup_magn_xy:
+      default: false
+      kind: value
+      type: Any
+    estimation_dt:
+      default: 10.0
+      kind: value
+      type: float
+    forgetting_factor:
+      default: 1.0
+      kind: value
+      type: float
+    initial_misreg:
+      default: null
+      kind: value
+      type: list
+    integration_gain:
+      default: 0.5
+      kind: value
+      type: float
+    max_iterations:
+      default: 10
+      kind: value
+      type: int
+    modes_index:
+      default: REQUIRED
+      kind: value
+      type: list
+    precision:
+      default: null
+      kind: value
+      type: int
+    simul_params:
+      default: REQUIRED
+      kind: reference
+      type: SimulParams
+    slopec:
+      default: REQUIRED
+      kind: value
+      type: Slopec
+    source:
+      default: REQUIRED
+      kind: reference
+      type: Source
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    wfs:
+      default: REQUIRED
+      kind: value
+      type: BaseProcessingObj
 SsrFilter:
   bases:
   - BaseFilter
   class_name: SsrFilter
   inputs:
     delta_comm:
+      desc: Input delta command vector
       kind: single
       type: BaseValue
     gain_mod:
+      desc: Optional gain modulation vector (optional)
       kind: single
       type: BaseValue
-  outputs:
+  output_names:
   - out_comm
   - out_comm_no_delay
+  outputs:
+  - desc: Output command vector with delay applied
+    name: out_comm
+    type: BaseValue
+  - desc: Output command vector without delay (for POLC)
+    name: out_comm_no_delay
+    type: BaseValue
   parameters:
     delay:
       default: 0
@@ -3751,10 +6417,119 @@ SsrFilter:
       type: SimulParams
     ssr_filter_data:
       default: REQUIRED
-      kind: value
+      kind: reference
       type: SsrFilterData
     target_device_idx:
       default: null
+      kind: value
+      type: Any
+SsrFilterData:
+  bases:
+  - BaseDataObj
+  class_name: SsrFilterData
+  inputs: {}
+  outputs: []
+  parameters:
+    A:
+      default: REQUIRED
+      kind: value
+      type: Any
+    B:
+      default: REQUIRED
+      kind: value
+      type: Any
+    C:
+      default: REQUIRED
+      kind: value
+      type: Any
+    D:
+      default: REQUIRED
+      kind: value
+      type: Any
+    n_modes:
+      default: null
+      kind: value
+      type: Any
+    precision:
+      default: null
+      kind: value
+      type: int
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+SubapData:
+  bases:
+  - BaseDataObj
+  class_name: SubapData
+  inputs: {}
+  outputs: []
+  parameters:
+    display_map:
+      default: REQUIRED
+      kind: value
+      type: Any
+    energy_th:
+      default: 0
+      kind: value
+      type: float
+    idxs:
+      default: REQUIRED
+      kind: value
+      type: Any
+    nx:
+      default: REQUIRED
+      kind: value
+      type: int
+    ny:
+      default: REQUIRED
+      kind: value
+      type: int
+    precision:
+      default: null
+      kind: value
+      type: int
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+TerminalInput:
+  bases:
+  - SpeculaInput
+  class_name: TerminalInput
+  inputs: {}
+  outputs:
+  - name
+  parameters:
+    output_list:
+      default: REQUIRED
+      kind: value
+      type: list
+    precision:
+      default: null
+      kind: value
+      type: int
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+TimeHistory:
+  bases:
+  - BaseDataObj
+  class_name: TimeHistory
+  inputs: {}
+  outputs: []
+  parameters:
+    precision:
+      default: null
+      kind: value
+      type: int
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    time_history:
+      default: REQUIRED
       kind: value
       type: Any
 TimeHistoryGenerator:
@@ -3762,8 +6537,12 @@ TimeHistoryGenerator:
   - BaseGenerator
   class_name: TimeHistoryGenerator
   inputs: {}
-  outputs:
+  output_names:
   - output
+  outputs:
+  - desc: Generated output signal
+    name: output
+    type: BaseValue
   parameters:
     precision:
       default: null
@@ -3775,15 +6554,19 @@ TimeHistoryGenerator:
       type: int
     time_hist:
       default: REQUIRED
-      kind: value
+      kind: reference
       type: TimeHistory
 VibrationGenerator:
   bases:
   - BaseGenerator
   class_name: VibrationGenerator
   inputs: {}
-  outputs:
+  output_names:
   - output
+  outputs:
+  - desc: Generated output signal
+    name: output
+    type: BaseValue
   parameters:
     freq:
       default: REQUIRED
@@ -3823,10 +6606,15 @@ VortexCoronagraph:
   class_name: VortexCoronagraph
   inputs:
     in_ef:
+      desc: Input electric field from the telescope pupil
       kind: single
       type: ElectricField
-  outputs:
+  output_names:
   - out_ef
+  outputs:
+  - desc: Output electric field after coronagraph mask application
+    name: out_ef
+    type: ElectricField
   parameters:
     addInVortex:
       default: false
@@ -3881,25 +6669,29 @@ WaveGenerator:
   - BaseGenerator
   class_name: WaveGenerator
   inputs: {}
-  outputs:
+  output_names:
   - output
+  outputs:
+  - desc: Generated output signal
+    name: output
+    type: BaseValue
   parameters:
     amp:
       default: 0.0
       kind: value
-      type: float
+      type: list[float]
     constant:
       default: 0.0
       kind: value
-      type: float
+      type: list[float]
     freq:
       default: 0.0
       kind: value
-      type: float
+      type: list[float]
     offset:
       default: 0.0
       kind: value
-      type: float
+      type: list[float]
     output_size:
       default: 1
       kind: value
@@ -3911,7 +6703,7 @@ WaveGenerator:
     slope:
       default: 0.0
       kind: value
-      type: float
+      type: list[float]
     target_device_idx:
       default: null
       kind: value
@@ -3919,7 +6711,7 @@ WaveGenerator:
     vsize:
       default: 1
       kind: value
-      type: int
+      type: list[int]
     wave_type:
       default: SIN
       kind: value
@@ -3930,10 +6722,15 @@ WindowedIntegration:
   class_name: WindowedIntegration
   inputs:
     input:
+      desc: Input signal to integrate
       kind: single
       type: BaseValue
-  outputs:
+  output_names:
   - output
+  outputs:
+  - desc: Windowed time-integrated output signal
+    name: output
+    type: BaseValue
   parameters:
     dt:
       default: REQUIRED
@@ -3969,16 +6766,35 @@ ZernikeSensor:
   class_name: ZernikeSensor
   inputs:
     in_ef:
+      desc: Input electric field from the telescope pupil.Contains complex amplitude
+        and phase information that will be modulated and propagated through the pyramid.
       kind: single
       type: ElectricField
-  outputs:
+  output_names:
   - out_i
   - out_psf_tot
   - out_psf_bfm
   - out_transmission
+  - out_flux_frac_inside_detector
+  outputs:
+  - desc: "Output intensity on detector CCD (shape: final_ccd_side \xD7 final_ccd_side)"
+    name: out_i
+    type: Intensity
+  - desc: "Total PSF after focal plane mask application (shape: fft_totsize \xD7 fft_totsize)"
+    name: out_psf_tot
+    type: BaseValue
+  - desc: "PSF before focal plane mask (shape: fft_totsize \xD7 fft_totsize)"
+    name: out_psf_bfm
+    type: BaseValue
+  - desc: Scalar value representing total flux transmission through the system
+    name: out_transmission
+    type: BaseValue
+  - desc: Fraction of total flux that falls inside the CCD area
+    name: out_flux_frac_inside_detector
+    type: BaseValue
   parameters:
     fft_res:
-      default: 16.0
+      default: 4.0
       kind: value
       type: float
     fov:
@@ -3989,8 +6805,8 @@ ZernikeSensor:
       default: REQUIRED
       kind: value
       type: int
-    phase_shift:
-      default: 3.141592653589793 / 2
+    phase_shift_pi:
+      default: 0.5
       kind: value
       type: float
     precision:
@@ -4006,7 +6822,7 @@ ZernikeSensor:
       kind: reference
       type: SimulParams
     spot_radius_lambda:
-      default: 1.06
+      default: 1.0
       kind: value
       type: float
     target_device_idx:
@@ -4015,5 +6831,65 @@ ZernikeSensor:
       type: int
     wavelengthInNm:
       default: REQUIRED
+      kind: value
+      type: float
+ZwfsSlopec:
+  bases:
+  - Slopec
+  class_name: ZwfsSlopec
+  inputs:
+    in_pixels:
+      desc: Input pixel data from detector
+      kind: single
+      type: Pixels
+  output_names:
+  - out_slopes
+  - out_flux_per_subaperture
+  - out_total_counts
+  - out_subap_counts
+  - out_pupdata
+  outputs:
+  - desc: Computed wavefront slopes
+    name: out_slopes
+    type: Slopes
+  - desc: Flux per subaperture
+    name: out_flux_per_subaperture
+    type: BaseValue
+  - desc: Total photon counts
+    name: out_total_counts
+    type: BaseValue
+  - desc: Counts per subaperture
+    name: out_subap_counts
+    type: BaseValue
+  - desc: Pupil data with subaperture geometry
+    name: out_pupdata
+    type: PupData
+  parameters:
+    ccd_size:
+      default: REQUIRED
+      kind: value
+      type: int
+    obsratio:
+      default: null
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: int
+    pup_diam:
+      default: REQUIRED
+      kind: value
+      type: float
+    sn:
+      default: null
+      kind: object
+      type: Slopes
+    target_device_idx:
+      default: null
+      kind: value
+      type: int
+    thr_value:
+      default: 0.0
       kind: value
       type: float

@@ -17,11 +17,7 @@ ShSubapCalibrator:
       kind: value
     output_tag:
       type: str
-      default: null
-      kind: value
-    tag_template:
-      type: str
-      default: null
+      default: REQUIRED
       kind: value
     overwrite:
       type: bool
@@ -39,7 +35,9 @@ ShSubapCalibrator:
     in_i:
       type: Intensity
       kind: single
+      desc: Input intensity image (optional)
     in_pixels:
       type: Pixels
       kind: single
+      desc: Input pixel image (optional)
   outputs: []

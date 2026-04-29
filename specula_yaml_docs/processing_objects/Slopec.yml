@@ -6,19 +6,19 @@ Slopec:
     sn:
       type: Slopes
       default: null
-      kind: value
+      kind: object
     recmat:
       type: Recmat
       default: null
-      kind: value
+      kind: object
     filt_intmat:
       type: Intmat
       default: null
-      kind: value
+      kind: reference
     filt_recmat:
       type: Recmat
       default: null
-      kind: value
+      kind: object
     filtmat:
       type: Any
       default: null
@@ -43,7 +43,21 @@ Slopec:
     in_pixels:
       type: Pixels
       kind: single
+      desc: Input pixel data from detector
   outputs:
+  - name: out_slopes
+    type: Slopes
+    desc: Computed wavefront slopes
+  - name: out_flux_per_subaperture
+    type: BaseValue
+    desc: Flux per subaperture
+  - name: out_total_counts
+    type: BaseValue
+    desc: Total photon counts
+  - name: out_subap_counts
+    type: BaseValue
+    desc: Counts per subaperture
+  output_names:
   - out_slopes
   - out_flux_per_subaperture
   - out_total_counts

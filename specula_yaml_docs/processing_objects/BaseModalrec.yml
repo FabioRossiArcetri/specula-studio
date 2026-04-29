@@ -1,0 +1,28 @@
+BaseModalrec:
+  class_name: BaseModalrec
+  bases:
+  - BaseProcessingObj
+  parameters:
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_slopes:
+      type: Slopes
+      kind: single
+      desc: Input wavefront slope vector (optional)
+    in_slopes_list:
+      type: Slopes
+      kind: single
+      desc: List of input slope vectors (optional)
+  outputs:
+  - name: out_modes
+    type: BaseValue
+    desc: Reconstructed modal command vector
+  output_names:
+  - out_modes

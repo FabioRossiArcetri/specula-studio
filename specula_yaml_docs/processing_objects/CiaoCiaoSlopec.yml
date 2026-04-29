@@ -1,0 +1,68 @@
+CiaoCiaoSlopec:
+  class_name: CiaoCiaoSlopec
+  bases:
+  - Slopec
+  parameters:
+    wavelength_in_nm:
+      type: float
+      default: REQUIRED
+      kind: value
+    window_x_in_pix:
+      type: float
+      default: REQUIRED
+      kind: value
+    window_y_in_pix:
+      type: float
+      default: REQUIRED
+      kind: value
+    window_sigma_in_pix:
+      type: float
+      default: REQUIRED
+      kind: value
+    pupil_mask:
+      type: Pupilstop
+      default: REQUIRED
+      kind: object
+    diffRotAngleInDeg:
+      type: float
+      default: 0.0
+      kind: value
+    unwrap:
+      type: bool
+      default: false
+      kind: value
+    sn:
+      type: Slopes
+      default: null
+      kind: object
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_pixels:
+      type: Pixels
+      kind: single
+      desc: Input interferogram pixel data from detector
+  outputs:
+  - name: out_slopes
+    type: Slopes
+    desc: Computed OPD map as a flattened slope vector
+  - name: out_flux_per_subaperture
+    type: BaseValue
+    desc: Mean flux per pixel within the pupil mask
+  - name: out_total_counts
+    type: BaseValue
+    desc: Total photon counts
+  - name: out_subap_counts
+    type: BaseValue
+    desc: Counts per subaperture
+  output_names:
+  - out_slopes
+  - out_flux_per_subaperture
+  - out_total_counts
+  - out_subap_counts

@@ -27,6 +27,14 @@ DataStore:
       type: bool
       default: true
       kind: value
+    downsample_factor:
+      type: int
+      default: 1
+      kind: value
+    downsample_factor_by_input:
+      type: dict
+      default: null
+      kind: reference
   inputs:
     input_list:
       type: Any

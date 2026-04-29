@@ -1,0 +1,60 @@
+CurWfsSlopec:
+  class_name: CurWfsSlopec
+  bases:
+  - Slopec
+  parameters:
+    diameter:
+      type: int
+      default: REQUIRED
+      kind: value
+    ccd_size:
+      type: tuple
+      default: REQUIRED
+      kind: value
+    sn:
+      type: Slopes
+      default: null
+      kind: object
+    interleave:
+      type: bool
+      default: false
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_pixels1:
+      type: Pixels
+      kind: single
+      desc: Intra-focal pixel image from detector
+    in_pixels2:
+      type: Pixels
+      kind: single
+      desc: Extra-focal pixel image from detector
+  outputs:
+  - name: out_slopes
+    type: Slopes
+    desc: Computed wavefront slopes
+  - name: out_flux_per_subaperture
+    type: BaseValue
+    desc: Flux per subaperture
+  - name: out_total_counts
+    type: BaseValue
+    desc: Total photon counts
+  - name: out_subap_counts
+    type: BaseValue
+    desc: Counts per subaperture
+  - name: out_pupdata
+    type: PupData
+    desc: Pupil data with subaperture geometry
+  output_names:
+  - out_slopes
+  - out_flux_per_subaperture
+  - out_total_counts
+  - out_subap_counts
+  - out_pupdata

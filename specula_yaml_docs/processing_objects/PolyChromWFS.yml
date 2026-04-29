@@ -31,5 +31,10 @@ PolyChromWFS:
     in_ef:
       type: ElectricField
       kind: single
+      desc: Input electric field from the telescope pupil
   outputs:
+  - name: out_i
+    type: Intensity
+    desc: Output intensity on the detector
+  output_names:
   - out_i

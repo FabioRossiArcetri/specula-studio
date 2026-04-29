@@ -6,7 +6,7 @@ MVM:
     recmat:
       type: Recmat
       default: REQUIRED
-      kind: value
+      kind: object
     target_device_idx:
       type: int
       default: null
@@ -19,5 +19,10 @@ MVM:
     in_vector:
       type: BaseValue
       kind: single
+      desc: Input vector to be multiplied by the reconstruction matrix
   outputs:
+  - name: out_vector
+    type: BaseValue
+    desc: Output vector after matrix-vector multiplication
+  output_names:
   - out_vector

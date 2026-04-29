@@ -1,0 +1,52 @@
+CurvatureSensor:
+  class_name: CurvatureSensor
+  bases:
+  - BaseProcessingObj
+  parameters:
+    wavelengthInNm:
+      type: float
+      default: REQUIRED
+      kind: value
+    wanted_fov:
+      type: float
+      default: REQUIRED
+      kind: value
+    pxscale:
+      type: float
+      default: REQUIRED
+      kind: value
+    number_px:
+      type: int
+      default: REQUIRED
+      kind: value
+    defocus_rms_nm:
+      type: float
+      default: REQUIRED
+      kind: value
+    fov_ovs_coeff:
+      type: float
+      default: 2.0
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_ef:
+      type: ElectricField
+      kind: single
+      desc: Input electric field
+  outputs:
+  - name: out_i1
+    type: Intensity
+    desc: Intra-focal intensity image
+  - name: out_i2
+    type: Intensity
+    desc: Extra-focal intensity image
+  output_names:
+  - out_i1
+  - out_i2

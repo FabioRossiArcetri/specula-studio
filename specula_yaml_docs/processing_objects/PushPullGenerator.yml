@@ -41,7 +41,11 @@ PushPullGenerator:
       type: int
       default: 1
       kind: value
-    repeat_cycles:
+    repeat_ncycles:
+      type: bool
+      default: false
+      kind: value
+    repeat_full_sequence:
       type: bool
       default: false
       kind: value
@@ -55,4 +59,8 @@ PushPullGenerator:
       kind: value
   inputs: {}
   outputs:
+  - name: output
+    type: BaseValue
+    desc: Generated output signal
+  output_names:
   - output

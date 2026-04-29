@@ -1,16 +1,17 @@
 """
 DPG node-graph UI manager and orchestrator.
 
-After refactoring, this module is responsible only for:
-  - Node / link CRUD (create, delete, clear).
-  - DPG attribute registries (via NodeRegistry).
-  - Theme management.
-  - Mouse / keyboard event handlers.
+After refactoring, this module is responsible ONLY for:
+  - Node / link CRUD (create, delete, clear)
+  - DPG attribute registries (via NodeRegistry)
+  - Theme management
+  - Mouse / keyboard event handlers
+  - Delegation to sub-components
 
-Three sub-components handle the previously embedded responsibilities:
-  - SocketIOClient   (socketio_client.py)  – server connection & pub/sub.
-  - MonitorManager   (monitor_manager.py)  – live-data monitor windows.
-  - PropertyPanel    (property_panel.py)   – property inspector UI.
+Three sub-components handle specialized responsibilities:
+  - SocketIOClient   (socketio_client.py)  – server connection & pub/sub
+  - MonitorManager   (monitor_manager.py)  – live-data monitor windows
+  - PropertyPanel    (property_panel.py)   – property inspector UI
 """
 
 import uuid
@@ -29,13 +30,20 @@ from socketio_client import SocketIOClient
 from monitor_manager import MonitorManager
 from property_panel import PropertyPanel
 
-# Reference shapes (Squares) vs Data shapes (Circles)
-REF_SHAPE = dpg.mvNode_PinShape_QuadFilled
-DATA_SHAPE = dpg.mvNode_PinShape_CircleFilled
+# Pin shapes
+REF_SHAPE = dpg.mvNode_PinShape_QuadFilled  # Square for references
+DATA_SHAPE = dpg.mvNode_PinShape_CircleFilled  # Circle for data
 
 
 class NodeManager:
-    """Orchestrates the DPG node editor and its supporting sub-components."""
+    """
+    Orchestrates the DPG node editor and its supporting sub-components.
+    
+    Delegates specialized tasks to:
+    - SocketIOClient: Server communication and real-time updates
+    - MonitorManager: Live data visualization windows
+    - PropertyPanel: Node and connection property inspection
+    """
 
     def __init__(
         self,
@@ -48,18 +56,17 @@ class NodeManager:
         self.all_templates = all_templates
         self.debug = debug
 
-        # --- 1. Shared registry (DPG id <-> UUID) ----------------------------
+        # ===== 1. SHARED REGISTRY =====
         self.registry = NodeRegistry()
-
-        # Convenience aliases so existing callers (FileHandler, main.py) work
-        # unchanged.  Both names point at the same underlying dict.
+        
+        # Convenience aliases for backward compatibility
         self.dpg_to_uuid = self.registry.dpg_to_uuid
         self.uuid_to_dpg = self.registry.uuid_to_dpg
         self.input_attr_registry = self.registry.input_attr_registry
         self.output_attr_registry = self.registry.output_attr_registry
         self.link_registry = self.registry.link_registry
 
-        # --- 2. Socket.IO client ---------------------------------------------
+        # ===== 2. SOCKET.IO CLIENT =====
         self.sio_client = SocketIOClient(
             server_url=socketio_server,
             on_connect=self._on_server_connect,
@@ -70,13 +77,17 @@ class NodeManager:
             debug=debug,
         )
 
-        # --- 3. Monitor manager ----------------------------------------------
-        self.monitors = MonitorManager(self.sio_client, self.graph, debug=debug)
-
+        # ===== 3. MONITOR MANAGER =====
+        self.monitors = MonitorManager(
+            sio_client=self.sio_client,
+            graph=self.graph,
+            debug=debug,
+        )
+        
         # Backward-compat alias
         self.active_monitors = self.monitors.active_monitors
 
-        # --- 4. Property panel -----------------------------------------------
+        # ===== 4. PROPERTY PANEL =====
         self.property_panel = PropertyPanel(
             graph=self.graph,
             all_templates=self.all_templates,
@@ -86,288 +97,257 @@ class NodeManager:
             refresh_node_theme=self._refresh_node_theme,
         )
 
-        # --- 5. UI state -----------------------------------------------------
+        # ===== 5. UI STATE =====
         self._last_selected_uuid = None
         self._selected_link_id = None
-        self.class_name_counters: dict = {}
-        self.node_item_registry: dict = {}
+        self.class_name_counters = {}
+        self.node_item_registry = {}
 
-        # Themes (initialised later by init_themes)
+        # ===== 6. THEMES =====
         self.data_theme = None
         self.proc_theme = None
         self.data_theme_incomplete = None
         self.proc_theme_incomplete = None
 
-    # ------------------------------------------------------------------
-    # Server event callbacks (called from SocketIOClient background thread)
-    # ------------------------------------------------------------------
+    # ==========================================================================
+    # LOGGING
+    # ==========================================================================
+
+    def _log(self, message: str):
+        """Log message if debug enabled."""
+        if self.debug:
+            print(f"[NODE_MANAGER] {message}")
+
+    # ==========================================================================
+    # SERVER EVENT CALLBACKS (from SocketIOClient background thread)
+    # ==========================================================================
 
     def _on_server_connect(self):
+        """Server connection established."""
         self.monitors.on_server_connect()
 
     def _on_server_disconnect(self):
+        """Server connection lost."""
         self.monitors.on_server_disconnect()
 
     def _on_server_connect_error(self, data):
+        """Server connection error."""
         self.monitors.on_server_connect_error(data)
 
     def _on_server_params(self, data: dict):
-        """Handle the server 'params' event: update UUID mapping, notify monitors."""
+        """
+        Handle server 'params' event: update UUID mapping, notify monitors.
+        
+        Args:
+            data: Server parameters with node definitions
+        """
         self.sio_client.bind_nodes_to_server(self.graph.nodes, data)
         self.sio_client.update_uuid_mapping(self.graph.nodes)
+        
+        # Notify monitors of successful connection
         for monitor_id in self.monitors.active_monitors:
             self.monitors._safe_update_monitor_status(monitor_id, "connected")
 
     def _on_data_update(self, name: str, raw_data):
+        """Handle real-time data update from server."""
         self.monitors.on_data_update(name, raw_data)
 
-    # ------------------------------------------------------------------
-    # Public delegation helpers (keep the same API surface as before)
-    # ------------------------------------------------------------------
+    # ==========================================================================
+    # PUBLIC DELEGATION HELPERS (maintain API surface)
+    # ==========================================================================
 
     def update_property_panel(self, node_uuid: str, panel_tag: str):
+        """Delegate to PropertyPanel."""
         self.property_panel.update_node_panel(node_uuid, panel_tag)
 
     def update_connection_panel(self, link_id, panel_tag: str):
+        """Delegate to PropertyPanel."""
         self.property_panel.update_connection_panel(link_id, panel_tag)
 
     def get_connections_for_node(self, node_uuid: str):
+        """Delegate to PropertyPanel."""
         return self.property_panel.get_connections_for_node(node_uuid)
 
     def get_connection_filename(self, node_uuid, src_uuid, src_attr):
-        return self.property_panel.get_connection_filename(node_uuid, src_uuid, src_attr)
+        """Delegate to PropertyPanel."""
+        return self.property_panel.get_connection_filename(
+            node_uuid, src_uuid, src_attr
+        )
 
     def update_connection_filename(self, node_uuid, src_uuid, src_attr, new_filename):
+        """Delegate to PropertyPanel."""
         self.property_panel.update_connection_filename(
             node_uuid, src_uuid, src_attr, new_filename
         )
 
     def is_data_class_type(self, type_name: str) -> bool:
+        """Delegate to PropertyPanel."""
         return self.property_panel.is_data_class_type(type_name)
 
     def after_dpg_init(self):
-        print("[NODE_MANAGER] DPG initialised, setting up periodic tasks")
+        """Initialize after DPG is ready."""
+        self._log("DPG initialised, setting up periodic tasks")
         current_frame = dpg.get_frame_count()
         dpg.set_frame_callback(current_frame + 100, self.monitors.start_periodic_tasks)
         self.monitors.after_dpg_init()
 
     def start_periodic_tasks(self):
+        """Delegate to MonitorManager."""
         self.monitors.start_periodic_tasks()
 
     def cleanup(self):
+        """Delegate to MonitorManager."""
         self.monitors.cleanup()
 
-    # ------------------------------------------------------------------
-    # Logging
-    # ------------------------------------------------------------------
-
-    def _log(self, message: str):
-        if self.debug:
-            print(f"[NODE_MANAGER] {message}")
-
-    # ------------------------------------------------------------------
-    # Click / keyboard handlers
-    # ------------------------------------------------------------------
-
-    def setup_handlers(self):
-        with dpg.handler_registry():
-            dpg.add_mouse_click_handler(callback=self.on_click_editor)
-            dpg.add_key_press_handler(key=dpg.mvKey_D, callback=self.delete_selected_link)
-            dpg.add_key_press_handler(dpg.mvKey_Delete, callback=self.delete_selection)
-            dpg.add_mouse_double_click_handler(callback=self._on_canvas_double_click)
-            dpg.add_mouse_move_handler(callback=self._on_mouse_move)
-
-    def on_click_editor(self, sender, app_data):
-        for link_id in self.link_registry:
-            if dpg.is_item_hovered(link_id):
-                print(f"[CLICK] Found hovered link: {link_id}")
-                self._on_link_click(sender, app_data, link_id)
-                return
-
-        if dpg.is_item_hovered("specula_editor"):
-            if not self.get_selected_nodes():
-                self._clear_link_selection()
-
-        selected = self.get_selected_nodes()
-
-        if len(selected) == 1:
-            node_uuid = selected[0]
-            print(f"\n[CLICK] Node clicked: {node_uuid}")
-            self.debug_node_completeness(node_uuid)
-            if node_uuid != self._last_selected_uuid:
-                self._last_selected_uuid = node_uuid
-                self._clear_link_selection()
-                self.debug_node_completeness(node_uuid)
-                self.update_property_panel(node_uuid, "property_panel")
-        elif len(selected) == 0:
-            if not self._selected_link_id:
-                dpg.delete_item("property_panel", children_only=True)
-                self._last_selected_uuid = None
-
-    def _on_link_click(self, sender, app_data, link_id):
-        if self._selected_link_id and self._selected_link_id != link_id:
-            self._reset_link_style(self._selected_link_id)
-        self._selected_link_id = link_id
-        self._highlight_link(link_id)
-        dpg.clear_selected_nodes("specula_editor")
-        self._last_selected_uuid = None
-        self.update_connection_panel(link_id, "property_panel")
-
-    def _highlight_link(self, link_id):
-        if dpg.does_item_exist(link_id):
-            dpg.configure_item(link_id)
-
-    def _reset_link_style(self, link_id):
-        if not dpg.does_item_exist(link_id):
-            return
-        if link_id in self.link_registry:
-            src_uuid, src_attr, dst_uuid, dst_attr = self.link_registry[link_id]
-            if dst_attr.endswith("_ref") or "params" in dst_attr.lower():
-                apply_link_style(link_id, color=[200, 200, 200, 60])
-            elif ":-" in str(src_attr):
-                apply_link_style(link_id, color=[255, 0, 0, 255])
-            else:
-                dpg.configure_item(link_id)
-
-    def _clear_link_selection(self):
-        if self._selected_link_id:
-            self._reset_link_style(self._selected_link_id)
-            self._selected_link_id = None
-
-    def _on_canvas_double_click(self, sender, app_data):
-        if not dpg.is_item_hovered("specula_editor"):
-            return
-        for link_id in self.link_registry:
-            if dpg.is_item_hovered(link_id):
-                self._on_link_click(sender, app_data, link_id)
-                break
-
-    def delete_selected_link(self, sender, app_data):
-        if not self._selected_link_id:
-            print("[LINK] No link selected to delete")
-            return
-        link_id = self._selected_link_id
-        print(f"[LINK] Deleting selected link: {link_id}")
-        self.delink_callback(sender, link_id)
-        self._selected_link_id = None
-
-    def _on_mouse_move(self, sender, app_data):
-        if not dpg.is_item_hovered("specula_editor"):
-            return
-        for link_id in self.link_registry:
-            if dpg.is_item_hovered(link_id):
-                if link_id != self._selected_link_id:
-                    dpg.configure_item(link_id)
-                break
-            else:
-                if link_id != self._selected_link_id:
-                    self._reset_link_style(link_id)
-
-    # ------------------------------------------------------------------
-    # Node completeness
-    # ------------------------------------------------------------------
-
-    def is_node_complete(self, node_uuid: str) -> bool:
-        if node_uuid not in self.graph.nodes:
-            return True
-        node_data = self.graph.nodes[node_uuid]
-        template = self.all_templates.get(node_data.get("type", ""), {})
-        template_params = template.get("parameters", {})
-        current_values = node_data.get("values", {})
-        for param_name, param_meta in template_params.items():
-            if isinstance(param_meta, dict) and param_meta.get("kind") == "reference":
-                default_val = param_meta.get("default")
-                is_required = (
-                    default_val == "REQUIRED" or param_meta.get("required", False)
-                )
-                if is_required and not current_values.get(f"{param_name}_ref"):
-                    return False
-        return True
-
-    def debug_node_completeness(self, node_uuid: str) -> bool:
-        if node_uuid not in self.graph.nodes:
-            print(f"[COMPLETE_DEBUG] Node {node_uuid} not found in graph")
-            return False
-        node_data = self.graph.nodes[node_uuid]
-        node_type = node_data.get("type", "")
-        node_name = node_data.get("name", "Unknown")
-        print(f"\n=== NODE COMPLETENESS DEBUG ===")
-        print(f"Node: {node_name} ({node_type}) | UUID: {node_uuid}")
-        template = self.all_templates.get(node_type, {})
-        if not template:
-            print("No template found. Assuming complete.\n=== END DEBUG ===\n")
-            return True
-        template_params = template.get("parameters", {})
-        if not template_params:
-            print("No parameters. Node is complete.\n=== END DEBUG ===\n")
-            return True
-        current_values = node_data.get("values", {})
-        complete = True
-        for param_name, param_meta in template_params.items():
-            if isinstance(param_meta, dict) and param_meta.get("kind") == "reference":
-                ref_key = f"{param_name}_ref"
-                default_val = param_meta.get("default")
-                is_required = (
-                    default_val == "REQUIRED" or param_meta.get("required", False)
-                )
-                if is_required:
-                    if not current_values.get(ref_key):
-                        print(f" - Missing REQUIRED reference for: {param_name} ({ref_key})")
-                        complete = False
-                    else:
-                        print(f" + Required {param_name} connected to: {current_values[ref_key]}")
-                else:
-                    if current_values.get(ref_key):
-                        print(f" + Optional {param_name} connected to: {current_values[ref_key]}")
-                    else:
-                        print(f" - Optional {param_name} not connected (OK)")
-        print("Node is complete." if complete else "Node is INCOMPLETE.")
-        print("=== END DEBUG ===\n")
-        return complete
-
-    # ------------------------------------------------------------------
-    # Theme management
-    # ------------------------------------------------------------------
+    # ==========================================================================
+    # THEME MANAGEMENT
+    # ==========================================================================
 
     def init_themes(self):
+        """Initialize all node themes."""
         self.data_theme = create_data_node_theme()
         self.proc_theme = create_proc_node_theme()
         self.data_theme_incomplete = create_data_node_theme_incomplete()
         self.proc_theme_incomplete = create_proc_node_theme_incomplete()
 
     def _apply_node_theme(self, dpg_id, node_type: str, node_uuid: str):
+        """Apply theme based on node type and completeness."""
         template = self.all_templates.get(node_type, {})
         category = template.get("bases", "")
         is_complete = self.is_node_complete(node_uuid)
+
         if "BaseDataObj" in category:
-            dpg.bind_item_theme(
-                dpg_id, self.data_theme if is_complete else self.data_theme_incomplete
+            theme = (
+                self.data_theme if is_complete 
+                else self.data_theme_incomplete
             )
         else:
-            dpg.bind_item_theme(
-                dpg_id, self.proc_theme if is_complete else self.proc_theme_incomplete
+            theme = (
+                self.proc_theme if is_complete 
+                else self.proc_theme_incomplete
             )
 
+        if theme:
+            dpg.bind_item_theme(dpg_id, theme)
+
     def _refresh_node_theme(self, node_uuid: str):
+        """Refresh a node's theme after state change."""
         if node_uuid not in self.uuid_to_dpg:
             return
+
         dpg_id = self.uuid_to_dpg[node_uuid]
         node_data = self.graph.nodes.get(node_uuid, {})
         node_type = node_data.get("type", "")
+
         if dpg_id and dpg.does_item_exist(dpg_id):
             self._apply_node_theme(dpg_id, node_type, node_uuid)
 
-    # ------------------------------------------------------------------
-    # Node creation
-    # ------------------------------------------------------------------
+    # ==========================================================================
+    # NODE COMPLETENESS
+    # ==========================================================================
+
+    def is_node_complete(self, node_uuid: str) -> bool:
+        """Check if all REQUIRED reference parameters are connected."""
+        if node_uuid not in self.graph.nodes:
+            return True
+
+        node_data = self.graph.nodes[node_uuid]
+        template = self.all_templates.get(node_data.get("type", ""), {})
+        template_params = template.get("parameters", {})
+        current_values = node_data.get("values", {})
+
+        for param_name, param_meta in template_params.items():
+            if not isinstance(param_meta, dict):
+                continue
+            if param_meta.get("kind") != "reference":
+                continue
+
+            # Check if REQUIRED
+            default_val = param_meta.get("default")
+            is_required = (
+                default_val == "REQUIRED" or param_meta.get("required", False)
+            )
+
+            if is_required:
+                ref_key = f"{param_name}_ref"
+                if not current_values.get(ref_key):
+                    return False
+
+        return True
+
+    def debug_node_completeness(self, node_uuid: str) -> bool:
+        """Print detailed completeness debug information."""
+        if node_uuid not in self.graph.nodes:
+            self._log(f"Node {node_uuid} not found in graph")
+            return False
+
+        node_data = self.graph.nodes[node_uuid]
+        node_type = node_data.get("type", "")
+        node_name = node_data.get("name", "Unknown")
+
+        print(f"\n=== NODE COMPLETENESS DEBUG ===")
+        print(f"Node: {node_name} ({node_type}) | UUID: {node_uuid}")
+
+        template = self.all_templates.get(node_type, {})
+        if not template:
+            print("No template found. Assuming complete.\n=== END DEBUG ===\n")
+            return True
+
+        template_params = template.get("parameters", {})
+        if not template_params:
+            print("No parameters. Node is complete.\n=== END DEBUG ===\n")
+            return True
+
+        current_values = node_data.get("values", {})
+        complete = True
+
+        for param_name, param_meta in template_params.items():
+            if not isinstance(param_meta, dict):
+                continue
+            if param_meta.get("kind") != "reference":
+                continue
+
+            ref_key = f"{param_name}_ref"
+            default_val = param_meta.get("default")
+            is_required = (
+                default_val == "REQUIRED" or param_meta.get("required", False)
+            )
+
+            if is_required:
+                if not current_values.get(ref_key):
+                    print(f" - Missing REQUIRED reference for: {param_name} ({ref_key})")
+                    complete = False
+                else:
+                    print(
+                        f" + Required {param_name} connected to: "
+                        f"{current_values[ref_key]}"
+                    )
+            else:
+                if current_values.get(ref_key):
+                    print(
+                        f" + Optional {param_name} connected to: "
+                        f"{current_values[ref_key]}"
+                    )
+                else:
+                    print(f" - Optional {param_name} not connected (OK)")
+
+        print("Node is complete." if complete else "Node is INCOMPLETE.")
+        print("=== END DEBUG ===\n")
+        return complete
+
+    # ==========================================================================
+    # NODE CREATION
+    # ==========================================================================
 
     def _generate_unique_name(self, class_name: str) -> str:
+        """Generate unique node instance name."""
         self.class_name_counters.setdefault(class_name, 0)
         counter = self.class_name_counters[class_name]
         self.class_name_counters[class_name] += 1
         return f"a{class_name}{counter}"
 
     def create_node(self, node_type, pos=None, existing_uuid=None, name_override=None):
+        """Create a new node in the graph and UI."""
         node_uuid = existing_uuid if existing_uuid else str(uuid.uuid4())[:8]
 
         if node_uuid not in self.graph.nodes:
@@ -376,7 +356,10 @@ class NodeManager:
         node_data = self.graph.nodes[node_uuid]
         template = self.all_templates.get(node_type, {})
 
-        node_name = name_override if name_override else self._generate_unique_name(node_type)
+        node_name = (
+            name_override if name_override 
+            else self._generate_unique_name(node_type)
+        )
         node_data["name"] = node_name
         final_pos = pos if pos else [100, 100]
 
@@ -405,6 +388,7 @@ class NodeManager:
             for in_attr, meta in node_data.get("inputs", {}).items():
                 if in_attr.endswith("_ref") or in_attr == "layer_list":
                     continue
+
                 kind = meta.get("kind", "single")
                 with dpg.node_attribute(
                     attribute_type=dpg.mvNode_Attr_Input, shape=DATA_SHAPE
@@ -414,132 +398,173 @@ class NodeManager:
                     self.input_attr_registry[attr_id] = (node_uuid, in_attr)
 
             # Outputs
-            if node_type == "AtmoPropagation":
-                all_outputs = list(node_data.get("outputs", []))
-                if "outputs_extra" in node_data:
-                    all_outputs.extend(node_data["outputs_extra"])
-                for out in all_outputs:
-                    if out.startswith("out_' + ") and out.endswith(" + '_ef'"):
-                        continue
-                    if "name" in out and "+" in out and "'" in out:
-                        continue
-                    display_label = out.replace(":", " [") + "]" if ":" in out else out
-                    with dpg.node_attribute(
-                        attribute_type=dpg.mvNode_Attr_Output, shape=DATA_SHAPE
-                    ) as attr_id:
-                        with dpg.group(horizontal=True):
-                            dpg.add_spacer(width=100)
-                            dpg.add_text(display_label)
-                        self.output_attr_registry[attr_id] = (node_uuid, out)
+            self._create_node_outputs(dpg_id, node_uuid, node_type, node_data)
 
-            elif node_type == "SimulParams":
-                with dpg.node_attribute(
-                    attribute_type=dpg.mvNode_Attr_Output, shape=REF_SHAPE
-                ) as attr_id:
-                    with dpg.group(horizontal=True):
-                        dpg.add_spacer(width=100)
-                        dpg.add_text("ref", color=[150, 150, 150])
-                    self.output_attr_registry[attr_id] = (node_uuid, "ref")
-
-            else:
-                all_outputs = list(node_data.get("outputs", []))
-                if "outputs_extra" in node_data:
-                    all_outputs.extend(node_data["outputs_extra"])
-                for out in all_outputs:
-                    if "name" in out and "+" in out and "'" in out:
-                        continue
-                    display_label = out.replace(":", " [") + "]" if ":" in out else out
-                    with dpg.node_attribute(
-                        attribute_type=dpg.mvNode_Attr_Output, shape=DATA_SHAPE
-                    ) as attr_id:
-                        with dpg.group(horizontal=True):
-                            dpg.add_spacer(width=100)
-                            dpg.add_text(display_label)
-                        self.output_attr_registry[attr_id] = (node_uuid, out)
-
-            # Special overrides
-            if node_type in ("Source", "Pupilstop"):
-                with dpg.node_attribute(
-                    attribute_type=dpg.mvNode_Attr_Output, shape=REF_SHAPE
-                ) as attr_id:
-                    with dpg.group(horizontal=True):
-                        dpg.add_spacer(width=100)
-                        dpg.add_text("ref", color=[100, 200, 255])
-                    self.output_attr_registry[attr_id] = (node_uuid, "ref")
-
+            # Apply theme
             category = template.get("bases", "")
             if "BaseDataObj" in category:
                 dpg.bind_item_theme(dpg_id, self.data_theme)
             else:
                 dpg.bind_item_theme(dpg_id, self.proc_theme)
+
             self._apply_node_theme(dpg_id, node_type, node_uuid)
 
         return node_uuid
 
-    # ------------------------------------------------------------------
-    # Dynamic output management
-    # ------------------------------------------------------------------
+    def _create_node_outputs(self, dpg_id, node_uuid, node_type, node_data):
+        """Create output pins for a node.
+        
+        Outputs can be in new format (list of dicts with name/type/desc)
+        or old format (list of strings). Handles both gracefully.
+        """
+        template = self.all_templates.get(node_type, {})
 
-    def _add_dynamic_atmo_output(self, in_node_uuid: str, source_name: str):
-        dpg_id = self.uuid_to_dpg.get(in_node_uuid) or self.node_item_registry.get(
-            in_node_uuid
-        )
-        if not dpg_id:
-            print(f"[DYNAMIC] ERROR: No DPG ID for node {in_node_uuid}")
+        # Handle AtmoPropagation special case
+        if node_type == "AtmoPropagation":
+            all_outputs = list(node_data.get("outputs", []))
+            if "outputs_extra" in node_data:
+                all_outputs.extend(node_data["outputs_extra"])
+
+            for out in all_outputs:
+                # Extract output name from new format (dict) or old format (string)
+                out_name = self._extract_output_name(out)
+                
+                if not out_name or '{' in out_name or '}' in out_name:
+                    continue
+                if out_name.startswith("out_' + ") and out_name.endswith(" + '_ef'"):
+                    continue
+
+                display_label = out_name.replace(":", " [") + "]" if ":" in out_name else out_name
+                with dpg.node_attribute(
+                    attribute_type=dpg.mvNode_Attr_Output, shape=DATA_SHAPE
+                ) as attr_id:
+                    with dpg.group(horizontal=True):
+                        dpg.add_spacer(width=100)
+                        dpg.add_text(display_label)
+                    self.output_attr_registry[attr_id] = (node_uuid, out_name)
+
+        elif node_type == "SimulParams":
+            with dpg.node_attribute(
+                attribute_type=dpg.mvNode_Attr_Output, shape=REF_SHAPE
+            ) as attr_id:
+                with dpg.group(horizontal=True):
+                    dpg.add_spacer(width=100)
+                    dpg.add_text("ref", color=[150, 150, 150])
+                self.output_attr_registry[attr_id] = (node_uuid, "ref")
+
+        else:
+            all_outputs = list(node_data.get("outputs", []))
+            if "outputs_extra" in node_data:
+                all_outputs.extend(node_data["outputs_extra"])
+
+            for out in all_outputs:
+                # Extract output name from new format (dict) or old format (string)
+                out_name = self._extract_output_name(out)
+                
+                if not out_name or '{' in out_name or '}' in out_name:
+                    continue
+
+                display_label = out_name.replace(":", " [") + "]" if ":" in out_name else out_name
+                with dpg.node_attribute(
+                    attribute_type=dpg.mvNode_Attr_Output, shape=DATA_SHAPE
+                ) as attr_id:
+                    with dpg.group(horizontal=True):
+                        dpg.add_spacer(width=100)
+                        dpg.add_text(display_label)
+                    self.output_attr_registry[attr_id] = (node_uuid, out_name)
+
+        # Special refs for Source/Pupilstop
+        if node_type in ("Source", "Pupilstop"):
+            with dpg.node_attribute(
+                attribute_type=dpg.mvNode_Attr_Output, shape=REF_SHAPE
+            ) as attr_id:
+                with dpg.group(horizontal=True):
+                    dpg.add_spacer(width=100)
+                    dpg.add_text("ref", color=[100, 200, 255])
+                self.output_attr_registry[attr_id] = (node_uuid, "ref")
+
+    def _extract_output_name(self, output):
+        """Extract output name from new format (dict) or old format (string).
+        
+        New format: {'name': 'layer_list', 'type': 'list', 'desc': '...'}
+        Old format: 'layer_list' or 'layer_list:float'
+        
+        Args:
+            output: Either dict or string
+            
+        Returns:
+            str: The output name, or None if invalid
+        """
+        if isinstance(output, dict):
+            # New format: extract the 'name' field
+            return output.get('name')
+        elif isinstance(output, str):
+            # Old format: return as-is
+            return output if output else None
+        else:
+            return None
+
+    def _add_atmo_source_input(self, dpg_id, node_uuid: str):
+        """Add source_dict_ref input slot to AtmoPropagation node.
+        
+        This special input enables dynamic output creation when sources are connected.
+        The source_dict_ref stores a list of connected source node names, which
+        triggers the creation of corresponding dynamic outputs (e.g., out_source1_ef).
+        
+        When a source node is connected to this input:
+        1. The source node name is added to source_dict_ref list
+        2. A corresponding output pin (out_<source_name>_ef) is created
+        3. This allows the node to propagate effects from multiple sources
+        
+        Args:
+            dpg_id: DPG node ID
+            node_uuid: Node UUID
+        """
+        with dpg.node_attribute(
+            attribute_type=dpg.mvNode_Attr_Input, parent=dpg_id, shape=REF_SHAPE
+        ) as attr_id:
+            dpg.add_text("source_dict_ref", color=[150, 255, 150])
+            self.input_attr_registry[attr_id] = (node_uuid, "source_dict_ref")
+            self._log(f"Added source_dict_ref input to AtmoPropagation node {node_uuid}")
+
+    def _add_dynamic_atmo_output(self, node_uuid: str, source_name: str):
+        """Add dynamic output to AtmoPropagation node."""
+        dpg_id = self.uuid_to_dpg.get(node_uuid)
+        if not dpg_id or not dpg.does_item_exist(dpg_id):
             return
-        in_node_data = self.graph.nodes.get(in_node_uuid, {})
-        if not in_node_data:
+
+        node_data = self.graph.nodes.get(node_uuid, {})
+        if not node_data:
             return
+
         new_output = f"out_{source_name}_ef"
-        in_node_data.setdefault("outputs_extra", [])
-        if new_output in in_node_data["outputs_extra"]:
+        node_data.setdefault("outputs_extra", [])
+
+        if new_output in node_data["outputs_extra"]:
             return
-        in_node_data["outputs_extra"].append(new_output)
-        if not dpg.does_item_exist(dpg_id):
-            return
-        self._refresh_node_theme(in_node_uuid)
+
+        node_data["outputs_extra"].append(new_output)
+        self._refresh_node_theme(node_uuid)
+
         with dpg.node_attribute(
             attribute_type=dpg.mvNode_Attr_Output, shape=DATA_SHAPE, parent=dpg_id
         ) as attr_id:
             with dpg.group(horizontal=True):
                 dpg.add_spacer(width=100)
                 dpg.add_text(new_output, color=[100, 255, 255])
-            self.output_attr_registry[attr_id] = (in_node_uuid, new_output)
-            print(f"[DYNAMIC] Created output '{new_output}' with attr_id {attr_id}")
+            self.output_attr_registry[attr_id] = (node_uuid, new_output)
+            self._log(f"Created dynamic output '{new_output}'")
 
-    def add_dynamic_io(self, node_uuid: str):
-        parent = self.uuid_to_dpg[node_uuid]
-        with dpg.node_attribute(
-            attribute_type=dpg.mvNode_Attr_Input, parent=parent, shape=REF_SHAPE
-        ) as attr_id:
-            dpg.add_text("Sources (Ref)", color=[150, 255, 150])
-            self.input_attr_registry[attr_id] = (node_uuid, "source_dict_ref")
-        with dpg.node_attribute(
-            attribute_type=dpg.mvNode_Attr_Output, parent=parent
-        ) as attr_id:
-            with dpg.group(horizontal=True):
-                dpg.add_spacer(width=100)
-                dpg.add_text("output", color=[255, 200, 100])
-            self.output_attr_registry[attr_id] = (node_uuid, "output")
-
-    def add_data_output(self, node_uuid: str):
-        parent = self.uuid_to_dpg[node_uuid]
-        with dpg.node_attribute(
-            attribute_type=dpg.mvNode_Attr_Output, parent=parent
-        ) as attr_id:
-            with dpg.group(horizontal=True):
-                dpg.add_spacer(width=100)
-                dpg.add_text("Output: ref")
-            self.output_attr_registry[attr_id] = (node_uuid, "ref")
-
-    # ------------------------------------------------------------------
-    # Link management
-    # ------------------------------------------------------------------
+    # ==========================================================================
+    # LINK MANAGEMENT
+    # ==========================================================================
 
     def link_callback(self, sender, app_data):
+        """Handle user creating a link."""
         out_attr_id, in_attr_id = app_data
         out_node_uuid, out_name = self.output_attr_registry.get(out_attr_id, (None, None))
         in_node_uuid, in_name = self.input_attr_registry.get(in_attr_id, (None, None))
+
         if not out_node_uuid or not in_node_uuid:
             return
 
@@ -548,10 +573,13 @@ class NodeManager:
 
         link_id = dpg.add_node_link(out_attr_id, in_attr_id, parent=sender)
         self.link_registry[link_id] = (out_node_uuid, out_name, in_node_uuid, in_name)
-        self.graph.add_connection(out_node_uuid, out_name, in_node_uuid, in_name, connection_props)
+        self.graph.add_connection(
+            out_node_uuid, out_name, in_node_uuid, in_name, connection_props
+        )
 
         dst_node = self.graph.nodes.get(in_node_uuid, {})
         src_node = self.graph.nodes.get(out_node_uuid, {})
+
         if not dst_node or not src_node:
             return
 
@@ -559,6 +587,7 @@ class NodeManager:
         src_name = src_node.get("name", out_node_uuid)
         is_ref_connection = in_name.endswith("_ref") or in_name == "layer_list"
 
+        # Handle reference connections
         if is_ref_connection:
             if in_name == "source_dict_ref":
                 dst_node["values"].setdefault(in_name, [])
@@ -572,8 +601,9 @@ class NodeManager:
                     dst_node["values"][in_name].append(src_name)
             else:
                 dst_node["values"][in_name] = src_name
-                print(f"[LINK] Set reference parameter {in_name} = {src_name}")
+                self._log(f"Set reference parameter {in_name} = {src_name}")
 
+        # Apply link styling
         if is_feedback:
             apply_link_style(link_id, color=[255, 0, 0, 255])
         elif is_ref_connection:
@@ -586,7 +616,9 @@ class NodeManager:
         self._refresh_node_theme(out_node_uuid)
 
     def delink_callback(self, sender, app_data):
+        """Handle user deleting a link."""
         link_id = app_data
+
         if link_id not in self.link_registry:
             return
 
@@ -604,17 +636,21 @@ class NodeManager:
         src_name = src_node.get("name", src_uuid)
         values = dst_node.get("values", {})
 
+        # Handle reference disconnections
         if dst_attr == "source_dict_ref":
             lst = values.get("source_dict_ref", [])
             if src_name in lst:
                 lst.remove(src_name)
             if not lst:
                 values.pop("source_dict_ref", None)
+
+            # Remove dynamic output if needed
             if dst_node.get("type") == "AtmoPropagation":
                 dynamic_output = f"out_{src_name}_ef"
                 if src_name not in values.get("source_dict_ref", []):
                     if dynamic_output in dst_node.get("outputs_extra", []):
                         dst_node["outputs_extra"].remove(dynamic_output)
+
                         attr_to_remove = next(
                             (
                                 aid
@@ -638,7 +674,7 @@ class NodeManager:
         elif dst_attr.endswith("_ref"):
             if values.get(dst_attr) == src_name:
                 values.pop(dst_attr, None)
-                print(f"[REF] Cleared {dst_attr}")
+                self._log(f"Cleared {dst_attr}")
 
         if self._last_selected_uuid == dst_uuid:
             self.update_property_panel(dst_uuid, "property_panel")
@@ -649,15 +685,22 @@ class NodeManager:
         self._refresh_node_theme(dst_uuid)
         self._refresh_node_theme(src_uuid)
 
-    def manual_link(self, src_uuid, src_attr, dst_uuid, dst_attr, delay=0) -> bool:
+    def manual_link(
+        self, src_uuid, src_attr, dst_uuid, dst_attr, delay=0
+    ) -> bool:
+        """Programmatically create a link."""
         is_feedback = delay == -1
         base_src_attr = src_attr
 
+        # Find or create source pin
         src_id = next(
-            (d for d, (u, n) in self.output_attr_registry.items()
-             if u == src_uuid and n == base_src_attr),
+            (
+                d for d, (u, n) in self.output_attr_registry.items()
+                if u == src_uuid and n == base_src_attr
+            ),
             None,
         )
+
         if src_id is None:
             parent = self.uuid_to_dpg.get(src_uuid)
             if parent:
@@ -667,6 +710,7 @@ class NodeManager:
                     [255, 100, 100] if is_feedback
                     else ([150, 150, 150] if is_ref_link else [255, 255, 255])
                 )
+
                 with dpg.node_attribute(
                     attribute_type=dpg.mvNode_Attr_Output, parent=parent, shape=shape
                 ) as new_id:
@@ -677,6 +721,7 @@ class NodeManager:
                     self.output_attr_registry[new_id] = (src_uuid, base_src_attr)
                     src_id = new_id
 
+        # Update destination node values for references
         if dst_attr.endswith("_ref") or dst_attr == "layer_list":
             dst_node = self.graph.nodes.get(dst_uuid)
             src_node = self.graph.nodes.get(src_uuid)
@@ -684,16 +729,21 @@ class NodeManager:
                 dst_node.setdefault("values", {})
                 dst_node["values"][dst_attr] = src_node.get("name", src_uuid)
 
+        # Find or create destination pin
         dst_id = next(
-            (d for d, (u, n) in self.input_attr_registry.items()
-             if u == dst_uuid and n == dst_attr),
+            (
+                d for d, (u, n) in self.input_attr_registry.items()
+                if u == dst_uuid and n == dst_attr
+            ),
             None,
         )
+
         if dst_id is None:
             parent = self.uuid_to_dpg.get(dst_uuid)
             if parent:
                 is_ref = dst_attr.endswith("_ref") or dst_attr == "layer_list"
                 pin_shape = REF_SHAPE if is_ref else DATA_SHAPE
+
                 with dpg.node_attribute(
                     attribute_type=dpg.mvNode_Attr_Input, parent=parent, shape=pin_shape
                 ) as new_id:
@@ -701,74 +751,201 @@ class NodeManager:
                     self.input_attr_registry[new_id] = (dst_uuid, dst_attr)
                     dst_id = new_id
 
+        # Create link
         if src_id and dst_id:
             link_id = dpg.add_node_link(src_id, dst_id, parent="specula_editor")
+
             if is_feedback:
                 apply_link_style(link_id, color=[255, 0, 0, 255])
             elif dst_attr.endswith("_ref") or "params" in dst_attr.lower():
                 apply_link_style(link_id, color=[200, 200, 200, 60])
+
             self.link_registry[link_id] = (src_uuid, base_src_attr, dst_uuid, dst_attr)
-            self.graph.add_connection(src_uuid, base_src_attr, dst_uuid, dst_attr, {"delay": delay})
+            self.graph.add_connection(
+                src_uuid, base_src_attr, dst_uuid, dst_attr, {"delay": delay}
+            )
+
             self._refresh_node_theme(dst_uuid)
             self._refresh_node_theme(src_uuid)
             return True
 
-        print(f"[MANUAL_LINK] Failed: src_id={src_id}, dst_id={dst_id} "
-              f"for {src_uuid}.{src_attr} -> {dst_uuid}.{dst_attr}")
+        self._log(
+            f"Failed manual link: {src_uuid}.{src_attr} -> {dst_uuid}.{dst_attr}"
+        )
         return False
 
     def manual_link_with_filename(self, src_uuid, src_attr, dst_uuid, dst_attr, filename):
+        """Create link with filename for DataStore connections."""
         self.manual_link(src_uuid, src_attr, dst_uuid, dst_attr)
-        self.graph.nodes[dst_uuid].setdefault("filename_map", {})
-        self.graph.nodes[dst_uuid]["filename_map"][f"{src_uuid}.{src_attr}"] = filename
+        
+        if 'filename_map' not in self.graph.nodes[dst_uuid]:
+            self.graph.nodes[dst_uuid]['filename_map'] = {}
+        
+        conn_key = f"{src_uuid}.{src_attr}"
+        self.graph.nodes[dst_uuid]['filename_map'][conn_key] = filename
 
-    # ------------------------------------------------------------------
-    # Node deletion
-    # ------------------------------------------------------------------
+    # ==========================================================================
+    # EVENT HANDLERS (KEYBOARD, MOUSE)
+    # ==========================================================================
+
+    def setup_handlers(self):
+        """Register input event handlers."""
+        with dpg.handler_registry():
+            dpg.add_mouse_click_handler(callback=self.on_click_editor)
+            dpg.add_key_press_handler(key=dpg.mvKey_D, callback=self.delete_selected_link)
+            dpg.add_key_press_handler(dpg.mvKey_Delete, callback=self.delete_selection)
+            dpg.add_mouse_double_click_handler(callback=self._on_canvas_double_click)
+            dpg.add_mouse_move_handler(callback=self._on_mouse_move)
+
+    def on_click_editor(self, sender, app_data):
+        """Handle editor click - select node or link."""
+        # Check for link click first
+        for link_id in self.link_registry:
+            if dpg.is_item_hovered(link_id):
+                self._on_link_click(sender, app_data, link_id)
+                return
+
+        # Check for empty canvas click
+        if dpg.is_item_hovered("specula_editor"):
+            if not self.get_selected_nodes():
+                self._clear_link_selection()
+
+        # Handle node selection
+        selected = self.get_selected_nodes()
+
+        if len(selected) == 1:
+            node_uuid = selected[0]
+            self._log(f"Node clicked: {node_uuid}")
+            self.debug_node_completeness(node_uuid)
+
+            if node_uuid != self._last_selected_uuid:
+                self._last_selected_uuid = node_uuid
+                self._clear_link_selection()
+                self.update_property_panel(node_uuid, "property_panel")
+        elif len(selected) == 0:
+            if not self._selected_link_id:
+                dpg.delete_item("property_panel", children_only=True)
+                self._last_selected_uuid = None
+
+    def _on_link_click(self, sender, app_data, link_id):
+        """Select a link."""
+        if self._selected_link_id and self._selected_link_id != link_id:
+            self._reset_link_style(self._selected_link_id)
+
+        self._selected_link_id = link_id
+        self._highlight_link(link_id)
+        dpg.clear_selected_nodes("specula_editor")
+        self._last_selected_uuid = None
+        self.update_connection_panel(link_id, "property_panel")
+
+    def _highlight_link(self, link_id):
+        """Highlight a selected link."""
+        if dpg.does_item_exist(link_id):
+            dpg.configure_item(link_id)
+
+    def _reset_link_style(self, link_id):
+        """Reset link to default style."""
+        if not dpg.does_item_exist(link_id):
+            return
+
+        if link_id in self.link_registry:
+            src_uuid, src_attr, dst_uuid, dst_attr = self.link_registry[link_id]
+            if dst_attr.endswith("_ref") or "params" in dst_attr.lower():
+                apply_link_style(link_id, color=[200, 200, 200, 60])
+            elif ":-" in str(src_attr):
+                apply_link_style(link_id, color=[255, 0, 0, 255])
+            else:
+                dpg.configure_item(link_id)
+
+    def _clear_link_selection(self):
+        """Deselect any selected link."""
+        if self._selected_link_id:
+            self._reset_link_style(self._selected_link_id)
+            self._selected_link_id = None
+
+    def _on_canvas_double_click(self, sender, app_data):
+        """Handle double-click on canvas."""
+        if not dpg.is_item_hovered("specula_editor"):
+            return
+
+        for link_id in self.link_registry:
+            if dpg.is_item_hovered(link_id):
+                self._on_link_click(sender, app_data, link_id)
+                break
+
+    def delete_selected_link(self, sender, app_data):
+        """Delete selected link."""
+        if not self._selected_link_id:
+            self._log("No link selected to delete")
+            return
+
+        self.delink_callback(sender, self._selected_link_id)
+        self._selected_link_id = None
+
+    def _on_mouse_move(self, sender, app_data):
+        """Handle mouse movement for link hover effects."""
+        if not dpg.is_item_hovered("specula_editor"):
+            return
+
+        for link_id in self.link_registry:
+            if dpg.is_item_hovered(link_id):
+                if link_id != self._selected_link_id:
+                    dpg.configure_item(link_id)
+                break
+            else:
+                if link_id != self._selected_link_id:
+                    self._reset_link_style(link_id)
 
     def delete_selection(self, *_):
+        """Delete all selected nodes."""
         for node_uuid in self.get_selected_nodes():
             self.delete_node(node_uuid)
 
     def delete_node(self, node_uuid: str):
+        """Delete node and all associated links."""
         if node_uuid not in self.uuid_to_dpg:
             return
+
         dpg_id = self.uuid_to_dpg[node_uuid]
 
-        for link_id in [
+        # Delete links
+        links_to_remove = [
             lid for lid, (s, _, d, _) in list(self.link_registry.items())
             if s == node_uuid or d == node_uuid
-        ]:
+        ]
+
+        for link_id in links_to_remove:
             if dpg.does_item_exist(link_id):
                 dpg.delete_item(link_id)
             conn_data = self.link_registry.pop(link_id)
             self.graph.remove_connection(*conn_data)
 
+        # Delete attributes
         for attr in [k for k, v in self.input_attr_registry.items() if v[0] == node_uuid]:
             del self.input_attr_registry[attr]
         for attr in [k for k, v in self.output_attr_registry.items() if v[0] == node_uuid]:
             del self.output_attr_registry[attr]
 
+        # Delete DPG node
         if dpg.does_item_exist(dpg_id):
             dpg.delete_item(dpg_id)
 
+        # Delete from registries
         del self.dpg_to_uuid[dpg_id]
         del self.uuid_to_dpg[node_uuid]
 
         if node_uuid in self.graph.nodes:
             self.graph.remove_node(node_uuid)
 
-        print(f"Deleted node: {node_uuid}")
+        self._log(f"Deleted node: {node_uuid}")
 
     def clear_all(self):
+        """Clear entire graph."""
         self.registry.clear()
         dpg.delete_item("specula_editor", children_only=True)
 
-    # ------------------------------------------------------------------
-    # Selection / value helpers
-    # ------------------------------------------------------------------
-
     def get_selected_nodes(self) -> list:
+        """Get UUIDs of currently selected nodes."""
         selected_dpg_ids = dpg.get_selected_nodes("specula_editor")
         return [
             self.dpg_to_uuid[d_id]
@@ -777,3332 +954,52 @@ class NodeManager:
         ]
 
     def update_node_value(self, sender, app_data, user_data):
+        """Update node parameter value."""
         node_uuid, param_name = user_data
         self.graph.nodes[node_uuid]["values"][param_name] = app_data
 
     def get_connection_for_yaml(self, src_uuid, src_attr, dst_uuid, dst_attr) -> str:
-        props = self.graph.get_connection_properties(src_uuid, src_attr, dst_uuid, dst_attr)
+        """Format connection for YAML export."""
+        props = self.graph.get_connection_properties(
+            src_uuid, src_attr, dst_uuid, dst_attr
+        )
         delay = props.get("delay", 0)
+
         src_name = self.graph.nodes.get(src_uuid, {}).get("name", "")
         base_str = src_name if src_attr == "ref" else f"{src_name}.{src_attr}"
+
         if delay == -1:
             return f"{base_str}:-1"
-        if delay != 0:
+        elif delay != 0:
             return f"{base_str}:{delay}"
         return base_str
 
-    # ------------------------------------------------------------------
-    # Debug
-    # ------------------------------------------------------------------
-
-    def debug_panel_info(self):
-        print("\n=== PANEL DEBUG INFO ===")
-        print(f"'property_panel' exists: {dpg.does_item_exist('property_panel')}")
-        print("=======================\n")
-import gc
-import numpy as np
-import threading
-import time
-from queue import Queue
-import socketio
-import uuid
-import os
-import dearpygui.dearpygui as dpg
-from dpg_utils import apply_link_style, create_data_node_theme, create_proc_node_theme, create_data_node_theme_incomplete, create_proc_node_theme_incomplete
-from dpg_plotting import DPGPlotter
-import traceback
-from constants import SOCKETIO_SERVER, STATUS_QUEUE_SIZE, MONITOR_QUEUE_SIZE, MAX_QUEUE_ITEMS_PER_FRAME
-import psutil
-import ast
-
-# Reference shapes (Squares) vs Data shapes (Circles)
-REF_SHAPE = dpg.mvNode_PinShape_QuadFilled
-DATA_SHAPE = dpg.mvNode_PinShape_CircleFilled
-
-DEFAULT_PARAM_COLOR = [110, 110, 110]
-MODIFIED_PARAM_COLOR = [240, 240, 240]
-
-class NodeManager:
-    def __init__(self, graph_manager, all_templates, socketio_server=SOCKETIO_SERVER, debug=True):
-        
-        self.graph = graph_manager
-        self.all_templates = all_templates
-        self.simple_displays = {}
-
-        # Registries
-        self.dpg_to_uuid = {}
-        self.uuid_to_dpg = {}
-        self.input_attr_registry = {}
-        self.output_attr_registry = {}
-        self.link_registry = {}
-        self._last_selected_uuid = None
-        self.data_theme = None
-        self.proc_theme = None
-        self.class_name_counters = {}
-        self.node_item_registry = {}
-        self.data_theme_incomplete = None
-        self.proc_theme_incomplete = None
-        self._selected_link_id = None
-
-        # Socket.IO client
-        if os.name == 'nt':  # Windows
-            # Use different transport for Windows
-            self.sio = socketio.Client(
-                logger=True, 
-                engineio_logger=True,  # Enable engineio logging
-                reconnection=True,
-                reconnection_attempts=5,
-                reconnection_delay=1,
-                reconnection_delay_max=5,
-                randomization_factor=0.5
-            )
-        else:
-            self.sio = socketio.Client(logger=True, engineio_logger=False)
-
-        self.status_update_queue = Queue(maxsize=STATUS_QUEUE_SIZE)
-        self.monitor_lock = threading.RLock()
-        self._last_queue_log = 0
-        self.socketio_server = socketio_server
-        self.socketio_connected = False
-        self.socketio_enabled = True        
-        # Server state
-        self.server_params = {}  # Parameters received from server
-        self.server_nodes = {}   # Map: server_node_name -> {info}
-        self.uuid_to_server_name = {}  # Map: our_uuid -> server_name                
-        # Monitor tracking
-        self.active_monitors = {}  # {server_output_name: monitor_info}
-        self.subscribed_outputs = set()  # Set of outputs we're subscribed to
-        self.monitor_data_queue = Queue(maxsize=MONITOR_QUEUE_SIZE)  # Limit to MONITOR_QUEUE_SIZE items
-        self.monitor_running = False                
-        self._update_loop_active = False  # Prevent multiple update loops
-        # Debug
-        self.debug = debug
-        # Setup Socket.IO event handlers BEFORE connecting
-        self._setup_socketio_handlers()    
-        # Try to connect immediately
-        self._connect_socketio()
-
-    def debug_node_completeness(self, node_uuid):
-        """Print detailed debug information about why a node is complete or incomplete."""
-        if node_uuid not in self.graph.nodes:
-            print(f"[COMPLETE_DEBUG] Node {node_uuid} not found in graph")
-            return False
-        
-        node_data = self.graph.nodes[node_uuid]
-        node_type = node_data.get('type', '')
-        node_name = node_data.get('name', 'Unknown')
-        
-        print(f"\n=== NODE COMPLETENESS DEBUG ===")
-        print(f"Node: {node_name} ({node_type})")
-        print(f"UUID: {node_uuid}")
-        
-        template = self.all_templates.get(node_type, {})
-        if not template:
-            print("No template found. Assuming complete.")
-            print("=== END DEBUG ===\n")
-            return True
-        
-        template_params = template.get('parameters', {})
-        if not template_params:
-            print("No parameters in template. Node is complete.")
-            print("=== END DEBUG ===\n")
-            return True
-        
-        current_values = node_data.get('values', {})
-        
-        complete = True
-        for param_name, param_meta in template_params.items():
-            if isinstance(param_meta, dict):
-                # Check if it's a reference parameter
-                if param_meta.get('kind') == 'reference':
-                    ref_param_name = f"{param_name}_ref"
-                    
-                    # Check if this parameter is REQUIRED
-                    is_required = False
-                    default_val = param_meta.get('default')
-                    if default_val == 'REQUIRED':
-                        is_required = True
-                    elif param_meta.get('required', False):
-                        is_required = True
-                    
-                    if is_required:
-                        if ref_param_name not in current_values or not current_values[ref_param_name]:
-                            print(f" - Missing REQUIRED reference connection for parameter: {param_name} (expected in {ref_param_name})")
-                            complete = False
-                        else:
-                            print(f" + Required reference parameter {param_name} is connected to: {current_values[ref_param_name]}")
-                    else:
-                        if ref_param_name in current_values and current_values[ref_param_name]:
-                            print(f" + Optional reference parameter {param_name} is connected to: {current_values[ref_param_name]}")
-                        else:
-                            print(f" - Optional reference parameter {param_name} is not connected (optional, so node can be complete)")
-        
-        if complete:
-            print("Node is complete (all REQUIRED reference parameters are connected).")
-        else:
-            print("Node is incomplete (missing REQUIRED reference connections).")
-        
-        print("=== END DEBUG ===\n")
-        return complete
-
-    def _on_link_click(self, sender, app_data, user_data):
-        """Callback when a link is clicked to select it."""
-        link_id = user_data
-                
-        # Deselect previous link if any
-        if self._selected_link_id and self._selected_link_id != link_id:
-            # Reset previous link style
-            self._reset_link_style(self._selected_link_id)
-        
-        # Select new link
-        self._selected_link_id = link_id
-        self._highlight_link(link_id)
-        
-        # Clear node selection when link is selected
-        dpg.clear_selected_nodes("specula_editor")
-        self._last_selected_uuid = None
-        
-        # Update property panel to show connection info        
-        self.update_connection_panel(link_id, "property_panel")
-
-
-    def _highlight_link(self, link_id):
-        """Highlight a link to show it's selected."""
-        if dpg.does_item_exist(link_id):
-            # Make selected link more prominent
-            dpg.configure_item(link_id)
-    
-    def debug_panel_info(self):
-        """Debug method to check panel information."""
-        print("\n=== PANEL DEBUG INFO ===")
-        print(f"Looking for panel with tag: 'property_panel'")
-        print(f"Exists: {dpg.does_item_exist('property_panel')}")
-        
-        # Check what children it has
-        if dpg.does_item_exist('property_panel'):
-            children = dpg.get_item_children('property_panel')
-            print(f"Children count: {len(children)}")
-            
-            # Try alternative tags
-            common_panel_tags = ['properties_panel', 'property_window', 'properties_window', 
-                            'right_panel', 'sidebar', 'info_panel']
-            
-            print("\nChecking common panel tags:")
-            for tag in common_panel_tags:
-                if dpg.does_item_exist(tag):
-                    print(f" Found: '{tag}'")
-        else:
-            print("Panel 'property_panel' not found!")
-        
-        print("=======================\n")
-        
-    def _reset_link_style(self, link_id):
-        """Reset link style to normal based on its type."""
-        if not dpg.does_item_exist(link_id):
-            return
-        
-        
-#        dpg.configure_item(link_id, thickness=2)
-        
-        # Get connection data to determine link type
-        if link_id in self.link_registry:
-            src_uuid, src_attr, dst_uuid, dst_attr = self.link_registry[link_id]
-            
-            # Check what type of link this is and reapply appropriate style
-            if dst_attr.endswith("_ref") or "params" in dst_attr.lower():
-                apply_link_style(link_id, color=[200, 200, 200, 60])
-            elif ":-" in str(src_attr):
-                apply_link_style(link_id, color=[255, 0, 0, 255])
-            else:
-                # Default link style
-                dpg.configure_item(link_id)
-
-    def _clear_link_selection(self):
-        """Clear link selection."""
-        if self._selected_link_id:
-            self._reset_link_style(self._selected_link_id)
-            self._selected_link_id = None
-
-    # this was removed, should be already implemented in on_click_editor: 
-    #
-    #def _on_canvas_click(self):
-    #    if dpg.is_item_hovered("property_panel"):
-    #        return
-    #    selected = dpg.get_selected_nodes("specula_editor")
-    #    if selected:
-    #        node_uuid = self.nm.dpg_to_uuid.get(selected[0])
-    #        if node_uuid and self.nm._last_selected_uuid != node_uuid:
-    #            self.nm._last_selected_uuid = node_uuid
-    #            self.nm.update_property_panel(node_uuid, "property_panel")
-    #    else:
-    #        self.nm._last_selected_uuid = None
-    #        dpg.delete_item("property_panel", children_only=True)
-
-    def on_click_editor(self, sender, app_data):
-        """Check selection and update property panel, also handle link clicks."""        
-            
-        # First check for link clicks
-        for link_id in self.link_registry:
-            if dpg.is_item_hovered(link_id):
-                print(f"[CLICK] Found hovered link: {link_id}")
-                self._on_link_click(sender, app_data, link_id)
-                return  # Exit early if link was clicked    
-        
-        # If we clicked on empty canvas, clear link selection
-        if dpg.is_item_hovered("specula_editor"):
-            # Check if we clicked on empty space (not a node)
-            selected_nodes = self.get_selected_nodes()
-            if not selected_nodes:                
-                self._clear_link_selection()
-        
-        # Original node selection logic
-        selected = self.get_selected_nodes()        
-        
-        if len(selected) == 1:
-            uuid = selected[0]
-            # ALWAYS print debug info when a node is clicked (not just when it changes)
-            print(f"\n[CLICK] Node clicked: {uuid}")
-            self.debug_node_completeness(uuid)  # <-- ADD THIS LINE HERE TOO
-            
-            if uuid != self._last_selected_uuid:
-                self._last_selected_uuid = uuid
-                # Clear link selection when selecting a node
-                self._clear_link_selection()
-                # Debug node completeness
-                self.debug_node_completeness(uuid)
-                # Update your panel tag (ensure 'property_panel' tag exists in your UI layout)                
-                self.update_property_panel(uuid, "property_panel")
-        elif len(selected) == 0:
-            # Clear panel if nothing selected AND no link is selected
-            if not self._selected_link_id:                
-                dpg.delete_item("property_panel", children_only=True)
-                self._last_selected_uuid = None
-
-    # Update the setup_handlers method to add link click handlers:    
-    def setup_handlers(self):
-        with dpg.handler_registry():
-            # Listen for clicks to update the property panel
-            dpg.add_mouse_click_handler(callback=self.on_click_editor)            
-            dpg.add_key_press_handler(key=dpg.mvKey_D, callback=self.delete_selected_link)
-            # Listen for Delete key
-            dpg.add_key_press_handler(dpg.mvKey_Delete, callback=self.delete_selection)
-            
-            # Add double-click handler for links (to simulate selection)
-            dpg.add_mouse_double_click_handler(callback=self._on_canvas_double_click)
-            
-            # Add mouse move handler for link hover
-            dpg.add_mouse_move_handler(callback=self._on_mouse_move)
-
-
-    def _on_canvas_double_click(self, sender, app_data):
-        """Handle double-clicks on the canvas to select links."""
-        if not dpg.is_item_hovered("specula_editor"):
-            return
-        
-        # Check if we double-clicked on a link
-        for link_id in self.link_registry:
-            if dpg.is_item_hovered(link_id):
-                self._on_link_click(sender, app_data, link_id)
-                break
-
-    # Update the delete_selected_link method:
-    def delete_selected_link(self, sender, app_data):
-        """Delete the currently selected link."""
-        if not self._selected_link_id:
-            print("[LINK] No link selected to delete")
-            return
-
-        link_id = self._selected_link_id
-        print(f"[LINK] Deleting selected link: {link_id}")
-
-        # Call your existing logic
-        self.delink_callback(sender, link_id)
-
-        # Clear selection
-        self._selected_link_id = None
-
-
-    def _on_mouse_move(self, sender, app_data):
-        """Handle mouse move to show link hover state."""
-        if not dpg.is_item_hovered("specula_editor"):
-            return
-        
-        # Check if mouse is over any link
-        for link_id in self.link_registry:
-            if dpg.is_item_hovered(link_id):
-                # Only highlight if not already selected
-                if link_id != self._selected_link_id:
-                    # Highlight on hover (lighter color)
-                    dpg.configure_item(link_id)
-                break
-            else:
-                # Reset hover style if not selected
-                if link_id != self._selected_link_id:
-                    self._reset_link_style(link_id)
-
-    def _generate_unique_name(self, class_name):
-        """
-        Generate a unique instance name like:
-        a<ClassName><counter>
-        """
-        if class_name not in self.class_name_counters:
-            self.class_name_counters[class_name] = 0
-
-        counter = self.class_name_counters[class_name]
-        name = f"a{class_name}{counter}"
-
-        self.class_name_counters[class_name] += 1
-        return name
-
-    def after_dpg_init(self):
-        """Call this after DPG is fully initialized and the main loop is running."""
-        print(f"[NODE_MANAGER] DPG initialized, setting up periodic tasks")
-        
-        # Start periodic tasks after a short delay
-        current_frame = dpg.get_frame_count()
-        dpg.set_frame_callback(current_frame + 100, self.start_periodic_tasks)
-        
-        # Start monitor updater if needed
-        #if self.active_monitors and not self.monitor_running:
-        self._start_monitor_updater()
-
-
-    def _log(self, message: str):
-        """Log message if debug is enabled."""
-        if self.debug:
-            print(f"[NODE_MANAGER] {message}")
-
-
-    def _safe_update_monitor_status(self, monitor_id, status):
-        """Safely update monitor status via queue."""
-        try:
-            if self.status_update_queue.full():
-                # Remove oldest if full
-                try:
-                    self.status_update_queue.get_nowait()
-                except Exception as e:
-                    print(f"[MONITOR] Error clearing status queue: {e}")
-                    pass
-            
-            self.status_update_queue.put({
-                'type': 'status_update',
-                'monitor_id': monitor_id,
-                'status': status,
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            print(f"[MONITOR] Error updating monitor status: {e}")
-
-   
-        
-    def _setup_socketio_handlers(self):
-        """Setup Socket.IO event handlers."""
-        @self.sio.event
-        def any_event(event, data):
-            """Catch all events to see what's being received."""
-            if event not in ['ping', 'pong']:  # Filter out ping/pong spam
-                print(f"[SOCKET.IO] ANY EVENT: {event} -> {type(data)}")
-                if isinstance(data, dict):
-                    print(f"    Keys: {list(data.keys())}")
-        
-        @self.sio.event
-        def connect():
-            self.socketio_connected = True
-            print(f"[SOCKET.IO] Connected! SID: {self.sio.sid}")
-            
-            # Queue a status update
-            self.monitor_data_queue.put({
-                'type': 'status_update',
-                'status': 'connected'
-            })
-            
-            # DEBUG: Check if we can receive events
-            print(f"[SOCKET.IO] Testing event reception...")
-            
-            # Send a test request for params
-            try:
-                self.sio.emit('get_params')
-                print(f"[SOCKET.IO] Requested params via 'get_params'")
-            except Exception as e:
-                # Fallback: the server should send params automatically on connect
-                print(f"[SOCKET.IO] Server should auto-send params on connect: {e}")
-       
-
-        @self.sio.event
-        def params(data):
-            """Handle parameters event."""
-            print(f"\n[SOCKET.IO] PARAMS EVENT FIRED!")
-            print(f"[SOCKET.IO] Received {len(data)} nodes")
-            
-            if not data:
-                print(f"[SOCKET.IO] No data in params event!")
-                return
-            
-            # Store server parameters
-            self.server_params = data
-            self.server_nodes = data
-
-            self.bind_nodes_to_server(data)
-
-            print("Server objects:", sorted(self.server_nodes.keys()))
-
-            print(f"[SOCKET.IO] First few nodes:")
-            for i, (name, info) in enumerate(list(data.items())[:3]):
-                node_class = info.get('class', 'Unknown')
-                outputs = info.get('outputs', [])
-                print(f"  {i+1}. {name} ({node_class}): {outputs}")
-            
-            # Try to map our UUIDs to server node names
-            self._update_uuid_mapping()
-            
-            # Update monitor displays
-            for monitor_id in self.active_monitors:
-                self._safe_update_monitor_status(monitor_id, "connected")
-
-
-        @self.sio.event
-        def data_update(data):
-            """Handle raw data updates from server."""
-            print(f"\n[SOCKET.IO] DATA_UPDATE EVENT FIRED!")
-            print(f"[SOCKET.IO] Event received: {data.get('name', 'unknown')}")
-            
-            try:
-                name = data.get('name')  # This is the server_output_name from server
-                raw_data = data.get('data')
-                
-                if not name or raw_data is None:
-                    print(f"[SOCKET.IO] Missing name or data in update")
-                    return
-                
-                # Check queue size
-                qsize = self.monitor_data_queue.qsize()
-                print(f"[SOCKET.IO] Current queue size: {qsize}")
-                
-                if qsize >= MONITOR_QUEUE_SIZE:
-                    print(f"[SOCKET.IO] Queue full (MONITOR_QUEUE_SIZE), dropping data for {name}")
-                    return
-                
-                # Use lock to safely access active_monitors
-                with self.monitor_lock:
-                    # Find ALL monitors that match this server output name
-                    matching_monitors = []
-                    for monitor_id, info in self.active_monitors.items():
-                        if info.get('server_output_name') == name:
-                            matching_monitors.append((monitor_id, info))
-                    
-                    if not matching_monitors:
-                        print(f"[SOCKET.IO] No monitor found for {name}")
-                        return
-                    
-                    print(f"[SOCKET.IO] Found {len(matching_monitors)} monitor(s) for {name}")
-                    
-                    # Add data to queue for each matching monitor
-                    for monitor_id, info in matching_monitors:
-                        self.monitor_data_queue.put({
-                            'type': 'data_update',
-                            'monitor_id': monitor_id,
-                            'data': raw_data,
-                            'timestamp': time.time()
-                        })
-                        print(f"[SOCKET.IO] Queued data for monitor {monitor_id}")
-                        
-            except Exception as e:
-                print(f"[SOCKET.IO] Error in data_update handler: {e}")                
-                traceback.print_exc()
-        
-        @self.sio.event
-        def connect_error(data):
-            self.socketio_connected = False
-            self._log(f"Socket.IO connection error: {data}")
-            print(f"[SOCKET.IO] Connection error: {data}")
-            
-            for monitor_id in self.active_monitors:
-                self._safe_update_monitor_status(monitor_id, "disconnected")
-        
-        @self.sio.event
-        def disconnect():
-            self.socketio_connected = False
-            self._log("Socket.IO disconnected")
-            print(f"[SOCKET.IO] Disconnected")
-            
-            for monitor_id in self.active_monitors:
-                self._safe_update_monitor_status(monitor_id, "disconnected")
-            
-        @self.sio.event
-        def speed_report(data):
-            """Handle speed report events."""
-            self._log(f"Speed report: {data}")
-            print(f"[SOCKET.IO] Speed report: {data}")
-        
-        @self.sio.event
-        def done(data):
-            """Handle done events."""
-            self._log(f"Frame done: {data}")
-            print(f"[SOCKET.IO] Done event: {data}")
-            
-            # Request next data frame for all subscribed outputs
-            if self.subscribed_outputs:
-                print(f"[SOCKET.IO] Requesting next data frame for {len(self.subscribed_outputs)} outputs")
-                self._request_next_frame()
-
-    def _request_next_frame(self):
-        """Request next data frame for subscribed outputs."""
-        if not self.socketio_connected:
-            print(f"[SOCKET.IO] Not connected, cannot request data")
-            return
-        
-        with self.monitor_lock:
-            if not self.subscribed_outputs:
-                print(f"[SOCKET.IO] No outputs subscribed")
-                return
-            
-            # Convert set to list for Socket.IO
-            outputs_list = list(self.subscribed_outputs)
-        
-        print(f"[SOCKET.IO] Emitting 'newdata' for next frame: {outputs_list}")
-        
-        try:
-            self.sio.emit('newdata', outputs_list)
-            print(f"[SOCKET.IO] 'newdata' event emitted successfully")
-        except Exception as e:
-            self._log(f"Error requesting data: {e}")
-            print(f"[SOCKET.IO] Error emitting 'newdata': {e}")
-
-
-    def bind_nodes_to_server(self, params):
-        # Build server instances by class
-        server_by_class = {}
-        for server_name, meta in params.items():
-            cls = meta.get("class")
-            if cls:
-                server_by_class.setdefault(cls, []).append(server_name)
-
-        for node_uuid, node_data in self.graph.nodes.items():
-            if node_uuid in self.uuid_to_server_name:
-                continue  # already bound
-
-            node_type = node_data.get("type")
-            candidates = server_by_class.get(node_type, [])
-
-            if len(candidates) == 1:
-                server_name = candidates[0]
-                node_data["name"] = server_name
-                self.uuid_to_server_name[node_uuid] = server_name
-                print(f"[BIND] {node_uuid} ({node_type}) -> {server_name}")
-
-            elif len(candidates) > 1:
-                print(
-                    f"[BIND] Ambiguous server instances for node {node_uuid} "
-                    f"({node_type}): {candidates}"
-                )
-            else:
-                print(
-                    f"[BIND] No server instance for node {node_uuid} "
-                    f"({node_type})"
-                )
-                
-    def _update_uuid_mapping(self):
-        """
-        Build a strict mapping between local node UUIDs and server node names.
-        """
-        print(f"[MAPPING] Updating UUID -> server name mapping")
-        print(f"[MAPPING] Server nodes: {list(self.server_nodes.keys())}")
-        print(f"[MAPPING] Graph nodes count: {len(self.graph.nodes)}")
-
-        self.uuid_to_server_name.clear()
-
-        mapped_count = 0
-        for node_uuid, node_data in self.graph.nodes.items():
-            client_node_name = node_data.get("name")
-            node_type = node_data.get("type", "")
-            
-            if not client_node_name:
-                print(f"[MAPPING] Node {node_uuid} ({node_type}) has no name")
-                continue
-            
-            print(f"[MAPPING] Checking node {node_uuid}: client_name='{client_node_name}', type='{node_type}'")
-            
-            # Try to find server node with same name
-            if client_node_name in self.server_nodes:
-                self.uuid_to_server_name[node_uuid] = client_node_name
-                print(f"[MAPPING] Mapped {node_uuid} -> {client_node_name}")
-                mapped_count += 1
-            else:
-                # Try alternative: look for server node with same class type
-                server_candidates = []
-                for server_name, server_info in self.server_nodes.items():
-                    if server_info.get('class') == node_type:
-                        server_candidates.append(server_name)
-                
-                if len(server_candidates) == 1:
-                    # If only one server node has this class type, use it
-                    server_name = server_candidates[0]
-                    self.uuid_to_server_name[node_uuid] = server_name
-                    print(f"[MAPPING]  Type-based mapping: {node_uuid} ({client_node_name}) -> {server_name}")
-                    mapped_count += 1
-                else:
-                    print(f"[MAPPING]  No server mapping for {client_node_name} ({node_type})")
-                    if server_candidates:
-                        print(f"[MAPPING]     Candidates with same type: {server_candidates}")
-
-        print(f"[MAPPING] Mapping complete: {mapped_count}/{len(self.graph.nodes)} nodes mapped")    
-
-
-    def _get_server_output_name(self, node_uuid, output_name):
-        """
-        Return the fully-qualified server output name: <server_node>.<output>.
-        """
-        if not output_name:
-            raise ValueError("output_name must be provided")
-
-        server_name = self.uuid_to_server_name.get(node_uuid)
-
-        if not server_name:
-            node_data = self.graph.nodes.get(node_uuid, {})
-            node_name = node_data.get("name", "<unnamed>")
-            node_type = node_data.get("type", "<unknown>")
-            
-            # Try to find server node by name or type
-            server_candidates = []
-            for s_name, s_info in self.server_nodes.items():
-                if s_name == node_name or s_info.get('class') == node_type:
-                    server_candidates.append((s_name, s_info.get('class')))
-            
-            if server_candidates:
-                if len(server_candidates) == 1:
-                    # Use the only candidate
-                    server_name = server_candidates[0][0]
-                    self.uuid_to_server_name[node_uuid] = server_name
-                    print(f"[MONITOR] Auto-mapped {node_name} -> {server_name}")
-                else:
-                    # Multiple candidates - log them
-                    print(f"[MONITOR] Multiple server candidates for {node_name} ({node_type}):")
-                    for cand_name, cand_class in server_candidates:
-                        print(f"  - {cand_name} ({cand_class})")
-                    # Use first candidate as fallback
-                    server_name = server_candidates[0][0]
-                    self.uuid_to_server_name[node_uuid] = server_name
-                    print(f"[MONITOR] Using first candidate: {server_name}")
-
-        if not server_name:
-            # Still no mapping - create a reasonable fallback
-            node_data = self.graph.nodes.get(node_uuid, {})
-            node_name = node_data.get("name", "unknown")
-            server_name = f"auto_{node_name}"
-            print(f"[MONITOR] Warning: Using fallback server name: {server_name}")
-
-        return f"{server_name}.{output_name}"
-
-
-    def update_connection_panel(self, link_id, panel_tag):
-        """Update property panel with connection information."""
-        # Clear the panel first
-        dpg.delete_item(panel_tag, children_only=True)
-        
-        if link_id not in self.link_registry:
-            print(f"[PANEL] Link {link_id} not in registry")
-            return
-        
-        # Get connection data
-        src_uuid, src_attr, dst_uuid, dst_attr = self.link_registry[link_id]
-        
-        # Get node names
-        src_node = self.graph.nodes.get(src_uuid, {})
-        dst_node = self.graph.nodes.get(dst_uuid, {})
-        src_name = src_node.get('name', 'Unknown')
-        dst_name = dst_node.get('name', 'Unknown')
-        
-        # Get current connection properties
-        conn_props = self.graph.get_connection_properties(src_uuid, src_attr, dst_uuid, dst_attr)
-        current_delay = conn_props.get('delay', 0)
-        
-        print(f"[PANEL] Updating connection panel for {src_name}.{src_attr} -> {dst_name}.{dst_attr}, delay={current_delay}")
-        
-        # Title
-        dpg.add_text("Connection Properties", color=[100, 200, 255], parent=panel_tag)
-        dpg.add_separator(parent=panel_tag)
-        
-        # Connection endpoints
-        dpg.add_text("Source (Output):", color=[255, 255, 255], parent=panel_tag)
-        with dpg.group(horizontal=True, parent=panel_tag):
-            dpg.add_text("Node:", color=[200, 200, 200])
-            dpg.add_text(f"{src_name}", color=[150, 255, 150])
-        
-        with dpg.group(horizontal=True, parent=panel_tag):
-            dpg.add_text("Attribute:", color=[200, 200, 200])
-            dpg.add_text(src_attr, color=[150, 255, 150])
-        
-        dpg.add_spacer(height=10, parent=panel_tag)
-        
-        dpg.add_text("Destination (Input):", color=[255, 255, 255], parent=panel_tag)
-        with dpg.group(horizontal=True, parent=panel_tag):
-            dpg.add_text("Node:", color=[200, 200, 200])
-            dpg.add_text(f"{dst_name}", color=[150, 255, 150])
-        
-        with dpg.group(horizontal=True, parent=panel_tag):
-            dpg.add_text("Attribute:", color=[200, 200, 200])
-            dpg.add_text(dst_attr, color=[150, 255, 150])
-        
-        dpg.add_separator(parent=panel_tag)
-        dpg.add_spacer(height=10, parent=panel_tag)
-        
-        # Delay/Index setting
-        dpg.add_text("Delay/Index:", color=[255, 200, 100], parent=panel_tag)
-        
-        # Helper function to update delay
-        def update_delay_callback(sender, app_data, user_data):
-            conn_data = user_data  # (src_uuid, src_attr, dst_uuid, dst_attr)
-            new_delay = int(app_data)
-            
-            # Validate: only allow 0 or -1 for now
-            if new_delay not in [0, -1]:
-                print(f"[CONNECTION] Delay must be 0 or -1, got {new_delay}. Resetting to 0.")
-                dpg.set_value(sender, 0)
-                new_delay = 0
-            
-            # Update connection properties
-            self.graph.update_connection_properties(
-                conn_data[0], conn_data[1], conn_data[2], conn_data[3],
-                {"delay": new_delay}
-            )
-            
-            print(f"[CONNECTION] Updated delay for {conn_data[0]}.{conn_data[1]} -> {conn_data[2]}.{conn_data[3]} to {new_delay}")
-            
-            # Update the connection label if it's a feedback connection
-            self._update_connection_display(conn_data[0], conn_data[1], conn_data[2], conn_data[3], new_delay)
-        
-        # Create input for delay
-        dpg.add_input_int(
-            default_value=current_delay,
-            min_value=-1,
-            max_value=0,
-            min_clamped=True,
-            max_clamped=True,
-            width=100,
-            callback=update_delay_callback,
-            user_data=(src_uuid, src_attr, dst_uuid, dst_attr),
-            parent=panel_tag
-        )
-        
-        dpg.add_text("0 = normal connection, -1 = feedback (previous timestep)", 
-                    color=[150, 150, 150], parent=panel_tag)
-        
-        dpg.add_spacer(height=10, parent=panel_tag)
-        
-        # Connection type info
-        conn_type = "Feedback" if current_delay == -1 else "Normal"
-        dpg.add_text(f"Type: {conn_type}", color=[200, 200, 255], parent=panel_tag)
-        
-        if conn_type == "Feedback":
-            dpg.add_text("This connection uses data from previous timestep", 
-                        color=[255, 150, 100], parent=panel_tag)
-        
-        # Connection ID (for debugging)
-        dpg.add_spacer(height=10, parent=panel_tag)
-        dpg.add_separator(parent=panel_tag)
-        with dpg.group(horizontal=True, parent=panel_tag):
-            dpg.add_text("Link ID:", color=[150, 150, 150])
-            dpg.add_text(link_id, color=[200, 200, 200])
-        
-        print(f"[PANEL] Connection panel updated successfully")
-
-    def _update_connection_display(self, src_uuid, src_attr, dst_uuid, dst_attr, delay):
-        """Update the visual display of a connection based on its delay value."""
-        # Find the link_id for this connection
-        link_id = None
-        for lid, conn_data in self.link_registry.items():
-            if (conn_data[0] == src_uuid and conn_data[1] == src_attr and
-                conn_data[2] == dst_uuid and conn_data[3] == dst_attr):
-                link_id = lid
-                break
-        
-        if not link_id or not dpg.does_item_exist(link_id):
-            return
-        
-        # Update link style based on delay
-        if delay == -1:
-            # Feedback connection - special style
-            apply_link_style(link_id, color=[255, 0, 0, 255])
-            
-            # Also update the output attribute display if needed
-            # For feedback connections like "dm.out_layer:-1"
-            self._update_feedback_attribute(src_uuid, src_attr, delay)
-        elif delay == 0:
-            # Check if this is a reference connection
-            if dst_attr.endswith("_ref") or "params" in dst_attr.lower():
-                apply_link_style(link_id, color=[200, 200, 200, 60])
-            else:
-                # Normal data connection
-                dpg.configure_item(link_id, color=[255, 255, 255, 255])
-
-    def _update_feedback_attribute(self, node_uuid, attr_name, delay):
-        """Update the display of a feedback attribute on a node."""
-        # Find the attribute ID for this output
-        attr_id = None
-        for aid, (uuid, name) in self.output_attr_registry.items():
-            if uuid == node_uuid and name == attr_name:
-                attr_id = aid
-                break
-        
-        if not attr_id or not dpg.does_item_exist(attr_id):
-            return
-        
-        # Get the text item inside the attribute
-        children = dpg.get_item_children(attr_id, slot=1)  # Get children in slot 1
-        for child in children:
-            if dpg.get_item_type(child) == "mvAppItemType::mvText":
-                current_text = dpg.get_value(child)
-                
-                # Update text to include delay if it's not already there
-                if delay == -1 and ":-1" not in current_text:
-                    # Add feedback indicator
-                    new_text = f"{attr_name}:-1"
-                    dpg.set_value(child, new_text)
-                    dpg.configure_item(child, color=[255, 100, 100])  # Red for feedback
-                elif delay == 0 and ":-1" in current_text:
-                    # Remove feedback indicator
-                    base_name = attr_name.replace(":-1", "")
-                    dpg.set_value(child, base_name)
-                    dpg.configure_item(child, color=[255, 255, 255])  # White for normal
-                break
-
-    def _update_data_info(self, info, data):
-        """Update data information panel."""
-        try:
-            if data is None:
-                return
-                
-            # Type
-            data_type = type(data).__name__
-            if isinstance(data, np.ndarray):
-                data_type = f"ndarray ({data.dtype})"
-            
-            if dpg.does_item_exist(info.get('data_type_text_id', '')):
-                dpg.set_value(info['data_type_text_id'], f"Type: {data_type}")
-            
-            # Shape
-            if hasattr(data, 'shape'):
-                shape_str = str(data.shape)
-                size_str = f"{data.size} elements"
-            else:
-                shape_str = "scalar"
-                size_str = "1 element"
-            
-            if dpg.does_item_exist(info.get('data_shape_text_id', '')):
-                dpg.set_value(info['data_shape_text_id'], f"Shape: {shape_str}")
-            
-            if dpg.does_item_exist(info.get('data_size_text_id', '')):
-                dpg.set_value(info['data_size_text_id'], f"Size: {size_str}")
-            
-            # Range
-            if isinstance(data, np.ndarray) and data.size > 0 and np.issubdtype(data.dtype, np.number):
-                range_str = f"[{data.min():.3g}, {data.max():.3g}]"
-            elif isinstance(data, (int, float)):
-                range_str = f"{data:.3g}"
-            else:
-                range_str = "N/A"
-            
-            if dpg.does_item_exist(info.get('data_range_text_id', '')):
-                dpg.set_value(info['data_range_text_id'], f"Range: {range_str}")
-                
-        except Exception as e:
-            print(f"[INFO] Error updating data info: {e}")
-
-    def _update_monitor_status(self, monitor_id, status):
-        """Update monitor status display."""
-        if monitor_id not in self.active_monitors:
-            return
-        
-        info = self.active_monitors[monitor_id]
-        window_tag = info.get('window_id', '')
-        
-        if not window_tag or not dpg.does_item_exist(f"{window_tag}_status"):
-            return
-        
-        colors = {
-            'connected': [0, 255, 0],
-            'disconnected': [255, 0, 0],
-            'subscribed': [100, 255, 100],
-            'unsubscribed': [255, 180, 100],
-            'receiving': [0, 200, 255]
-        }
-        
-        symbols = {
-            'connected': '+',
-            'disconnected': '-',
-            'subscribed': '>',
-            'unsubscribed': '=',
-            'receiving': '<>'
-        }
-        
-        color = colors.get(status, [200, 200, 200])
-        symbol = symbols.get(status, '-')
-        
-        dpg.set_value(f"{window_tag}_status", f"{symbol} {status.capitalize()}")
-        dpg.configure_item(f"{window_tag}_status", color=color)
-
-    def _open_output_monitor(self, sender, app_data, user_data):
-        """Open a monitor window for an output with local plotting."""
-        node_uuid, output_name = user_data
-        node_data = self.graph.nodes.get(node_uuid)
-        if not node_data: 
-            self._log(f"Monitor: Node {node_uuid} not found")
-            return
-
-        node_name = node_data.get('name', 'Unknown')
-        node_type = node_data.get('type', 'Unknown')
-        
-        print(f"\n[MONITOR] Opening monitor for node:")
-        print(f"  UUID: {node_uuid}")
-        print(f"  Name: {node_name}")
-        print(f"  Type: {node_type}")
-        print(f"  Output: {output_name}")
-        print(f"  UUID mapping exists: {node_uuid in self.uuid_to_server_name}")
-        
-        if node_uuid in self.uuid_to_server_name:
-            print(f"  Mapped to server: {self.uuid_to_server_name[node_uuid]}")
-        
-        # Try to get server output name
-        try:
-            server_output_name = self._get_server_output_name(node_uuid, output_name)
-            print(f"[MONITOR] Server output name: {server_output_name}")
-        except Exception as e:
-            print(f"[MONITOR] Error getting server output name: {e}")
-            # Create fallback name
-            server_output_name = f"{node_name}.{output_name}"
-            print(f"[MONITOR] Using fallback: {server_output_name}")
-        
-        # Create a unique monitor ID
-        monitor_id = f"{node_uuid}_{output_name}_{int(time.time()*1000)}"
-        window_tag = f"monitor_{monitor_id}"
-
-        print(f"[MONITOR] Opening monitor for {server_output_name}, ID: {monitor_id}")
-
-        # If window exists, focus it
-        if dpg.does_item_exist(window_tag):
-            dpg.focus_item(window_tag)
-            return
-
-        # Define the close callback
-        def close_callback():
-            print(f"[MONITOR] Close callback triggered for {monitor_id}")
-            # Pass from_window_close=True since this is called from DPG window close
-            self._close_monitor(monitor_id, from_window_close=True)
-
-        # Create window with plot container
-        with dpg.window(
-            label=f"Monitor: {node_name}.{output_name}", 
-            tag=window_tag, 
-            width=800, 
-            height=600, 
-            pos=[300, 300],
-            on_close=close_callback  # Use the named function instead of lambda
-        ):
-            # Connection Status Panel
-            with dpg.collapsing_header(label="Connection Status", default_open=True):
-                with dpg.group(tag=f"conn_{window_tag}"):
-                    dpg.add_text("Server URL:", color=[200, 200, 200])
-                    dpg.add_text(self.socketio_server, 
-                            color=[100, 255, 255], tag=f"{window_tag}_url")
-                    
-                    dpg.add_text("Status:", color=[200, 200, 200])
-                    status_text = dpg.add_text("- Disconnected", 
-                                            color=[255, 0, 0], 
-                                            tag=f"{window_tag}_status")
-                    
-                    dpg.add_text("Server Output Name:", color=[200, 200, 200])
-                    dpg.add_text(server_output_name, color=[100, 255, 100], tag=f"{window_tag}_output")
-            
-            # Plot Container - where DPGPlotter will render
-            dpg.add_separator()
-            dpg.add_text("Data Plot", color=[200, 200, 255])
-            
-            # Create plot container group
-            plot_container = dpg.add_group(tag=f"{window_tag}_plot_container")
-            
-            # Add placeholder text
-            placeholder = dpg.add_text("Waiting for data...", 
-                                    color=[150, 150, 150], 
-                                    parent=plot_container,
-                                    tag=f"{window_tag}_placeholder")
-            
-            # Data info
-            dpg.add_separator()
-            with dpg.group(tag=f"info_{window_tag}"):
-                dpg.add_text("Data Information:", color=[200, 200, 255])
-                data_type_text = dpg.add_text("Type: Waiting for data...", 
-                                            color=[200, 200, 200])
-                data_shape_text = dpg.add_text("Shape: Unknown", 
-                                            color=[200, 200, 200])
-                data_size_text = dpg.add_text("Size: Unknown", 
-                                            color=[200, 200, 200])
-                data_range_text = dpg.add_text("Range: Unknown", 
-                                            color=[200, 200, 200])
-                update_time_text = dpg.add_text("Last Update: Never", 
-                                            color=[200, 200, 200])
-        
-            with dpg.group(horizontal=True):
-                dpg.add_button(
-                    label="Reconnect",
-                    callback=lambda: self._connect_socketio(),
-                    width=100
-                )
-                dpg.add_button(
-                    label="Subscribe",
-                    callback=lambda s, a, u=server_output_name: self._subscribe_output(u),
-                    width=100
-                )                        
-                        
-
-        # Register monitor
-        self.active_monitors[monitor_id] = {
-            'window_id': window_tag,
-            'plot_container': plot_container,
-            'placeholder_tag': placeholder,
-            'data_type_text_id': data_type_text,
-            'data_shape_text_id': data_shape_text,
-            'data_size_text_id': data_size_text,
-            'data_range_text_id': data_range_text,
-            'update_time_text_id': update_time_text,
-            'status_text_id': status_text,
-            'node_uuid': node_uuid,
-            'output_name': output_name,
-            'server_output_name': server_output_name,  # This is what the server sends
-            'node_name': node_name,
-            'update_count': 0,
-            'last_update': 0,
-            'socketio_connected': False,
-            'subscribed': False,
-            'dpg_plotter': None,
-            'min_update_interval': 0.1,
-            'pending_data': None,
-            'skipped_frames': 0
-        }
-
-        print(f"[MONITOR] Registered monitor ID: {monitor_id} for {server_output_name}")
-        
-        # Start monitor updater if not already running
-        if not self.monitor_running:
-            self._start_monitor_updater()
-        
-        # Try to connect and subscribe
-        if not self.socketio_connected:
-            self._connect_socketio()
-        else:
-            # Subscribe to this output
-            self._subscribe_output(server_output_name)
-       
-        #if not self.monitor_running:
-        self.monitor_running = True
-        print(f"[MONITOR] Starting monitor updater")
-        # Schedule first update in next frame
-        dpg.set_frame_callback(dpg.get_frame_count() + 1, self._monitor_update_frame)
-
-    def _close_monitor(self, monitor_id, from_window_close=True):
-        """
-        Cleanup when a monitor window is closed.
-        
-        FIXES:
-        - Proper locking order to prevent race conditions
-        - Better error handling during cleanup
-        - Safe item deletion checks
-        
-        Args:
-            monitor_id: ID of the monitor to close
-            from_window_close: If True, called from window close callback
-        """
-        print(f"\n[CLOSE_MONITOR] Called for monitor_id: {monitor_id}")
-        
-        # Step 1: Remove from active monitors atomically
-        with self.monitor_lock:
-            if monitor_id not in self.active_monitors:
-                print(f"[CLOSE_MONITOR] Monitor {monitor_id} not found in active_monitors")
-                return
-            
-            # Take a snapshot of info before removing
-            info = self.active_monitors[monitor_id].copy()
-            
-            # Remove immediately to prevent new data from being queued
-            del self.active_monitors[monitor_id]
-            print(f"[CLOSE_MONITOR] Removed from active_monitors")
-        
-        # Step 2: Extract info we need (outside the lock)
-        server_output_name = info.get('server_output_name')
-        window_tag = info.get('window_id', '')
-        plotter = info.get('dpg_plotter')
-        
-        print(f"[CLOSE_MONITOR] Closing monitor for {server_output_name}")
-        print(f"[CLOSE_MONITOR] Node: {info.get('node_name', 'Unknown')}.{info.get('output_name', 'Unknown')}")
-        
-        # Step 3: Clean up plotter
-        if plotter:
-            try:
-                plotter.clear()
-                print(f"[CLOSE_MONITOR] Cleared DPGPlotter")
-            except Exception as e:
-                print(f"[CLOSE_MONITOR] Error clearing plotter: {e}")
-        
-        # Step 4: Delete DPG window (only if not called from window close callback)
-        if not from_window_close and window_tag:
-            try:
-                if dpg.does_item_exist(window_tag):
-                    print(f"[CLOSE_MONITOR] Deleting DPG window: {window_tag}")
-                    dpg.delete_item(window_tag)
-            except Exception as e:
-                print(f"[CLOSE_MONITOR] Error deleting window: {e}")
-        
-        # Step 5: Clean up SimpleImageDisplay (if exists)
-        if hasattr(self, 'simple_displays') and monitor_id in self.simple_displays:
-            try:
-                self.simple_displays[monitor_id].cleanup()
-                del self.simple_displays[monitor_id]
-                print(f"[CLOSE_MONITOR] Cleaned up SimpleImageDisplay")
-            except Exception as e:
-                print(f"[CLOSE_MONITOR] Error cleaning up display: {e}")
-        
-        # Step 6: Unsubscribe from server (if needed)
-        if server_output_name:
-            print(f"[CLOSE_MONITOR] Calling _unsubscribe_output for {server_output_name}")
-            self._unsubscribe_output(server_output_name)
-        
-        # Step 7: Clear queued data for this monitor
-        self._clear_queue_for_monitor(monitor_id)
-        
-        # Step 8: Stop updater if no monitors left
-        with self.monitor_lock:
-            if not self.active_monitors and self.monitor_running:
-                print(f"[CLOSE_MONITOR] No active monitors, stopping updater")
-                self.monitor_running = False
-                self._update_loop_active = False
-        
-
-    def _clear_queue_for_monitor(self, monitor_id):
-        """Clear queued data for a specific monitor."""
-        temp_queue = Queue()
-        queue_items_removed = 0
-        
-        while not self.monitor_data_queue.empty():
-            try:
-                item = self.monitor_data_queue.get_nowait()
-                if item.get('monitor_id') != monitor_id:
-                    temp_queue.put(item)
-                else:
-                    queue_items_removed += 1
-            except Exception as e:
-                print(f"[CLOSE_MONITOR] Error processing queue item: {e}")
-                break
-        
-        # Put back non-matching items
-        while not temp_queue.empty():
-            try:
-                self.monitor_data_queue.put(temp_queue.get_nowait())
-            except Exception as e:
-                print(f"[CLOSE_MONITOR] Error putting item back in queue: {e}")                
-                break
-        
-        print(f"[CLOSE_MONITOR] Removed {queue_items_removed} items from queue")
-        
-
-    def _unsubscribe_output(self, server_output_name):
-        """Unsubscribe from an output via Socket.IO."""
-        print(f"[UNSUBSCRIPTION] Unsubscribing from {server_output_name}")
-        
-        if not server_output_name:
-            print(f"[UNSUBSCRIPTION] Error: server_output_name is None!")
-            return
-        
-        # Use lock to safely access active_monitors
-        with self.monitor_lock:
-            # Check if any other monitors are using this output
-            monitors_using_output = [
-                mid for mid, info in self.active_monitors.items()
-                if info.get('server_output_name') == server_output_name
-            ]
-            
-            # Only unsubscribe if no monitors are using this output
-            if not monitors_using_output and server_output_name in self.subscribed_outputs:
-                self.subscribed_outputs.remove(server_output_name)
-                print(f"[UNSUBSCRIPTION] Removed {server_output_name} from subscribed set")
-                
-                # Tell server to stop sending this data
-                if self.socketio_connected:
-                    self._send_unsubscribe_request(server_output_name)
-                
-                # Update status for any remaining monitors (though there shouldn't be any)
-                for monitor_id, info in self.active_monitors.items():
-                    if info.get('server_output_name') == server_output_name:
-                        info['subscribed'] = False
-                        self._safe_update_monitor_status(monitor_id, "unsubscribed")
-            else:
-                print(f"[UNSUBSCRIPTION] {len(monitors_using_output)} monitor(s) still using {server_output_name}, keeping subscription")
-
-
-    def _send_unsubscribe_request(self, server_output_name):
-        """Send unsubscribe request to server."""
-        if not self.socketio_connected:
-            return
-        
-        try:
-            print(f"[SOCKET.IO] Emitting 'unsubscribe' for {server_output_name}")
-            self.sio.emit('unsubscribe', {'output': server_output_name})
-        except Exception as e:
-            print(f"[SOCKET.IO] Error sending unsubscribe: {e}")
-
-
-    def _subscribe_output(self, server_output_name):
-        """Subscribe to an output via Socket.IO."""
-        print(f"[SUBSCRIPTION] Subscribing to {server_output_name}")
-        
-        if not server_output_name:
-            print(f"[SUBSCRIPTION] Error: server_output_name is None!")
-            return
-        
-        with self.monitor_lock:
-            if server_output_name not in self.subscribed_outputs:
-                self.subscribed_outputs.add(server_output_name)
-                print(f"[SUBSCRIPTION] Added to subscribed set: {server_output_name}")
-                
-                # Update ALL monitors that use this server output
-                for monitor_id, info in self.active_monitors.items():
-                    if info.get('server_output_name') == server_output_name:
-                        info['subscribed'] = True
-                        self._safe_update_monitor_status(monitor_id, "subscribed")
-                        print(f"[SUBSCRIPTION] Updated monitor {monitor_id}")
-            else:
-                print(f"[SUBSCRIPTION] Already subscribed to {server_output_name}")
-        
-        # Request data if connected
-        if self.socketio_connected:
-            print(f"[SUBSCRIPTION] Connected, requesting data")
-            self._request_next_frame()
-        else:
-            print(f"[SUBSCRIPTION] Not connected, cannot request data")
-
-   
-    def _connect_socketio(self):
-        """Connect to Socket.IO server."""
-        if not self.socketio_enabled:
-            return
-        
-        try:
-            print(f"[SOCKET.IO] Connecting to {self.socketio_server}...")
-            self.socketio_connected = False
-            # Explicitly specify namespace
-            self.sio.connect(self.socketio_server, namespaces=['/'])            
-            print(f"[SOCKET.IO] Connected! SID: {self.sio.sid}")            
-            # Test the connection immediately
-            self.sio.emit('test_connection', {'client': 'node_editor'})
-            
-        except Exception as e:
-            print(f"[SOCKET.IO] Connection failed: {e}")
-            traceback.print_exc()
-            self.socketio_connected = False
-
-
-    def _process_and_plot_data_main_thread(self, monitor_id, raw_data, info):
-        """Process raw data and plot locally."""
-        try:
-            # Double-check monitor still exists AND window exists
-            with self.monitor_lock:
-                if monitor_id not in self.active_monitors:
-                    return False
-            
-            # Get window tag and check existence
-            window_tag = info.get('window_id', '')
-            if not window_tag or not dpg.does_item_exist(window_tag):
-                print(f"[MAIN_PLOT] Window {window_tag} doesn't exist for monitor {monitor_id}")
-                # Clean up
-                with self.monitor_lock:
-                    if monitor_id in self.active_monitors:
-                        del self.active_monitors[monitor_id]
-                return False
-            
-            # Get plot container
-            plot_container = info.get('plot_container')
-            if not plot_container or not dpg.does_item_exist(plot_container):
-                print(f"[MAIN_PLOT] Plot container {plot_container} doesn't exist for monitor {monitor_id}")
-                return False
-            
-            # Remove placeholder if it exists
-            placeholder = info.get('placeholder_tag')
-            if placeholder and dpg.does_item_exist(placeholder):
-                dpg.delete_item(placeholder)
-                info['placeholder_tag'] = None
-
-            # Process data - raw_data should be the dict from server
-            if not isinstance(raw_data, dict):
-                print(f"[MAIN_PLOT] Raw data is not a dict: {type(raw_data)}")
-                return False
-            
-            # Extract data based on server format
-            data_type = raw_data.get('type')
-            data_value = raw_data.get('data')
-            shape = raw_data.get('shape')
-            
-            if data_value is None:
-                print(f"[MAIN_PLOT] No data in raw_data")
-                return False
-            
-            # Convert to numpy array
-            try:
-                if data_type in ['1d_array', '2d_array', 'scalar', 'nd_array']:
-                    # Direct array data
-                    if isinstance(data_value, list):
-                        data_array = np.array(data_value, dtype=np.float32)
-                    elif isinstance(data_value, np.ndarray):
-                        data_array = data_value.astype(np.float32)
-                    else:
-                        # Scalar or other type
-                        try:
-                            data_array = np.array([float(data_value)], dtype=np.float32)
-                        except Exception as e:
-                            print(f"[MAIN_PLOT] Error converting scalar data: {e}")
-                            data_array = np.array([0.0], dtype=np.float32)
-                    
-                    # Handle shape if provided
-                    if shape is not None and data_type != 'scalar':
-                        try:
-                            if isinstance(shape, list):
-                                shape = tuple(shape)
-                            
-                            # Check if shape is valid
-                            if np.prod(shape) == data_array.size:
-                                data_array = data_array.reshape(shape)
-                        except Exception as e:
-                            print(f"[MAIN_PLOT] Error reshaping data: {e}")
-                
-                elif data_type == 'multi_data':
-                    # Multiple arrays - for now, take the first one
-                    if isinstance(data_value, list) and len(data_value) > 0:
-                        first_array = data_value[0]
-                        if isinstance(first_array, list):
-                            data_array = np.array(first_array, dtype=np.float32)
-                        elif isinstance(first_array, np.ndarray):
-                            data_array = first_array.astype(np.float32)
-                        else:
-                            print(f"[MAIN_PLOT] Unsupported data format in multi_data")
-                            return False
-                        
-                        # Get shape for this array if available
-                        shapes = raw_data.get('shapes')
-                        if shapes and len(shapes) > 0:
-                            shape = shapes[0]
-                            if shape and np.prod(shape) == data_array.size:
-                                try:
-                                    data_array = data_array.reshape(shape)
-                                except Exception as e:
-                                    print(f"[MAIN_PLOT] Error reshaping multi_data array: {e}")                                    
-                                    pass
-                    else:
-                        print(f"[MAIN_PLOT] Empty multi_data")
-                        return False
-                        
-                else:
-                    print(f"[MAIN_PLOT] Unknown data type: {data_type}")
-                    return False
-                    
-            except Exception as e:
-                print(f"[MAIN_PLOT] Error converting data: {e}")
-                traceback.print_exc()
-                return False
-            
-            print(f"[MAIN_PLOT] Data shape: {data_array.shape}, type: {data_type}, dtype: {data_array.dtype}")
-            
-            # Get or create DPGPlotter
-            if info.get('dpg_plotter') is None:
-                info['dpg_plotter'] = DPGPlotter(parent_tag=plot_container, width=780, height=400)
-            
-            plotter = info['dpg_plotter']
-            
-            # Plot based on data type and shape
-            success = False
-            if data_type == 'scalar' or (data_array.ndim == 0) or (data_array.ndim == 1 and data_array.size == 1):
-                # Scalar - plot history
-                print(f"[MAIN_PLOT] Plotting scalar: {data_array}")
-                try:
-                    scalar_value = float(data_array.item())
-                    success = plotter.plot_history(scalar_value)
-                except Exception as e:
-                    print(f"[MAIN_PLOT] Error plotting scalar: {e}")
-                    success = False
-
-            elif data_array.ndim == 1:
-                # 1D Vector
-                print(f"[MAIN_PLOT] Plotting 1D vector of length {data_array.shape[0]}")
-                try:
-                    # Try vector plot first
-                    success = plotter.plot_vector(data_array)
-                    if not success:
-                        print(f"[MAIN_PLOT] line plot failed, trying scatter")
-                        # Try scatter as last resort
-                        success = plotter.plot_scatter(data_array)
-                    
-                    if not success:
-                        print(f"[MAIN_PLOT] All 1D plotting methods failed")
-                        # Show error message
-                        if plot_container and dpg.does_item_exist(plot_container):
-                            dpg.add_text(f"Failed to plot 1D data. Length: {data_array.shape[0]}", 
-                                        color=[255, 100, 100], parent=plot_container)
-                        
-                except Exception as e:
-                    print(f"[MAIN_PLOT] Error plotting 1D vector: {e}")
-                    traceback.print_exc()
-                    success = False
-                    
-            elif data_array.ndim == 2:
-                # 2D Matrix - adjust update interval based on size
-                height, width = data_array.shape
-                pixel_count = height * width
-                
-                if pixel_count > 1000000:  # > 1MP
-                    info['min_update_interval'] = 0.5  # 2 FPS
-                elif pixel_count > 250000:  # > 0.25MP
-                    info['min_update_interval'] = 0.25  # 4 FPS
-                elif pixel_count > 10000:   # > 10k pixels
-                    info['min_update_interval'] = 0.1   # 10 FPS
-                else:
-                    info['min_update_interval'] = 0.05  # 20 FPS
-
-                print(f"[MAIN_PLOT] Plotting 2D image {data_array.shape}")
-                try:
-                    success = plotter.plot_2d_image_clean(data_array)
-                except Exception as e:
-                    print(f"[MAIN_PLOT] Error plotting 2D image: {e}")
-                    success = False
-                    
-            elif data_array.ndim >= 3:
-                # Higher dimensional data - try to reduce
-                print(f"[MAIN_PLOT] Reducing {data_array.ndim}D data to 2D")
-                try:
-                    # Try various reduction methods
-                    if data_array.shape[-1] <= 3:
-                        # Last dimension is color-like
-                        reduced = np.mean(data_array, axis=tuple(range(data_array.ndim - 2)))
-                    else:
-                        # Try to flatten
-                        reduced = data_array.reshape(-1, data_array.shape[-1])
-                        if reduced.shape[0] > 1000:  # Too large
-                            reduced = reduced[:1000, :]
-                    
-                    if reduced.ndim == 2:
-                        success = plotter.plot_2d_image_clean(reduced)
-                    else:
-                        print(f"[MAIN_PLOT] Could not reduce to 2D")
-                        success = False
-                except Exception as e:
-                    print(f"[MAIN_PLOT] Error plotting high-dim data: {e}")
-                    success = False
-            
-            # Update info
-            if success:
-                self._update_data_info(info, data_array)
-                current_time_str = time.strftime('%H:%M:%S')
-                if dpg.does_item_exist(info.get('update_time_text_id', '')):
-                    dpg.set_value(info['update_time_text_id'], f"Last Update: {current_time_str}")
-                info['last_update'] = time.time()
-                info['update_count'] = info.get('update_count', 0) + 1
-                
-                # Print update every 10 frames to reduce spam
-                if info['update_count'] % 10 == 0:
-                    print(f"[MAIN_PLOT] Updated {monitor_id} (#{info['update_count']})")
-                
-                return True
-            else:
-                print(f"[MAIN_PLOT] Failed to plot data for {monitor_id}")
-                # Show error message
-                if plot_container and dpg.does_item_exist(plot_container):
-                    dpg.add_text(f"Failed to plot data. Shape: {data_array.shape}, Type: {data_type}", 
-                                color=[255, 100, 100], parent=plot_container)
-                return False
-                
-        except Exception as e:
-            print(f"[MAIN_PLOT] Error: {e}")
-            traceback.print_exc()
-            return False
-
-
-    def _monitor_queue_health(self):
-        """Monitor and maintain queue health."""
-        try:
-            qsize = self.monitor_data_queue.qsize()
-            
-            # If queue is getting too full, aggressively clear it
-            if qsize > STATUS_QUEUE_SIZE:
-                print(f"[HEALTH] Queue overloaded ({qsize}), clearing old items...")
-                
-                # Keep only the latest item for each monitor
-                latest_items = {}
-                
-                # Drain the queue
-                temp_items = []
-                while not self.monitor_data_queue.empty():
-                    try:
-                        item = self.monitor_data_queue.get_nowait()
-                        if item.get('type') == 'data_update':
-                            monitor_id = item.get('monitor_id')
-                            # Keep only the latest for each monitor
-                            latest_items[monitor_id] = item
-                        else:
-                            temp_items.append(item)  # Keep non-data items
-                    except Exception as e:
-                        print(f"[HEALTH] Error draining queue: {e}")
-                        break
-                
-                # Put back latest items and non-data items
-                for item in list(latest_items.values()) + temp_items:
-                    try:
-                        self.monitor_data_queue.put(item)
-                    except Exception as e:
-                        print(f"[HEALTH] Error putting item back in queue: {e}")                        
-                        break
-                
-                print(f"[HEALTH] Queue reduced from {qsize} to {self.monitor_data_queue.qsize()} items")
-            
-            # Schedule next health check
-            next_frame = dpg.get_frame_count() + 60  # Check every second
-            dpg.set_frame_callback(next_frame, self._monitor_queue_health)
-            
-        except Exception as e:
-            print(f"[HEALTH] Error monitoring queue: {e}")
-        
-
-    def _find_and_close_monitor(self, monitor_info):
-        """Find and close a monitor by node_uuid and output_name."""
-        node_uuid, output_name = monitor_info
-        
-        # Find the monitor by node_uuid and output_name
-        for monitor_id, info in list(self.active_monitors.items()):
-            if info.get('node_uuid') == node_uuid and info.get('output_name') == output_name:
-                self._close_monitor(monitor_id)
-                break
-            
-    def start_periodic_tasks(self):
-        """Start all periodic maintenance tasks."""
-        current_frame = dpg.get_frame_count()
-        print(f"[PERIODIC] Starting periodic tasks at frame {current_frame}")                
-        dpg.set_frame_callback(current_frame + 100, self._periodic_cleanup)        
-        dpg.set_frame_callback(current_frame + 100, self._check_memory_usage)                        
-        dpg.set_frame_callback(current_frame + 100, self._monitor_queue_health)
-
-        print(f"[PERIODIC] Periodic tasks scheduled")
-
-
-    def _start_monitor_updater(self):
-        """Start monitor update loop."""
-        if not self.monitor_running:
-            self.monitor_running = True
-            print(f"[UPDATER] Starting monitor updater")
-        
-        # Schedule immediately and more frequently
-        current_frame = dpg.get_frame_count()
-        dpg.set_frame_callback(current_frame + 1, self._monitor_update_frame)
-
-
-    def _monitor_update_frame(self):
-        """Simple update loop that processes ALL queued items every frame."""
-
-        try:
-            current_time = time.time()
-            processed_count = 0
-            skipped_count = 0
-            
-            # Get a snapshot of active monitors to avoid issues during iteration
-            with self.monitor_lock:
-                active_monitor_snapshot = set(self.active_monitors.keys())
-
-            
-            # Process status updates first
-            while not self.status_update_queue.empty():
-                try:
-                    status_item = self.status_update_queue.get_nowait()
-                    if status_item.get('type') == 'status_update':
-                        monitor_id = status_item.get('monitor_id')
-                        status = status_item.get('status')
-
-                        if monitor_id not in active_monitor_snapshot:
-                            print(f"[MONITOR] Skipping data for closed monitor {monitor_id}")
-                            continue
-                        
-                        # Update without lock - UI thread only
-                        if monitor_id in self.active_monitors:
-                            info = self.active_monitors[monitor_id]
-                            window_tag = info.get('window_id', '')
-                            
-                            if window_tag and dpg.does_item_exist(f"{window_tag}_status"):
-                                colors = {
-                                    'connected': [0, 255, 0],
-                                    'disconnected': [255, 0, 0],
-                                    'subscribed': [100, 255, 100],
-                                    'unsubscribed': [255, 180, 100],
-                                    'receiving': [0, 200, 255]
-                                }
-                                
-                                symbols = {
-                                    'connected': '+',
-                                    'disconnected': '-',
-                                    'subscribed': '>',
-                                    'unsubscribed': '=',
-                                    'receiving': '<>'
-                                }
-                                
-                                color = colors.get(status, [200, 200, 200])
-                                symbol = symbols.get(status, '-')
-                                
-                                dpg.set_value(f"{window_tag}_status", f"{symbol} {status.capitalize()}")
-                                dpg.configure_item(f"{window_tag}_status", color=color)
-                except Exception as e:
-                    print(f"[MONITOR] Error processing status update: {e}")
-                    break
-            
-            # Process only a limited number of items per frame to prevent overload
-            max_items_per_frame = MAX_QUEUE_ITEMS_PER_FRAME
-            
-
-            for _ in range(max_items_per_frame):
-                if self.monitor_data_queue.empty():
-                    break
-                    
-                try:
-                    item = self.monitor_data_queue.get_nowait()
-                    
-                    if item.get('type') == 'data_update':
-                        monitor_id = item.get('monitor_id')
-                        
-                        # FIX: Use lock for both check and access
-                        with self.monitor_lock:
-                            if monitor_id not in self.active_monitors:
-                                print(f"[MONITOR] Skipping data for closed monitor {monitor_id}")
-                                continue
-                            
-                            info = self.active_monitors[monitor_id]
-                        
-                        # Get window_tag while still having valid info reference
-                        window_tag = info.get('window_id', '')
-                        
-                        # Check if window still exists before processing
-                        if not window_tag or not dpg.does_item_exist(window_tag):
-                            print(f"[MONITOR] Window for {monitor_id} doesn't exist, skipping")
-                            # Clean up from active_monitors
-                            with self.monitor_lock:
-                                if monitor_id in self.active_monitors:
-                                    del self.active_monitors[monitor_id]
-                            continue
-
-                        
-                        # Check if we should update based on time
-                        time_since_update = current_time - info.get('last_update', 0)
-                        min_interval = info.get('min_update_interval', 0.1)
-                        
-                        if time_since_update >= min_interval:
-                            # Process immediately
-                            raw_data = item.get('data', {})
-                            success = self._process_and_plot_data_main_thread(
-                                monitor_id, raw_data, info
-                            )
-                            
-                            if success:
-                                info['last_update'] = current_time
-                                # Use safe status update
-                                self._safe_update_monitor_status(monitor_id, "receiving")
-                                processed_count += 1
-                        else:
-                            # Too soon, store the data for later or skip
-                            info['pending_data'] = item
-                            info['skipped_frames'] = info.get('skipped_frames', 0) + 1
-                            skipped_count += 1
-                            
-                except Exception as e:
-                    print(f"[MONITOR] Error processing queue item: {e}")
-                    continue
-            
-            # Check pending data for monitors that haven't updated in a while
-            with self.monitor_lock:
-                monitor_ids = list(self.active_monitors.keys())
-            
-            for monitor_id in monitor_ids:
-                with self.monitor_lock:
-                    if monitor_id not in self.active_monitors:
-                        continue
-                    info = self.active_monitors[monitor_id]
-                
-                if info.get('pending_data'):
-                    time_since_update = current_time - info.get('last_update', 0)
-                    if time_since_update >= info.get('min_update_interval', 0.1):
-                        item = info['pending_data']
-                        raw_data = item.get('data', {})
-                        success = self._process_and_plot_data_main_thread(
-                            monitor_id, raw_data, info
-                        )
-                        
-                        if success:
-                            info['last_update'] = current_time
-                            info['pending_data'] = None
-                            # Use safe status update
-                            self._safe_update_monitor_status(monitor_id, "receiving")
-            
-            # Request next frame if we processed data AND have capacity
-            if processed_count > 0 and self.socketio_connected:
-                # Only request next frame if queue is not too full
-                if self.monitor_data_queue.qsize() < 20:
-                    def delayed_request():
-                        time.sleep(0.02)
-                        if self.subscribed_outputs:
-                            self._request_next_frame()
-                    
-                    threading.Thread(target=delayed_request, daemon=True).start()
-            
-            # Debug: Log queue status occasionally
-            qsize = self.monitor_data_queue.qsize()
-            if qsize > 10 and current_time - getattr(self, '_last_queue_log', 0) > 2.0:
-                print(f"[QUEUE] Queue size: {qsize}, Processed: {processed_count}, Skipped: {skipped_count}")
-                self._last_queue_log = current_time
-                
-        except Exception as e:
-            print(f"[MONITOR] Critical error in update loop: {e}")
-            traceback.print_exc()
-        
-        finally:
-            # ALWAYS reschedule, but with adaptive timing
-            try:
-                # Adaptive scheduling: faster if queue has data, slower if empty
-                qsize = self.monitor_data_queue.qsize()
-                
-                if qsize > 10:
-                    next_frame = dpg.get_frame_count() + 1
-                elif qsize > 0:
-                    next_frame = dpg.get_frame_count() + 2
-                else:
-                    next_frame = dpg.get_frame_count() + 10
-                
-                dpg.set_frame_callback(next_frame, self._monitor_update_frame)
-                
-            except Exception as e:
-                print(f"[MONITOR] Failed to reschedule: {e}")
-                # Fallback: restart after delay
-                threading.Timer(0.1, self._start_monitor_updater).start()
-
-
-    def _periodic_cleanup(self):
-        """Perform periodic cleanup of resources."""
-        print(f"[CLEANUP] Performing periodic cleanup")
-        
-        # Don't clean up displays for active monitors
-        monitors_to_remove = []
-        for monitor_id, display in list(self.simple_displays.items()):
-            if monitor_id not in self.active_monitors:
-                print(f"[CLEANUP] Removing unused display for {monitor_id}")
-                display.cleanup()
-                monitors_to_remove.append(monitor_id)
-        
-        for monitor_id in monitors_to_remove:
-            del self.simple_displays[monitor_id]
-        
-        # Check for dead monitors (windows that don't exist anymore)
-        dead_monitors = []
-        for monitor_id, info in list(self.active_monitors.items()):
-            window_tag = info.get('window_id')
-            if not window_tag or not dpg.does_item_exist(window_tag):
-                print(f"[CLEANUP] Removing dead monitor: {monitor_id}")
-                dead_monitors.append(monitor_id)
-
-        with self.monitor_lock:
-            for monitor_id in dead_monitors:
-                if monitor_id in self.simple_displays:
-                    self.simple_displays[monitor_id].cleanup()
-                    del self.simple_displays[monitor_id]
-                del self.active_monitors[monitor_id]
-        
-        # Force garbage collection
-        gc.collect()
-        
-        print(f"[CLEANUP] Cleanup complete: {len(self.simple_displays)} displays, {len(self.active_monitors)} monitors")
-        
-        # Schedule next cleanup
-        current_frame = dpg.get_frame_count()
-        next_frame = current_frame + 100
-        dpg.set_frame_callback(next_frame, self._periodic_cleanup)
-
-                
-    def _check_memory_usage(self):
-        """Check and log memory usage."""
-        
-        process = psutil.Process(os.getpid())
-        mem_info = process.memory_info()
-        
-        print(f"[MEMORY] RSS: {mem_info.rss / 1024 / 1024:.1f} MB, "
-            f"VMS: {mem_info.vms / 1024 / 1024:.1f} MB")
-        
-        # Check DPG item count
-        # Note: This is approximate
-        print(f"[MEMORY] Active monitors: {len(self.active_monitors)}, "
-            f"Simple displays: {len(self.simple_displays)}")
-        
-        current_frame = dpg.get_frame_count()
-        next_frame = current_frame + 100 
-        dpg.set_frame_callback(next_frame, self._check_memory_usage)
-
-
-    def cleanup(self):
-        """Clean up all resources before exit."""
-        # Unsubscribe from all outputs
-        for output_name in list(self.subscribed_outputs):
-            if self.socketio_connected:
-                try:
-                    self.sio.emit('unsubscribe', {'output': output_name})
-                except Exception as e:
-                    print(f"[CLEANUP] Error unsubscribing from {output_name}: {e}")
-                    pass
-        
-        # Stop monitor updater
-        self.monitor_running = False
-        
-        # Disconnect Socket.IO
-        if self.socketio_connected:
-            self.sio.disconnect()
-        
-        # Close all monitors
-        for monitor_id in list(self.active_monitors.keys()):
-            self._close_monitor(monitor_id)
-        
-        self._log("Cleanup complete")
-
-
-    
-    def is_data_class_type(self, type_name):
-        if not type_name or type_name == "Any":
-            return False
-            
-        # 1. Check if it's in the data object templates
-        if hasattr(self, 'data_obj_templates') and type_name in self.data_obj_templates:
-            return True
-            
-        # 2. Check if the type name suggests it's a Data Object (Specula naming convention)
-        data_keywords = ["Matrix", "Vector", "Atmosphere", "Telescope", "Detector", "Field"]
-        if any(k in type_name for k in data_keywords):
-            return True
-
-        return False
-
-
-    def is_node_complete(self, node_uuid):
-        """Check if all required reference parameters for a node are connected."""
-        if node_uuid not in self.graph.nodes:
-            return True  # Assume complete if node doesn't exist
-        
-        node_data = self.graph.nodes[node_uuid]
-        node_type = node_data.get('type', '')
-        
-        # Get template
-        template = self.all_templates.get(node_type, {})
-        if not template:
-            return True  # No template, assume complete
-        
-        # Get parameters from template
-        template_params = template.get('parameters', {})
-        if not template_params:
-            return True  # No parameters, node is complete
-        
-        # Get current values
-        current_values = node_data.get('values', {})
-        
-        # Only check REQUIRED reference parameters (ignore optional ones)
-        for param_name, param_meta in template_params.items():
-            if isinstance(param_meta, dict):
-                # Check if it's a reference parameter
-                if param_meta.get('kind') == 'reference':
-                    # Check if this parameter is REQUIRED
-                    is_required = False
-                    
-                    # Check if it's marked as REQUIRED in the template
-                    default_val = param_meta.get('default')
-                    if default_val == 'REQUIRED':
-                        is_required = True
-                    # Alternatively, check if there's a 'required' field
-                    elif param_meta.get('required', False):
-                        is_required = True
-                    
-                    # Only check required reference parameters
-                    if is_required:
-                        ref_param_name = f"{param_name}_ref"
-                        if ref_param_name not in current_values or not current_values[ref_param_name]:
-                            return False
-        
-        return True
-
-    def init_themes(self):
-        self.data_theme = create_data_node_theme()
-        self.proc_theme = create_proc_node_theme()
-        self.data_theme_incomplete = create_data_node_theme_incomplete()
-        self.proc_theme_incomplete = create_proc_node_theme_incomplete()
-
-    def update_node_value(self, sender, app_data, user_data):
-        node_uuid, param_name = user_data
-        # Store exactly what the user typed/selected
-        self.graph.nodes[node_uuid]["values"][param_name] = app_data
-
-    def get_selected_nodes(self):
-        """Returns a list of UUIDs for currently selected nodes in the editor."""
-        # 'specula_editor' is assumed to be the tag of your dpg.node_editor
-        selected_dpg_ids = dpg.get_selected_nodes("specula_editor")
-        return [self.dpg_to_uuid[d_id] for d_id in selected_dpg_ids if d_id in self.dpg_to_uuid]
-
-    def delete_selection(self):
-        """Deletes all selected nodes and their associated links from graph and UI."""
-        selected_uuids = self.get_selected_nodes()
-        for node_uuid in selected_uuids:
-            self.delete_node(node_uuid)
-
-    def delete_node(self, node_uuid):
-        """Fully removes a node, its links, and registry entries."""
-        if node_uuid not in self.uuid_to_dpg:
-            return
-
-        dpg_id = self.uuid_to_dpg[node_uuid]
-        
-        # 1. Clean up Link Registry
-        # We must find all links connected to this node
-        links_to_remove = []
-        for link_id, conn_data in self.link_registry.items():
-            src_uuid, _, dst_uuid, _ = conn_data
-            if src_uuid == node_uuid or dst_uuid == node_uuid:
-                links_to_remove.append(link_id)
-        
-        for link_id in links_to_remove:
-            # Remove from DPG
-            if dpg.does_item_exist(link_id):
-                dpg.delete_item(link_id)
-            # Remove from Registry & Graph
-            conn_data = self.link_registry.pop(link_id)
-            self.graph.remove_connection(*conn_data)
-
-        # 2. Clean up Attribute Registries
-        # Find all attributes belonging to this node
-        input_attrs = [k for k, v in self.input_attr_registry.items() if v[0] == node_uuid]
-        output_attrs = [k for k, v in self.output_attr_registry.items() if v[0] == node_uuid]
-
-        for attr in input_attrs:
-            del self.input_attr_registry[attr]
-        for attr in output_attrs:
-            del self.output_attr_registry[attr]
-
-        # 3. Remove Node from DPG
-        if dpg.does_item_exist(dpg_id):
-            dpg.delete_item(dpg_id)
-
-        # 4. Remove from Node Registries
-        del self.dpg_to_uuid[dpg_id]
-        del self.uuid_to_dpg[node_uuid]
-        
-        # 5. Remove from Graph Model
-        if node_uuid in self.graph.nodes:
-            self.graph.remove_node(node_uuid)
-            
-        print(f"Deleted node: {node_uuid}")
-
-
-    def create_node(self, node_type, pos=None, existing_uuid=None, name_override=None):
-        node_uuid = existing_uuid if existing_uuid else str(uuid.uuid4())[:8]
-        
-        if node_uuid not in self.graph.nodes:
-            self.graph.add_node(node_uuid, node_type)
-        
-        node_data = self.graph.nodes[node_uuid]
-        template = self.all_templates.get(node_type, {})
-
-        if name_override:
-            node_name = name_override
-        else:
-            node_name = self._generate_unique_name(node_type)
-
-        node_data['name'] = node_name
-        node_label = node_name
-
-        final_pos = pos if pos else [100, 100]
-
-        with dpg.node(label=node_label, parent="specula_editor") as dpg_id:
-
-            self.node_item_registry[node_uuid] = dpg_id
-
-            dpg.set_item_pos(dpg_id, final_pos)
-            self.dpg_to_uuid[dpg_id] = node_uuid
-            self.uuid_to_dpg[node_uuid] = dpg_id
-            
-            # --- STATIC HEADER ---
-            with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Static):
-                dpg.add_text(f"Class: {node_type}", color=[130, 130, 130])
-                dpg.add_spacer(width=200)
-
-            # --- REFERENCE PARAMETER INPUTS (with _ref suffix) ---
-            # Check template parameters for reference kind
-            template_params = template.get("parameters", {})
-            for param_name, param_meta in template_params.items():
-                if isinstance(param_meta, dict) and param_meta.get("kind") == "reference":
-                    # Create a square input pin for reference parameters with _ref suffix
-                    display_name = f"{param_name}_ref"
-                    with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Input, shape=REF_SHAPE) as attr_id:
-                        dpg.add_text(display_name, color=[150, 255, 150])  # Green color for ref inputs
-                        self.input_attr_registry[attr_id] = (node_uuid, display_name)
-
-            # --- STANDARD INPUTS (non-reference) ---
-            for in_attr, meta in node_data.get("inputs", {}).items():
-                kind = meta.get("kind", "single")
-
-                # Skip if this is already handled as a reference parameter above
-                # Check if it's a reference (ends with _ref) or layer_list
-                is_ref = in_attr.endswith("_ref") or in_attr == "layer_list"
-                
-                # Skip if it's a reference that was already created above
-                if is_ref:
-                    continue
-                    
-                pin_shape = DATA_SHAPE
-                text_color = [255, 255, 255]
-
-                with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Input, shape=pin_shape) as attr_id:
-                    label = f"{in_attr} [*]" if kind == "variadic" else in_attr
-                    dpg.add_text(label, color=text_color)
-                    self.input_attr_registry[attr_id] = (node_uuid, in_attr)
-                        
-            # --- OUTPUTS ---
-            # SPECIAL HANDLING FOR AtmoPropagation
-            if node_type == "AtmoPropagation":
-                # Also add standard outputs from template
-                all_outputs = list(node_data.get("outputs", []))
-                if 'outputs_extra' in node_data:
-                    all_outputs.extend(node_data['outputs_extra'])
-                
-                for out in all_outputs:
-                    # Skip generic placeholder outputs
-                    if out.startswith("out_' + ") and out.endswith(" + '_ef'"):
-                        continue
-                    if "name" in out and "+" in out and "'" in out:
-                        continue
-                        
-                    display_label = out.replace(":", " [") + "]" if ":" in out else out
-                    
-                    with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Output, shape=DATA_SHAPE) as attr_id:
-                        with dpg.group(horizontal=True):
-                            dpg.add_spacer(width=100) 
-                            dpg.add_text(display_label)
-                        self.output_attr_registry[attr_id] = (node_uuid, out)
-            
-            elif node_type == 'SimulParams':
-                with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Output, shape=REF_SHAPE) as attr_id:
-                    with dpg.group(horizontal=True):
-                        dpg.add_spacer(width=100)
-                        dpg.add_text("ref", color=[150, 150, 150])
-                    self.output_attr_registry[attr_id] = (node_uuid, "ref")
-            
-            # Handle standard outputs for other nodes
-            else:
-                all_outputs = list(node_data.get("outputs", []))
-                if 'outputs_extra' in node_data:
-                    all_outputs.extend(node_data['outputs_extra'])
-
-                for out in all_outputs:
-                    # Skip placeholder outputs
-                    if "name" in out and "+" in out and "'" in out:
-                        continue
-                        
-                    display_label = out.replace(":", " [") + "]" if ":" in out else out
-                    
-                    with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Output, shape=DATA_SHAPE) as attr_id:
-                        with dpg.group(horizontal=True):
-                            dpg.add_spacer(width=100) 
-                            dpg.add_text(display_label)
-                        self.output_attr_registry[attr_id] = (node_uuid, out)
-
-            # --- SPECIFIC OBJECT OVERRIDES ---            
-            if node_type in ["Source", "Pupilstop"]:
-                # Ref shape (Square)
-                with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Output, shape=REF_SHAPE) as attr_id:
-                    with dpg.group(horizontal=True):
-                        dpg.add_spacer(width=100)
-                        dpg.add_text("ref", color=[100, 200, 255])
-                    self.output_attr_registry[attr_id] = (node_uuid, "ref")
-
-            # Apply themes based on template category
-            category = template.get("bases", "")
-            if "BaseDataObj" in category:
-                dpg.bind_item_theme(dpg_id, self.data_theme)
-            else:
-                dpg.bind_item_theme(dpg_id, self.proc_theme)
-
-            self._apply_node_theme(dpg_id, node_type, node_uuid)
-
-        return node_uuid
-
-
-    def _apply_node_theme(self, dpg_id, node_type, node_uuid):
-        """Apply appropriate theme based on node completeness."""
-        template = self.all_templates.get(node_type, {})
-        category = template.get("bases", "")
-        
-        # Check if node is complete
-        is_complete = self.is_node_complete(node_uuid)
-        
-        if "BaseDataObj" in category:
-            if is_complete:
-                dpg.bind_item_theme(dpg_id, self.data_theme)
-            else:
-                dpg.bind_item_theme(dpg_id, self.data_theme_incomplete)
-        else:
-            if is_complete:
-                dpg.bind_item_theme(dpg_id, self.proc_theme)
-            else:
-                dpg.bind_item_theme(dpg_id, self.proc_theme_incomplete)
-                
-
-    def _add_dynamic_atmo_output(self, in_node_uuid, source_name):
-        """Helper method to add dynamic output to AtmoPropagation node."""
-        print(f"[DYNAMIC DEBUG] Adding dynamic output for node {in_node_uuid}, source: {source_name}")
-        print(f"[DYNAMIC DEBUG] node_item_registry keys: {list(self.node_item_registry.keys())}")
-        print(f"[DYNAMIC DEBUG] uuid_to_dpg keys: {list(self.uuid_to_dpg.keys())}")
-        
-        # Try both registries
-        dpg_id = self.uuid_to_dpg.get(in_node_uuid)
-        if not dpg_id:
-            dpg_id = self.node_item_registry.get(in_node_uuid)
-            print(f"[DYNAMIC DEBUG] Got DPG ID from node_item_registry: {dpg_id}")
-        
-        if not dpg_id:
-            print(f"[DYNAMIC DEBUG] ERROR: No DPG ID found for node {in_node_uuid}")
-            print(f"[DYNAMIC DEBUG] Node exists in graph: {in_node_uuid in self.graph.nodes}")
-            if in_node_uuid in self.graph.nodes:
-                node_data = self.graph.nodes[in_node_uuid]
-                print(f"[DYNAMIC DEBUG] Node type: {node_data.get('type')}")
-                print(f"[DYNAMIC DEBUG] Node name: {node_data.get('name')}")
-            return
-        
-        print(f"[DYNAMIC DEBUG] DPG ID found: {dpg_id}, exists: {dpg.does_item_exist(dpg_id)}")
-        
-        in_node_data = self.graph.nodes.get(in_node_uuid, {})
-        
-        if not in_node_data:
-            print(f"[DYNAMIC] ERROR: Node {in_node_uuid} not found in graph")
-            return
-        
-        # Create dynamic output name
-        new_output = f"out_{source_name}_ef"
-        
-        print(f"[DYNAMIC] Attempting to add output '{new_output}' to node {in_node_uuid}")
-        
-        # Check if this output already exists
-        if 'outputs_extra' not in in_node_data:
-            in_node_data['outputs_extra'] = []
-            print(f"[DYNAMIC] Created outputs_extra list")
-        
-        if new_output in in_node_data['outputs_extra']:
-            print(f"[DYNAMIC] Output '{new_output}' already exists")
-            return
-        
-        # Add to outputs_extra
-        in_node_data['outputs_extra'].append(new_output)
-        print(f"[DYNAMIC] Added '{new_output}' to outputs_extra")
-        
-        if not dpg.does_item_exist(dpg_id):
-            print(f"[DYNAMIC] ERROR: DPG node {dpg_id} doesn't exist")
-            return
-        
-        self._refresh_node_theme(in_node_uuid)
-        print(f"[DYNAMIC] Creating DPG output pin on node {dpg_id}")
-        
-        # Create the new output pin      
-        with dpg.node_attribute(
-            attribute_type=dpg.mvNode_Attr_Output, 
-            shape=DATA_SHAPE,
-            parent=dpg_id
-        ) as attr_id:
-            with dpg.group(horizontal=True):
-                dpg.add_spacer(width=100)
-                dpg.add_text(new_output, color=[100, 255, 255])  # Cyan for dynamic outputs
-            
-            # Register the new output
-            self.output_attr_registry[attr_id] = (in_node_uuid, new_output)
-            print(f"[DYNAMIC] Successfully created output '{new_output}' with attr_id {attr_id}")
-            print(f"[DYNAMIC] New output_attr_registry entry: {attr_id} -> ({in_node_uuid}, {new_output})")
-
-
-
-    def link_callback(self, sender, app_data):
-        out_attr_id, in_attr_id = app_data
-
-        out_node_uuid, out_name = self.output_attr_registry.get(out_attr_id, (None, None))
-        in_node_uuid, in_name = self.input_attr_registry.get(in_attr_id, (None, None))
-
-        if not out_node_uuid or not in_node_uuid:
-            return
-
-        # Check if this might be a feedback connection (contains ":-" in attribute name)
-        is_feedback = ":-" in str(out_name)
-        
-        # Initialize connection properties
-        connection_props = {"delay": 0}
-        if is_feedback:
-            # Check if it already has a delay value
-            if ":-1" in str(out_name):
-                connection_props["delay"] = -1
-        
-        # Create visual link
-        link_id = dpg.add_node_link(out_attr_id, in_attr_id, parent=sender)
-        self.link_registry[link_id] = (out_node_uuid, out_name, in_node_uuid, in_name)
-
-        # Update graph topology with properties
-        self.graph.add_connection(out_node_uuid, out_name, in_node_uuid, in_name, connection_props)
-
-        # Rest of the existing code...
-        dst_node = self.graph.nodes.get(in_node_uuid, {})
-        src_node = self.graph.nodes.get(out_node_uuid, {})
-
-        if not dst_node or not src_node:
-            return
-
-        dst_node.setdefault("values", {})
-        src_name = src_node.get("name", out_node_uuid)
-        
-        # Get template for checking parameter types
-        dst_type = dst_node.get("type", "")
-        template = self.all_templates.get(dst_type, {})
-        template_params = template.get("parameters", {})
-
-        # --- REF SEMANTICS ---
-        # Check if this is a reference connection (ends with _ref or layer_list)
-        is_ref_connection = in_name.endswith("_ref") or in_name == "layer_list"
-        
-        if is_ref_connection:
-            # source_dict_ref -> ALWAYS a list
-            if in_name == "source_dict_ref":
-                # Initialize as list if not exists
-                if in_name not in dst_node["values"]:
-                    dst_node["values"][in_name] = []
-                
-                # Add source name to list if not already present
-                if src_name not in dst_node["values"][in_name]:
-                    dst_node["values"][in_name].append(src_name)
-
-                if dst_node.get("type") == "AtmoPropagation":
-                    print(f"[LINK] Triggering dynamic output for {src_name} on {dst_node.get('name')}")
-                    self._add_dynamic_atmo_output(in_node_uuid, src_name)
-            
-            # layer_list -> always a list
-            elif in_name == "layer_list":
-                # Initialize as list if not exists
-                if in_name not in dst_node["values"]:
-                    dst_node["values"][in_name] = []
-                
-                # Add to list if not already present
-                if src_name not in dst_node["values"][in_name]:
-                    dst_node["values"][in_name].append(src_name)
-            
-            # Other reference parameters (single references)
-            else:
-                # Get base parameter name (without _ref) for template lookup
-                base_param_name = in_name[:-4]  # Remove '_ref'
-                
-                # Store the connected node name
-                dst_node["values"][in_name] = src_name
-                print(f"[LINK] Set reference parameter {in_name} = {src_name}")
-
-        # Apply appropriate link style
-        if is_feedback:
-            apply_link_style(link_id, color=[255, 0, 0, 255])
-        elif is_ref_connection:
-            apply_link_style(link_id, color=[200, 200, 200, 60])
-        
-        # refresh UI if needed
-        if self._last_selected_uuid == in_node_uuid:
-            self.update_property_panel(in_node_uuid, "property_panel")
-
-        self._refresh_node_theme(in_node_uuid)
-
-        self._refresh_node_theme(out_node_uuid)
-
-
-    def delink_callback(self, sender, app_data):
-        # app_data is the link_id
-        link_id = app_data
-
-        if link_id not in self.link_registry:
-            return
-
-        src_uuid, src_attr, dst_uuid, dst_attr = self.link_registry.pop(link_id)
-
-        # 1 Remove from graph topology
-        self.graph.remove_connection(src_uuid, src_attr, dst_uuid, dst_attr)
-
-        dst_node = self.graph.nodes.get(dst_uuid, {})
-        src_node = self.graph.nodes.get(src_uuid, {})
-
-        if not dst_node or not src_node:
-            if dpg.does_item_exist(link_id):
-                dpg.delete_item(link_id)
-            return
-
-        src_name = src_node.get("name", src_uuid)
-
-        # 2 UPDATE REFERENCE VALUES
-        values = dst_node.get("values", {})
-
-        # --- SPECIAL CASE: source_dict_ref (always a list) ---
-        if dst_attr == "source_dict_ref":
-            lst = values.get("source_dict_ref", [])
-
-            if src_name in lst:
-                lst.remove(src_name)
-                print(f"[REF] Removed {src_name} from source_dict_ref")
-
-            if not lst:
-                values.pop("source_dict_ref", None)
-
-            # 3 REMOVE DYNAMIC OUTPUT IF NEEDED
-            if dst_node.get("type") == "AtmoPropagation":
-                dynamic_output = f"out_{src_name}_ef"
-
-                # Only remove if source is no longer referenced
-                if src_name not in values.get("source_dict_ref", []):
-                    if dynamic_output in dst_node.get("outputs_extra", []):
-                        dst_node["outputs_extra"].remove(dynamic_output)
-
-                        # Remove DPG pin
-                        attr_to_remove = None
-                        for attr_id, (uuid, name) in self.output_attr_registry.items():
-                            if uuid == dst_uuid and name == dynamic_output:
-                                attr_to_remove = attr_id
-                                break
-
-                        if attr_to_remove:
-                            del self.output_attr_registry[attr_to_remove]
-                            if dpg.does_item_exist(attr_to_remove):
-                                dpg.delete_item(attr_to_remove)
-
-                        print(f"[DYNAMIC] Removed output '{dynamic_output}'")
-
-        # --- layer_list (always a list) ---
-        elif dst_attr == "layer_list":
-            lst = values.get("layer_list", [])
-            if src_name in lst:
-                lst.remove(src_name)
-                if not lst:
-                    values.pop("layer_list", None)
-        
-        # --- Other reference parameters (single references) ---
-        elif dst_attr.endswith("_ref"):
-            if values.get(dst_attr) == src_name:
-                values.pop(dst_attr, None)
-                print(f"[REF] Cleared {dst_attr}")
-
-        # 4 Refresh property panel if needed
-        if self._last_selected_uuid == dst_uuid:
-            self.update_property_panel(dst_uuid, "property_panel")
-
-        # 5 Remove visual link
-        if dpg.does_item_exist(link_id):
-            dpg.delete_item(link_id)
-
-        # 6 Refresh node theme (destination node might now be incomplete)
-        self._refresh_node_theme(dst_uuid)
-        self._refresh_node_theme(src_uuid)
-
-            
-    def add_dynamic_io(self, node_uuid):
+    def add_dynamic_io(self, node_uuid: str):
+        """Add dynamic I/O pins."""
         parent = self.uuid_to_dpg[node_uuid]
-        # Logic for source_dict_ref and output pins
-        with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Input, parent=parent, shape=REF_SHAPE) as attr_id:
-            dpg.add_text("Sources (Ref)", color=[150, 255, 150])
+
+        with dpg.node_attribute(
+            attribute_type=dpg.mvNode_Attr_Input, parent=parent, shape=REF_SHAPE
+        ) as attr_id:
+            dpg.add_text("source_dict_ref", color=[150, 255, 150])
             self.input_attr_registry[attr_id] = (node_uuid, "source_dict_ref")
-        
-        with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Output, parent=parent) as attr_id:
+
+        with dpg.node_attribute(
+            attribute_type=dpg.mvNode_Attr_Output, parent=parent
+        ) as attr_id:
             with dpg.group(horizontal=True):
                 dpg.add_spacer(width=100)
                 dpg.add_text("output", color=[255, 200, 100])
             self.output_attr_registry[attr_id] = (node_uuid, "output")
 
-
-    def add_data_output(self, node_uuid):
+    def add_data_output(self, node_uuid: str):
+        """Add data output pin."""
         parent = self.uuid_to_dpg[node_uuid]
-        with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Output, parent=parent) as attr_id:
+
+        with dpg.node_attribute(
+            attribute_type=dpg.mvNode_Attr_Output, parent=parent
+        ) as attr_id:
             with dpg.group(horizontal=True):
                 dpg.add_spacer(width=100)
                 dpg.add_text("Output: ref")
             self.output_attr_registry[attr_id] = (node_uuid, "ref")
-
-
-    def clear_all(self):
-        self.dpg_to_uuid.clear()
-        self.uuid_to_dpg.clear()
-        self.input_attr_registry.clear()
-        self.output_attr_registry.clear()
-        self.link_registry.clear()
-        dpg.delete_item("specula_editor", children_only=True)
-
-
-    def manual_link(self, src_uuid, src_attr, dst_uuid, dst_attr, delay=0)-> bool:
-        """Robustly links nodes, creating pins for indices like 'out_layer:-1'."""
-        src_id = None
-        dst_id = None
-        
-        # Check if this is a feedback connection
-        is_feedback = delay == -1
-        
-        # Parse the base attribute name (without feedback suffix)
-        base_src_attr = src_attr
-        display_src_attr = src_attr  # What to display on the node
-
-        # --- 1. FIND/CREATE SOURCE PIN ---
-        # Look for exact match first
-        for d_id, (u_id, name) in self.output_attr_registry.items():
-            if u_id == src_uuid and name == base_src_attr:
-                src_id = d_id
-                break
-        
-        # If not found, create it
-        if src_id is None:
-            parent = self.uuid_to_dpg.get(src_uuid)
-            if parent:
-                # Determine if this link is a reference link
-                is_ref_link = dst_attr.endswith("_ref") or "params" in dst_attr.lower()
-                shape = REF_SHAPE if is_ref_link else DATA_SHAPE
-                
-                # Set color based on connection type
-                if is_feedback:
-                    color = [255, 100, 100]  # Red for feedback
-                elif is_ref_link:
-                    color = [150, 150, 150]  # Gray for reference
-                else:
-                    color = [255, 255, 255]  # White for normal
-
-                with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Output, parent=parent, shape=shape) as new_id:
-                    with dpg.group(horizontal=True):
-                        dpg.add_spacer(width=100)
-                        # Use display name with feedback suffix if needed
-                        display_text = f"{display_src_attr}:-1" if is_feedback else display_src_attr
-                        dpg.add_text(f"{display_text}", color=color)
-                    self.output_attr_registry[new_id] = (src_uuid, base_src_attr)
-                    src_id = new_id
-
-        if dst_attr.endswith("_ref") or dst_attr == "layer_list":
-            # Update the values in the graph node
-            dst_node = self.graph.nodes.get(dst_uuid)
-            if dst_node:
-                src_node = self.graph.nodes.get(src_uuid)
-                if src_node:
-                    src_name = src_node.get("name", src_uuid)
-                    dst_node.setdefault("values", {})
-                    dst_node["values"][dst_attr] = src_name
-
-        # --- 2. FIND/CREATE DESTINATION PIN ---
-        for d_id, (u_id, name) in self.input_attr_registry.items():
-            if u_id == dst_uuid and name == dst_attr:
-                dst_id = d_id
-                break
-        
-        if dst_id is None:
-            parent = self.uuid_to_dpg.get(dst_uuid)
-            if parent:
-                is_ref = dst_attr.endswith("_ref") or dst_attr == "layer_list"
-                pin_shape = REF_SHAPE if is_ref else DATA_SHAPE
-                with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Input, parent=parent, shape=pin_shape) as new_id:
-                    dpg.add_text(dst_attr, color=[150, 255, 150])
-                    self.input_attr_registry[new_id] = (dst_uuid, dst_attr)
-                    dst_id = new_id
-
-        # --- 3. LINK ---
-        if src_id and dst_id:
-            link_id = dpg.add_node_link(src_id, dst_id, parent="specula_editor")
-            
-            # STYLING:
-            if is_feedback:
-                apply_link_style(link_id, color=[255, 0, 0, 255])
-            elif dst_attr.endswith("_ref") or "params" in dst_attr.lower():
-                apply_link_style(link_id, color=[200, 200, 200, 60])
-
-            # Register the connection
-            self.link_registry[link_id] = (src_uuid, base_src_attr, dst_uuid, dst_attr)
-            
-            # Store connection with delay property
-            self.graph.add_connection(
-                src_uuid, base_src_attr, dst_uuid, dst_attr, 
-                {"delay": delay}
-            )
-
-            # Refresh themes of both nodes
-            self._refresh_node_theme(dst_uuid)
-            self._refresh_node_theme(src_uuid)
-            return True
-        else:
-            print(f"[MANUAL_LINK] Failed: src_id={src_id}, dst_id={dst_id} "
-              f"for {src_uuid}.{src_attr} -> {dst_uuid}.{dst_attr}")
-            return False
-
-    def _update_data_object_param(self, sender, app_data, user_data):
-        """Update data object parameter value."""
-        node_uuid, param_name = user_data
-        new_value = app_data
-        
-        if node_uuid in self.graph.nodes:
-            node_data = self.graph.nodes[node_uuid]
-            
-            # Store in both forms: base name and _object suffix
-            if 'values' not in node_data:
-                node_data['values'] = {}
-            
-            # Store with base name
-            node_data['values'][param_name] = new_value
-            
-            # Also store with _object suffix for export
-            node_data['values'][f"{param_name}_object"] = new_value
-            
-            print(f"Updated data object parameter {param_name} = {new_value}")
-            
-            # Refresh the node theme if needed
-            self._refresh_node_theme(node_uuid)
-
-    def _browse_data_object_file(self, sender, app_data, user_data):
-        """Open file browser for data object parameter."""
-        node_uuid, param_name, input_tag = user_data
-        
-        # This is a placeholder - you'll need to implement file dialog
-        # For now, just show a message
-        print(f"Browse button clicked for {param_name} on node {node_uuid}")
-        print(f"Input tag: {input_tag}")
-        
-        # If you have a file dialog system, call it here
-        # Example: file_path = dpg.add_file_dialog(...)
-
-    def update_property_panel(self, node_uuid, panel_tag):
-        """Updates property panel with an editable Name field at the top."""
-        dpg.delete_item(panel_tag, children_only=True)
-        
-        if node_uuid not in self.graph.nodes:
-            return
-
-        node_data = self.graph.nodes[node_uuid]
-        node_type = node_data["type"]
-        node_name = node_data.get("name", node_type)
-
-        template = self.all_templates.get(node_type, {})
-        template_params = template.get('parameters', {})
-        current_values = node_data.get('values', {})
-        suffixes = node_data.get('suffixes', set())
-
-        # --- 1. EDITABLE NAME FIELD ---
-        dpg.add_text("Node Configuration", color=[100, 200, 255], parent=panel_tag)
-        with dpg.group(horizontal=True, parent=panel_tag):
-            dpg.add_text("Instance Name:", color=[255, 255, 255])
-            dpg.add_input_text(
-                default_value=node_name,
-                width=150,
-                callback=self._update_node_name,
-                user_data=node_uuid
-            )
-        dpg.add_text(f"Class: {node_type}", color=[150, 150, 150], parent=panel_tag)
-        dpg.add_separator(parent=panel_tag)
-        
-        rendered_params = set()
-
-        # --- 2. PARAMETERS SECTION ---
-        if "parameters" in template and isinstance(template["parameters"], dict):
-            dpg.add_spacer(height=10, parent=panel_tag)
-            dpg.add_text("Parameters", color=[100, 255, 100], parent=panel_tag)
-            dpg.add_separator(parent=panel_tag)
-
-            params_dict = template["parameters"]
-            for param_name, meta in params_dict.items():
-                # DEBUG: Check what's in the template
-                print(f"\n[PARAM_DEBUG] Processing parameter: {param_name}")
-                print(f"[PARAM_DEBUG] Meta type: {type(meta)}, Meta: {meta}")
-                
-                # Check if this is a reference parameter
-                is_ref_param = False
-                ref_param_name = None
-                
-                if isinstance(meta, dict):
-                    # Check if it's explicitly marked as a reference
-                    if meta.get("kind") == "reference":
-                        is_ref_param = True
-                        print(f"[PARAM_DEBUG] Found reference by kind: {param_name}")
-                    # Also check if the type suggests it's a reference
-                    elif "type" in meta and self.is_data_class_type(meta["type"]):
-                        is_ref_param = True
-                        print(f"[PARAM_DEBUG] Found reference by type: {param_name}, type: {meta['type']}")
-                elif isinstance(meta, str):
-                    # String metadata - check if it's a data class type
-                    if self.is_data_class_type(meta):
-                        is_ref_param = True
-                        print(f"[PARAM_DEBUG] Found reference by string type: {param_name}, type: {meta}")
-                    # Also check if the string contains "ref" or indicates it's a reference
-                    elif "ref" in meta.lower() or "reference" in meta.lower():
-                        is_ref_param = True
-                        print(f"[PARAM_DEBUG] Found reference by keyword: {param_name}")
-                
-                print(f"[PARAM_DEBUG] Is reference parameter: {is_ref_param}")
-                
-                if is_ref_param:
-                    # Try multiple possible key names for the reference value
-                    possible_keys = [
-                        f"{param_name}_ref",  # Most common pattern
-                        param_name,           # Some might be stored without _ref
-                        f"{param_name}Ref",   # CamelCase variant
-                        f"{param_name}ref"    # lowercase variant
-                    ]
-                    
-                    connected_value = None
-                    actual_key = None
-                    
-                    print(f"[PARAM_DEBUG] Looking for keys: {possible_keys}")
-                    print(f"[PARAM_DEBUG] Current values keys: {list(current_values.keys())}")
-                    
-                    for key in possible_keys:
-                        if key in current_values:
-                            connected_value = current_values[key]
-                            actual_key = key
-                            print(f"[PARAM_DEBUG] Found value for key '{key}': {connected_value}")
-                            break
-                    
-                    # Display name with _ref suffix for clarity
-                    display_name = f"{param_name}_ref"
-                    
-                    if connected_value:
-                        # Show connected reference
-                        print(f"[PARAM_DEBUG] Displaying connected reference: {display_name} -> {connected_value}")
-                        with dpg.group(horizontal=True, parent=panel_tag):
-                            dpg.add_text(f"{display_name}:", color=[150, 255, 150])
-                            dpg.add_text(f"{connected_value}", color=[100, 255, 100])
-                            
-                            # Add disconnect button
-                            dpg.add_button(
-                                label="X",
-                                callback=self._disconnect_reference,
-                                user_data=(node_uuid, display_name, connected_value),
-                                width=20,
-                                height=20
-                            )
-                    else:
-                        # Not connected - check if it's required
-                        is_required = False
-                        if isinstance(meta, dict):
-                            default_val = meta.get("default")
-                            if default_val == "REQUIRED" or meta.get("required", False):
-                                is_required = True
-                        
-                        if is_required:
-                            print(f"[PARAM_DEBUG] Required reference not connected: {display_name}")
-                            with dpg.group(horizontal=True, parent=panel_tag):
-                                dpg.add_text(f"{display_name}:", color=[255, 200, 150])
-                                dpg.add_text("REQUIRED (connect via link)", color=[255, 100, 100])
-                        else:
-                            # Optional reference
-                            print(f"[PARAM_DEBUG] Optional reference not connected: {display_name}")
-                            with dpg.group(horizontal=True, parent=panel_tag):
-                                dpg.add_text(f"{display_name}:", color=[200, 200, 200])
-                                dpg.add_text("(optional)", color=[150, 150, 150])
-                    
-                    rendered_params.add(param_name)
-                    continue  # Skip widget rendering for reference params
-                    
-                # Regular (non-reference) parameter
-                print(f"[PARAM_DEBUG] Regular parameter: {param_name}")
-                
-                # Get the value (try both names)
-                val = current_values.get(param_name)
-                if val is None and param_name in suffixes:
-                    # Check if stored with object suffix
-                    val = current_values.get(f"{param_name}_object")
-                        
-                # Get default value from template
-                default_val = meta.get("default") if isinstance(meta, dict) else None
-                
-                # If no value and no default, set to empty for required params
-                if val is None and default_val == "REQUIRED":
-                    val = ""  # Empty for required params
-                
-                # Get type hint with proper fallback
-                type_hint = meta.get("type", "str") if isinstance(meta, dict) else "str"
-                if type_hint is None:
-                    type_hint = "str"
-                    
-                default_val = meta.get("default") if isinstance(meta, dict) else None
-
-                self._render_single_widget(
-                    panel_tag,
-                    node_uuid,
-                    param_name,
-                    val,
-                    type_hint,
-                    default_val
-                )                
-                
-                # Mark as rendered
-                rendered_params.add(param_name)
-        
-        # --- 3. DATA OBJECT PARAMETERS (non-reference) ---
-        # These are data objects that are not references (will be exported with _object suffix)
-        data_object_params = []
-        for param_name in suffixes:
-            if param_name not in rendered_params:
-                # This is a data object parameter that wasn't rendered yet
-                # Check if it's in current_values
-                val = current_values.get(param_name)
-                if val is None:
-                    # Try the _object suffix version
-                    val = current_values.get(f"{param_name}_object")
-                
-                if val is not None:
-                    data_object_params.append((param_name, val))
-        
-        if data_object_params:
-            dpg.add_spacer(height=10, parent=panel_tag)
-            dpg.add_text("Data Object Parameters", color=[150, 200, 255], parent=panel_tag)
-            dpg.add_separator(parent=panel_tag)
-            
-            for param_name, val in data_object_params:
-                # Determine if this is a data class type
-                is_data_class = False
-                if param_name in template_params:
-                    meta = template_params[param_name]
-                    if isinstance(meta, dict):
-                        type_hint = meta.get("type", "str")
-                        is_data_class = self.is_data_class_type(type_hint)
-                    elif isinstance(meta, str):
-                        is_data_class = self.is_data_class_type(meta)
-                
-                # Special handling for data class types
-                if is_data_class:
-                    # Data class parameters that are not references (file paths)
-                    with dpg.group(horizontal=True, parent=panel_tag):
-                        dpg.add_text(f"{param_name}:", color=[150, 200, 255])  # Blue for data objects
-                        
-                        # Create input for file path
-                        input_tag = f"{node_uuid}_{param_name}_object"
-                        dpg.add_input_text(
-                            default_value=str(val),
-                            width=200,
-                            hint="File path or object identifier",
-                            callback=self._update_data_object_param,
-                            user_data=(node_uuid, param_name)
-                        )
-                        
-                        # Optional: Add browse button for file selection
-                        dpg.add_button(
-                            label="Browse",
-                            width=60,
-                            callback=self._browse_data_object_file,
-                            user_data=(node_uuid, param_name, input_tag)
-                        )
-                else:
-                    # Regular parameter with _object suffix
-                    with dpg.group(horizontal=True, parent=panel_tag):
-                        dpg.add_text(f"{param_name}:", color=[200, 200, 200])
-                        dpg.add_text(str(val), color=[200, 200, 150])
-
-                    
-                    rendered_params.add(param_name)
-                    continue  # Skip widget rendering for reference params
-                    
-                # Regular (non-reference) parameter
-                print(f"[PARAM_DEBUG] Regular parameter: {param_name}")
-                
-                # Get the value (try both names)
-                val = current_values.get(param_name)
-                if val is None and param_name in suffixes:
-                    # Check if stored with object suffix
-                    val = current_values.get(f"{param_name}_object")
-                        
-                # Get default value from template
-                default_val = meta.get("default") if isinstance(meta, dict) else None
-                
-                # If no value and no default, set to empty for required params
-                if val is None and default_val == "REQUIRED":
-                    val = ""  # Empty for required params
-                
-                # Get type hint with proper fallback
-                type_hint = meta.get("type", "str") if isinstance(meta, dict) else "str"
-                if type_hint is None:
-                    type_hint = "str"
-                    
-                default_val = meta.get("default") if isinstance(meta, dict) else None
-
-                self._render_single_widget(
-                    panel_tag,
-                    node_uuid,
-                    param_name,
-                    val,
-                    type_hint,
-                    default_val
-                )                
-                
-                # Mark as rendered
-                rendered_params.add(param_name)
-        
-                
-
-        # --- 3. CONNECTIONS SECTION ---
-        # Get connections for this node
-        incoming, outgoing = self.get_connections_for_node(node_uuid)
-        
-        # Separate reference connections from regular input connections
-        regular_inputs = []
-        reference_inputs = []
-        
-        for conn in incoming:
-            dst_attr = conn['dst_attr']
-            # Check if this is a reference connection
-            is_ref = dst_attr.endswith("_ref") or dst_attr == "layer_list"
-                
-            if is_ref:
-                reference_inputs.append(conn)
-            else:
-                regular_inputs.append(conn)
-
-        # Show regular inputs
-        if regular_inputs:
-            dpg.add_spacer(height=10, parent=panel_tag)
-            dpg.add_text("Input Connections", color=[200, 150, 255], parent=panel_tag)
-            dpg.add_separator(parent=panel_tag)
-            
-            dpg.add_text("Data Inputs:", color=[255, 200, 100], parent=panel_tag)
-            for conn in regular_inputs:
-                src_name = conn['src_name']
-                src_attr = conn['src_attr']
-                dst_attr = conn['dst_attr']
-                
-                # Special handling for DataStore input_list
-                if dst_attr == "input_list":
-                    # Get filename for this connection
-                    filename = self.get_connection_filename(node_uuid, conn['src_node'], src_attr)
-                    
-                    with dpg.group(horizontal=True, parent=panel_tag):
-                        dpg.add_text(f"  + {dst_attr}: ", color=[200, 200, 200])
-                        dpg.add_text(f"{filename}-{src_name}.{src_attr}", color=[150, 255, 150])
-                    
-                    # Add editable filename field for DataStore
-                    with dpg.group(horizontal=True, parent=panel_tag):
-                        dpg.add_text("    Filename: ", color=[200, 200, 200])
-                        dpg.add_input_text(
-                            default_value=filename,
-                            width=100,
-                            callback=self._update_connection_filename,
-                            user_data=(node_uuid, conn['src_node'], src_attr)
-                        )
-                else:
-                    # Regular connection - display only
-                    with dpg.group(horizontal=True, parent=panel_tag):
-                        dpg.add_text(f"  + {dst_attr}: ", color=[200, 200, 200])
-                        dpg.add_text(f"{src_name}.{src_attr}", color=[150, 255, 150])
-
-        # Show reference connections separately
-        if reference_inputs:
-            if not regular_inputs:  # Add spacing only if there were no regular inputs
-                dpg.add_spacer(height=10, parent=panel_tag)
-                dpg.add_text("Connections", color=[200, 150, 255], parent=panel_tag)
-                dpg.add_separator(parent=panel_tag)
-            
-            dpg.add_text("Reference Connections:", color=[255, 200, 100], parent=panel_tag)
-            for conn in reference_inputs:
-                src_name = conn['src_name']
-                src_attr = conn['src_attr']
-                dst_attr = conn['dst_attr']
-                
-                # Display reference connection (usually src_attr is "ref")
-                with dpg.group(horizontal=True, parent=panel_tag):
-                    dpg.add_text(f"  + {dst_attr}: ", color=[200, 200, 200])
-                    if src_attr == "ref":
-                        dpg.add_text(f"{src_name}", color=[100, 255, 100])
-                    else:
-                        dpg.add_text(f"{src_name}.{src_attr}", color=[100, 255, 100])
-        
-        # Show outgoing connections
-        if outgoing:
-            if not regular_inputs and not reference_inputs:
-                dpg.add_spacer(height=10, parent=panel_tag)
-                dpg.add_text("Connections", color=[200, 150, 255], parent=panel_tag)
-                dpg.add_separator(parent=panel_tag)
-            
-            dpg.add_text("Outputs:", color=[255, 200, 100], parent=panel_tag)
-            for conn in outgoing:
-                dst_name = conn['dst_name']
-                src_attr = conn['src_attr']
-                dst_attr = conn['dst_attr']
-                
-                with dpg.group(horizontal=True, parent=panel_tag):
-                    dpg.add_text(f"  + {src_attr} -> ", color=[200, 200, 200])
-                    dpg.add_text(f"{dst_name}.{dst_attr}", color=[150, 255, 150])
-        
-        if not incoming and not outgoing:
-            dpg.add_spacer(height=10, parent=panel_tag)
-            dpg.add_text("Connections", color=[200, 150, 255], parent=panel_tag)
-            dpg.add_separator(parent=panel_tag)
-            dpg.add_text("No connections", color=[150, 150, 150], parent=panel_tag)
-        
-        dpg.add_spacer(height=10, parent=panel_tag)
-        
-        # --- 4. OUTPUT MONITORS SECTION ---
-        # Get all outputs for this node
-        all_outputs = []
-        
-        # Get outputs from template
-        template_outputs = template.get('outputs', [])
-        for out in template_outputs:
-            if isinstance(out, str) and out not in all_outputs:
-                all_outputs.append(out)
-        
-        # Get extra outputs
-        extra_outputs = node_data.get('outputs_extra', [])
-        for out in extra_outputs:
-            if isinstance(out, str) and out not in all_outputs:
-                all_outputs.append(out)
-        
-        # Also check output_attr_registry for this node
-        for attr_id, (uuid, name) in self.output_attr_registry.items():
-            if uuid == node_uuid and name not in all_outputs:
-                all_outputs.append(name)
-        
-        if all_outputs:
-            dpg.add_spacer(height=10, parent=panel_tag)
-            dpg.add_text("Output Monitors", color=[255, 150, 100], parent=panel_tag)
-            dpg.add_separator(parent=panel_tag)
-            
-            for output_name in sorted(all_outputs):
-                # Check if this monitor is open
-                is_open = False
-                for monitor_id, info in self.active_monitors.items():
-                    if info.get('node_uuid') == node_uuid and info.get('output_name') == output_name:
-                        is_open = True
-                        break
-                
-                with dpg.group(horizontal=True, parent=panel_tag):
-                    dpg.add_text(f"  + {output_name}: ", color=[200, 200, 200])
-                    
-                    if not is_open:
-                        dpg.add_button(
-                            label="Open Monitor",
-                            callback=self._open_output_monitor,
-                            user_data=(node_uuid, output_name),
-                            width=120
-                        )
-                        dpg.add_text("- Inactive", color=[150, 150, 150])
-                    else:
-                        # Find the monitor ID
-                        monitor_id = None
-                        for mid, info in self.active_monitors.items():
-                            if info.get('node_uuid') == node_uuid and info.get('output_name') == output_name:
-                                monitor_id = mid
-                                break
-                        
-                        if monitor_id:
-                            def close_callback_wrapper(sender, app_data, user_data):
-                                self._close_monitor(user_data, from_window_close=False)
-                            
-                            dpg.add_button(
-                                label="Close Monitor",
-                                callback=close_callback_wrapper,
-                                user_data=monitor_id,
-                                width=120
-                            )
-                            dpg.add_text("+ Active", color=[0, 255, 0])
-
-            dpg.add_spacer(height=5, parent=panel_tag)
-        
-        dpg.add_spacer(height=10, parent=panel_tag)
-
-
-    def _disconnect_reference(self, sender, app_data, user_data):
-        """Disconnect a reference connection."""
-        node_uuid, param_name, connected_node_name = user_data
-        
-        # Find the link to disconnect
-        link_to_remove = None
-        
-        for link_id, (src_uuid, src_attr, dst_uuid, dst_attr) in self.link_registry.items():
-            if dst_uuid == node_uuid and dst_attr == param_name:
-                # Get the source node name
-                src_node = self.graph.nodes.get(src_uuid, {})
-                src_node_name = src_node.get("name", "")
-                if src_node_name == connected_node_name:
-                    link_to_remove = link_id
-                    break
-        
-        if link_to_remove:
-            # Trigger the delink callback
-            self.delink_callback(None, link_to_remove)
-            
-            # Refresh node theme
-            self._refresh_node_theme(node_uuid)
-
-    def _render_single_widget(self, parent, node_uuid, param_name, val, type_hint, default_val=None):
-        """Helper to render one row in the property panel."""
-        def _values_equal(a, b):
-            try:
-                return a == b
-            except Exception:
-                return False
-
-        # Get the parameter metadata to check kind
-        node_data = self.graph.nodes.get(node_uuid, {})
-        template = self.all_templates.get(node_data.get("type", ""), {})
-        template_params = template.get("parameters", {})
-        param_meta = template_params.get(param_name, {})
-        param_kind = param_meta.get("kind", "value")
-        
-        # Check if this is a connected reference parameter
-        is_connected_ref = param_kind == "reference" and val is not None
-        
-        if is_connected_ref:
-            # Show connected reference as read-only
-            with dpg.group(horizontal=True, parent=parent):
-                dpg.add_text(f"{param_name}:", color=[150, 255, 150])
-                dpg.add_text(f": {val}", color=[100, 255, 100])              
-            return
-        
-        # Determine if this is a data object parameter
-        is_data_object = (
-            param_kind == "object" or 
-            param_name in node_data.get('suffixes', set()) or 
-            self.is_data_class_type(type_hint)
-        )
-        
-        # Check if this is a required parameter without a value
-        is_required = (default_val == "REQUIRED")
-        has_value = (val is not None and val != "" and val != "REQUIRED")
-        
-        # Color coding
-        if is_required and not has_value:
-            label_color = [255, 100, 100]  # Red for required but empty
-        elif is_data_object:
-            label_color = [150, 200, 255]  # Blue-ish for data objects
-        elif param_kind == "reference":
-            label_color = [255, 200, 150]  # Orange-ish for references
-        elif default_val is not None and _values_equal(val, default_val):
-            label_color = DEFAULT_PARAM_COLOR
-        else:
-            label_color = MODIFIED_PARAM_COLOR
-
-        # Update user_data to include the target type: (uuid, name, type)
-        user_data = (node_uuid, param_name, type_hint)
-
-        with dpg.group(horizontal=True, parent=parent):        
-            dpg.add_text(f"{param_name}:", color=label_color)
-
-            # Widget Logic
-            # For required parameters without value, show empty/default
-            display_val = val
-            
-            # If value is "REQUIRED" or None for a required parameter, show empty
-            if is_required and (val is None or val == "REQUIRED"):
-                display_val = "" if type_hint in ['str', 'string'] else 0
-            
-            if type_hint in ['bool', 'boolean']:
-                if display_val is None: 
-                    display_val = False
-                dpg.add_checkbox(default_value=bool(display_val), 
-                                callback=self._update_param, 
-                                user_data=user_data)
-            
-            elif type_hint in ['int', 'integer']:
-                if display_val is None: 
-                    display_val = 0
-                dpg.add_input_int(default_value=int(display_val), 
-                                width=150,
-                                step=1,
-                                callback=self._update_param, 
-                                user_data=user_data)
-
-            elif type_hint in ['float', 'double', 'number']:
-                if display_val is None or display_val == 'inf': 
-                    display_val = 0.0
-                if display_val == 'REQUIRED':
-                    display_val = 0.0
-                    
-                dpg.add_input_float(default_value=float(display_val), 
-                                    width=150,
-                                    step=0.1,
-                                    callback=self._update_param, 
-                                    user_data=user_data)
-            
-            elif isinstance(display_val, list) or type_hint == 'list':
-                if display_val is None: 
-                    display_val = []
-                dpg.add_input_text(default_value=str(display_val), 
-                                width=150,
-                                callback=self._update_param, 
-                                user_data=user_data)
-            else:
-                # String / Fallback
-                if display_val is None: 
-                    display_val = ""
-                dpg.add_input_text(default_value=str(display_val), 
-                                width=150,
-                                callback=self._update_param, 
-                                user_data=user_data)
-                        
-
-    def _update_node_name(self, sender, app_data, user_data):
-        """Updates the instance name in the graph and refreshes the node UI label."""
-        node_uuid = user_data
-        new_name = app_data
-        
-        if node_uuid in self.graph.nodes:
-            # 1. Update the internal model
-            self.graph.nodes[node_uuid]["name"] = new_name
-            
-            # 2. Update the visual node label in the editor
-            dpg_id = self.uuid_to_dpg.get(node_uuid)
-            if dpg_id:
-                # Update the label shown on top of the node
-                dpg.set_item_label(dpg_id, f"{new_name} ({self.graph.nodes[node_uuid]['type']})")
-            
-            print(f"Renamed node {node_uuid} to '{new_name}'")
-
-
-    def _update_param(self, sender, app_data, user_data):
-        """Callback to save UI changes to the Graph, with STRICT type enforcement."""
-        # Unpack the new 3-element tuple
-        node_uuid, param_name, target_type = user_data
-        
-        if node_uuid not in self.graph.nodes:
-            return
-            
-        values_dict = self.graph.nodes[node_uuid]["values"]
-        final_val = app_data
-
-        try:
-            # 1. Handle List / Complex parsing from Text Inputs
-            if target_type == 'list' or (isinstance(app_data, str) and app_data.startswith("[")):
-                try:
-                    # Safely convert "[1, 2]" -> [1, 2]
-                    final_val = ast.literal_eval(app_data)
-                except (ValueError, SyntaxError):
-                    # If invalid syntax (e.g. user is still typing), don't save yet or save as string
-                    print(f"Warning: Invalid list syntax for {param_name}")
-                    return
-
-            # 2. Handle Numeric Casting (Redundancy check)
-            elif target_type in ['int', 'integer']:
-                final_val = int(app_data)
-            
-            elif target_type in ['float', 'double', 'number']:
-                final_val = float(app_data)
-
-            # 3. Handle Booleans
-            elif target_type in ['bool', 'boolean']:
-                final_val = bool(app_data)
-
-            # 4. Save to Graph
-            values_dict[param_name] = final_val
-            
-            # 5. Update node theme based on completeness
-            self._refresh_node_theme(node_uuid)            
-
-            # Debug log
-            print(f"Updated {node_uuid} [{param_name}] -> {final_val} ({type(final_val).__name__})")
-
-        except Exception as e:
-            print(f"Error updating parameter {param_name}: {e}")
-
-    def _refresh_node_theme(self, node_uuid):
-        """Refresh the node's theme based on completeness."""
-        if node_uuid in self.uuid_to_dpg:
-            dpg_id = self.uuid_to_dpg[node_uuid]
-            node_data = self.graph.nodes.get(node_uuid, {})
-            node_type = node_data.get('type', '')
-            
-            if dpg_id and dpg.does_item_exist(dpg_id):
-                self._apply_node_theme(dpg_id, node_type, node_uuid)
-
-
-    def manual_link_with_filename(self, src_uuid, src_attr, dst_uuid, dst_attr, filename):
-        """Link nodes with filename for DataStore connections."""
-        # First create the regular link
-        self.manual_link(src_uuid, src_attr, dst_uuid, dst_attr)
-        
-        # Store filename info in the graph
-        if 'filename_map' not in self.graph.nodes[dst_uuid]:
-            self.graph.nodes[dst_uuid]['filename_map'] = {}
-        
-        # Create a key for this connection
-        conn_key = f"{src_uuid}.{src_attr}"
-        self.graph.nodes[dst_uuid]['filename_map'][conn_key] = filename
-
-
-    def get_connections_for_node(self, node_uuid):
-        """Get all incoming and outgoing connections for a node."""
-        incoming = []
-        outgoing = []
-        
-        for (src_u, src_at, dst_u, dst_at) in self.graph.connections:
-            if dst_u == node_uuid:
-                incoming.append({
-                    'src_node': src_u,
-                    'src_attr': src_at,
-                    'dst_attr': dst_at,
-                    'src_name': self.graph.nodes[src_u].get('name', 'unknown'),
-                    'dst_name': self.graph.nodes[node_uuid].get('name', 'unknown'),
-                    'type': 'input'
-                })
-            
-            if src_u == node_uuid:
-                outgoing.append({
-                    'dst_node': dst_u,
-                    'src_attr': src_at,
-                    'dst_attr': dst_at,
-                    'src_name': self.graph.nodes[node_uuid].get('name', 'unknown'),
-                    'dst_name': self.graph.nodes[dst_u].get('name', 'unknown'),
-                    'type': 'output'
-                })
-        
-        return incoming, outgoing
-
-    def update_connection_filename(self, node_uuid, src_uuid, src_attr, new_filename):
-        """Update filename for a DataStore connection."""
-        if 'filename_map' not in self.graph.nodes[node_uuid]:
-            self.graph.nodes[node_uuid]['filename_map'] = {}
-        
-        conn_key = f"{src_uuid}.{src_attr}"
-        self.graph.nodes[node_uuid]['filename_map'][conn_key] = new_filename
-
-    def get_connection_filename(self, node_uuid, src_uuid, src_attr):
-        """Get filename for a DataStore connection."""
-        if 'filename_map' not in self.graph.nodes[node_uuid]:
-            return "data"  # Default
-        
-        conn_key = f"{src_uuid}.{src_attr}"
-        return self.graph.nodes[node_uuid]['filename_map'].get(conn_key, "data")
-    
-
-    def _update_connection_filename(self, sender, app_data, user_data):
-        """Callback to update filename for a DataStore connection."""
-        node_uuid, src_uuid, src_attr = user_data
-        new_filename = app_data
-        
-        # Update the filename in the graph
-        self.update_connection_filename(node_uuid, src_uuid, src_attr, new_filename)
-        
-        print(f"Updated filename for connection {src_uuid}.{src_attr} -> {node_uuid}: {new_filename}")
-
-
-    def get_connection_for_yaml(self, src_uuid, src_attr, dst_uuid, dst_attr):
-        """Format a connection for YAML output, including delay property."""
-        # Get connection properties
-        props = self.graph.get_connection_properties(src_uuid, src_attr, dst_uuid, dst_attr)
-        delay = props.get('delay', 0)
-        
-        # Get node names
-        src_node = self.graph.nodes.get(src_uuid, {})
-        dst_node = self.graph.nodes.get(dst_uuid, {})
-        src_name = src_node.get('name', '')
-        dst_name = dst_node.get('name', '')
-        
-        # For reference connections (where src_attr == 'ref'), just use node name
-        if src_attr == 'ref':
-            base_str = src_name
-        else:
-            base_str = f"{src_name}.{src_attr}"
-        
-        # Add delay suffix if needed (YAML uses :-1 for delay -1)
-        if delay == -1:
-            return f"{base_str}:-1"
-        elif delay != 0:
-            # For future extensions with other delay values
-            return f"{base_str}:{delay}"
-        else:
-            return base_str

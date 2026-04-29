@@ -25,4 +25,8 @@ ScheduleGenerator:
       kind: value
   inputs: {}
   outputs:
+  - name: output
+    type: BaseValue
+    desc: Generated output signal
+  output_names:
   - output

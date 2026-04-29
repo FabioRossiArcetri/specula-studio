@@ -1,0 +1,48 @@
+ModalrecImplicitPolc:
+  class_name: ModalrecImplicitPolc
+  bases:
+  - BaseModalrec
+  parameters:
+    recmat:
+      type: Recmat
+      default: REQUIRED
+      kind: object
+    projmat:
+      type: Recmat
+      default: REQUIRED
+      kind: object
+    intmat:
+      type: Intmat
+      default: REQUIRED
+      kind: reference
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_slopes:
+      type: Slopes
+      kind: single
+      desc: Input wavefront slope vector (optional)
+    in_slopes_list:
+      type: Slopes
+      kind: single
+      desc: List of input slope vectors (optional)
+    in_commands:
+      type: BaseValue
+      kind: single
+      desc: Current output command vector for implicit POLC (optional)
+    in_commands_list:
+      type: BaseValue
+      kind: single
+      desc: List of current command vectors for implicit POLC (optional)
+  outputs:
+  - name: out_modes
+    type: BaseValue
+    desc: Reconstructed modal command vector
+  output_names:
+  - out_modes

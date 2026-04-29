@@ -1,0 +1,72 @@
+ImShSynimGenerator:
+  class_name: ImShSynimGenerator
+  bases:
+  - BaseProcessingObj
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    dm:
+      type: DM
+      default: REQUIRED
+      kind: value
+    slopec:
+      type: ShSlopec
+      default: REQUIRED
+      kind: value
+    source:
+      type: Source
+      default: REQUIRED
+      kind: reference
+    wfs:
+      type: SH
+      default: REQUIRED
+      kind: value
+    compute_rec:
+      type: bool
+      default: true
+      kind: value
+    rec_nmodes:
+      type: int
+      default: null
+      kind: value
+    mmse:
+      type: bool
+      default: false
+      kind: value
+    r0:
+      type: float
+      default: 0.15
+      kind: value
+    L0:
+      type: float
+      default: 25.0
+      kind: value
+    noise_cov:
+      type: Union[float, np.ndarray, list]
+      default: null
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_misreg_params:
+      type: BaseValue
+      kind: single
+      desc: Mis-registration parameters (optional, from SPRINT estimator)
+  outputs:
+  - name: out_intmat
+    type: Intmat
+    desc: Computed interaction matrix from SynIM geometric model
+  - name: out_recmat
+    type: Recmat
+    desc: Computed reconstruction matrix (optional, if compute_rec=True)
+  output_names:
+  - out_intmat
+  - out_recmat

@@ -9,15 +9,11 @@ SnCalibrator:
       kind: value
     output_tag:
       type: str
-      default: null
+      default: REQUIRED
       kind: value
     overwrite:
       type: bool
       default: false
-      kind: value
-    tag_template:
-      type: str
-      default: null
       kind: value
     target_device_idx:
       type: int
@@ -31,4 +27,5 @@ SnCalibrator:
     in_slopes:
       type: Slopes
       kind: single
+      desc: Input slopes to average into a slope null
   outputs: []

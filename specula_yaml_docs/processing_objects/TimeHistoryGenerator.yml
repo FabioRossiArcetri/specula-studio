@@ -6,7 +6,7 @@ TimeHistoryGenerator:
     time_hist:
       type: TimeHistory
       default: REQUIRED
-      kind: value
+      kind: reference
     target_device_idx:
       type: int
       default: null
@@ -17,4 +17,8 @@ TimeHistoryGenerator:
       kind: value
   inputs: {}
   outputs:
+  - name: output
+    type: BaseValue
+    desc: Generated output signal
+  output_names:
   - output

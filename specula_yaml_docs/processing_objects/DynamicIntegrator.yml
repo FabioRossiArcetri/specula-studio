@@ -1,0 +1,64 @@
+DynamicIntegrator:
+  class_name: DynamicIntegrator
+  bases:
+  - Integrator
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    int_gain:
+      type: float
+      default: REQUIRED
+      kind: value
+    ff:
+      type: list
+      default: null
+      kind: value
+    n_modes:
+      type: int
+      default: null
+      kind: value
+    delay:
+      type: float
+      default: 0
+      kind: value
+    integration:
+      type: bool
+      default: true
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    delta_comm:
+      type: BaseValue
+      kind: single
+      desc: Input delta command vector
+    gain_mod:
+      type: BaseValue
+      kind: single
+      desc: Optional gain modulation vector (optional)
+    reset:
+      type: BaseValue
+      kind: single
+      desc: Trigger to reset internal integrator state (optional)
+    int_gain:
+      type: BaseValue
+      kind: single
+      desc: Dynamic integrator gain update (optional)
+  outputs:
+  - name: out_comm
+    type: BaseValue
+    desc: Output command vector with delay applied
+  - name: out_comm_no_delay
+    type: BaseValue
+    desc: Output command vector without delay (for POLC)
+  output_names:
+  - out_comm
+  - out_comm_no_delay

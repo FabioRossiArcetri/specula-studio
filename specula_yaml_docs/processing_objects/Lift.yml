@@ -1,0 +1,76 @@
+Lift:
+  class_name: Lift
+  bases:
+  - BaseProcessingObj
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    nPistons:
+      type: int
+      default: REQUIRED
+      kind: value
+    nZern:
+      type: int
+      default: REQUIRED
+      kind: value
+    wavelengthInNm:
+      type: float
+      default: REQUIRED
+      kind: value
+    pix_scale:
+      type: float
+      default: REQUIRED
+      kind: value
+    npix_side:
+      type: int
+      default: REQUIRED
+      kind: value
+    cropped_size:
+      type: int
+      default: REQUIRED
+      kind: value
+    ifunc:
+      type: IFunc
+      default: REQUIRED
+      kind: object
+    ref_zern_amp:
+      type: Any
+      default: REQUIRED
+      kind: value
+    n_iter:
+      type: int
+      default: 20
+      kind: value
+    fft_res:
+      type: int
+      default: 2
+      kind: value
+    fix:
+      type: bool
+      default: false
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_pixels:
+      type: Pixels
+      kind: single
+      desc: Input pixel data from the WFS detector
+  outputs:
+  - name: out_pistons
+    type: BaseValue
+    desc: Estimated piston coefficients per subaperture
+  - name: out_zern
+    type: BaseValue
+    desc: Estimated Zernike modal coefficients
+  output_names:
+  - out_pistons
+  - out_zern

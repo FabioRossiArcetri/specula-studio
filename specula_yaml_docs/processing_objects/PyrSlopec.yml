@@ -6,11 +6,11 @@ PyrSlopec:
     pupdata:
       type: PupData
       default: REQUIRED
-      kind: value
+      kind: object
     sn:
       type: Slopes
       default: null
-      kind: value
+      kind: object
     shlike:
       type: bool
       default: false
@@ -39,9 +39,26 @@ PyrSlopec:
     in_pixels:
       type: Pixels
       kind: single
+      desc: Input pixel data from detector
   outputs:
-  - out_pupdata
+  - name: out_slopes
+    type: Slopes
+    desc: Computed wavefront slopes
+  - name: out_flux_per_subaperture
+    type: BaseValue
+    desc: Flux per subaperture
+  - name: out_total_counts
+    type: BaseValue
+    desc: Total photon counts
+  - name: out_subap_counts
+    type: BaseValue
+    desc: Counts per subaperture
+  - name: out_pupdata
+    type: PupData
+    desc: Pupil data with subaperture geometry
+  output_names:
   - out_slopes
   - out_flux_per_subaperture
   - out_total_counts
   - out_subap_counts
+  - out_pupdata

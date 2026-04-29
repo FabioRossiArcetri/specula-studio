@@ -6,11 +6,11 @@ ModalAnalysis:
     ifunc:
       type: IFunc
       default: null
-      kind: value
+      kind: object
     ifunc_inv:
       type: IFuncInv
       default: null
-      kind: value
+      kind: object
     type_str:
       type: str
       default: null
@@ -34,7 +34,7 @@ ModalAnalysis:
     pupilstop:
       type: Pupilstop
       default: null
-      kind: value
+      kind: object
     nmodes:
       type: int
       default: null
@@ -63,10 +63,22 @@ ModalAnalysis:
     in_ef:
       type: ElectricField
       kind: single
+      desc: Input electric field for modal analysis (optional, use with in_ef_list)
     in_ef_list:
       type: ElectricField
       kind: single
+      desc: List of input electric fields for multi-source modal analysis (optional)
   outputs:
+  - name: out_modes
+    type: BaseValue
+    desc: Modal coefficients from the combined/single input electric field
+  - name: rms
+    type: BaseValue
+    desc: RMS of the wavefront
+  - name: out_modes_list
+    type: list
+    desc: Per-input modal coefficient vectors (list, one per connected input)
+  output_names:
   - out_modes
   - rms
   - out_modes_list

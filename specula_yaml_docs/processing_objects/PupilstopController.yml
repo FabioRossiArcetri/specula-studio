@@ -1,0 +1,44 @@
+PupilstopController:
+  class_name: PupilstopController
+  bases:
+  - BaseProcessingObj
+  parameters:
+    pupilstop:
+      type: Pupilstop
+      default: REQUIRED
+      kind: object
+    threshold_mask:
+      type: bool
+      default: true
+      kind: value
+    mask_threshold:
+      type: float
+      default: 0.5
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_rotation_deg:
+      type: BaseValue
+      kind: single
+      desc: Scalar rotation angle [deg] (optional)
+    in_shift_xy_px:
+      type: BaseValue
+      kind: single
+      desc: '[x, y] shift in pixels (optional)'
+    in_magnification:
+      type: BaseValue
+      kind: single
+      desc: Scalar magnification factor (>0) (optional)
+  outputs:
+  - name: out_layer
+    type: Layer
+    desc: Updated pupilstop layer
+  output_names:
+  - out_layer

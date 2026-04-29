@@ -6,7 +6,7 @@ SpotMonitor:
     subapdata:
       type: SubapData
       default: REQUIRED
-      kind: value
+      kind: reference
     initial_alpha:
       type: float
       default: 2.0
@@ -39,7 +39,22 @@ SpotMonitor:
     in_pixels:
       type: Pixels
       kind: single
+      desc: Input pixel image from WFS detector
   outputs:
+  - name: out_sum_pixels
+    type: Pixels
+    desc: Summed subaperture image
+  - name: out_model_pixels
+    type: Pixels
+    desc: Fitted Moffat model image
+  - name: out_residual_pixels
+    type: Pixels
+    desc: Residuals between data and model
+  - name: out_params
+    type: BaseValue
+    desc: Moffat fit parameters [amplitude, x0, y0, gamma, alpha, sky, fwhm, chi2,
+      success]
+  output_names:
   - out_sum_pixels
   - out_model_pixels
   - out_residual_pixels

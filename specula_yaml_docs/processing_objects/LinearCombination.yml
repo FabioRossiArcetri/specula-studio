@@ -43,5 +43,10 @@ LinearCombination:
     in_vectors_list:
       type: BaseValue
       kind: single
+      desc: List of input command vectors to linearly combine
   outputs:
+  - name: out_vector
+    type: BaseValue
+    desc: Output combined command vector
+  output_names:
   - out_vector

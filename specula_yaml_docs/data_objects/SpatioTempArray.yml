@@ -1,0 +1,27 @@
+SpatioTempArray:
+  class_name: SpatioTempArray
+  bases:
+  - BaseDataObj
+  parameters:
+    array:
+      type: Any
+      default: REQUIRED
+      kind: value
+    time_vector:
+      type: Any
+      default: REQUIRED
+      kind: value
+    time_axis:
+      type: int
+      default: -1
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs: {}
+  outputs: []

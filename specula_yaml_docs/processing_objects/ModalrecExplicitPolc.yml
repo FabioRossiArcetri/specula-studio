@@ -1,0 +1,56 @@
+ModalrecExplicitPolc:
+  class_name: ModalrecExplicitPolc
+  bases:
+  - BaseModalrec
+  parameters:
+    recmat:
+      type: Recmat
+      default: REQUIRED
+      kind: object
+    projmat:
+      type: Recmat
+      default: null
+      kind: object
+    intmat:
+      type: Intmat
+      default: null
+      kind: reference
+    nSlopesToBeDiscarded:
+      type: int
+      default: null
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_slopes:
+      type: Slopes
+      kind: single
+      desc: Input wavefront slope vector (optional)
+    in_slopes_list:
+      type: Slopes
+      kind: single
+      desc: List of input slope vectors (optional)
+    in_commands:
+      type: BaseValue
+      kind: single
+      desc: Current output command vector for explicit POLC (optional)
+    in_commands_list:
+      type: BaseValue
+      kind: single
+      desc: List of current command vectors for explicit POLC (optional)
+  outputs:
+  - name: out_modes
+    type: BaseValue
+    desc: Reconstructed modal command vector
+  - name: out_pseudo_ol_modes
+    type: BaseValue
+    desc: Pseudo open-loop modal estimate
+  output_names:
+  - out_modes
+  - out_pseudo_ol_modes

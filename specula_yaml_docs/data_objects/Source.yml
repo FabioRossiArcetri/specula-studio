@@ -33,10 +33,6 @@ Source:
       - 0.0
       - 0.0
       kind: value
-    verbose:
-      type: bool
-      default: false
-      kind: value
     target_device_idx:
       type: int
       default: null

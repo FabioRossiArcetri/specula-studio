@@ -15,5 +15,10 @@ PhaseFlattening:
     in_ef:
       type: ElectricField
       kind: single
+      desc: Input electric field whose mean phase will be removed
   outputs:
+  - name: out_ef
+    type: ElectricField
+    desc: Output electric field with flattened (mean-removed) phase
+  output_names:
   - out_ef

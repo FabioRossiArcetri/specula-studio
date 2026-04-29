@@ -31,5 +31,10 @@ Demodulator:
     in_data:
       type: BaseValue
       kind: single
+      desc: Input data signal to demodulate
   outputs:
+  - name: output
+    type: BaseValue
+    desc: Demodulated modal amplitude output
+  output_names:
   - output

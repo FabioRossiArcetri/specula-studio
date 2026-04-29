@@ -35,9 +35,18 @@ LowPassFilter:
     delta_comm:
       type: BaseValue
       kind: single
+      desc: Input delta command vector
     gain_mod:
       type: BaseValue
       kind: single
+      desc: Optional gain modulation vector (optional)
   outputs:
+  - name: out_comm
+    type: BaseValue
+    desc: Output command vector with delay applied
+  - name: out_comm_no_delay
+    type: BaseValue
+    desc: Output command vector without delay (for POLC)
+  output_names:
   - out_comm
   - out_comm_no_delay

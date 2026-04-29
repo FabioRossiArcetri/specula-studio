@@ -1,0 +1,36 @@
+ModalrecMultirate:
+  class_name: ModalrecMultirate
+  bases:
+  - BaseProcessingObj
+  parameters:
+    recmat_list:
+      type: List[Recmat]
+      default: REQUIRED
+      kind: reference
+    validity_masks:
+      type: List[List[bool]]
+      default: REQUIRED
+      kind: value
+    n_modes_total:
+      type: int
+      default: REQUIRED
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_slopes_list:
+      type: Slopes
+      kind: single
+      desc: Input list of sensor slopes vectors
+  outputs:
+  - name: out_modes_{sensor_idx}
+    type: BaseValue
+    desc: Output modal vector for sensor index [sensor_idx]
+  output_names:
+  - out_modes_{sensor_idx}

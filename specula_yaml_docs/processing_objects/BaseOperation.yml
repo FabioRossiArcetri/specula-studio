@@ -19,6 +19,14 @@ BaseOperation:
       type: float
       default: null
       kind: value
+    constant_max:
+      type: float
+      default: null
+      kind: value
+    constant_min:
+      type: float
+      default: null
+      kind: value
     mul:
       type: bool
       default: false
@@ -39,10 +47,6 @@ BaseOperation:
       type: bool
       default: false
       kind: value
-    value2_is_shorter:
-      type: bool
-      default: false
-      kind: value
     value2_remap:
       type: list
       default: null
@@ -59,8 +63,14 @@ BaseOperation:
     in_value1:
       type: BaseValue
       kind: single
+      desc: First input value vector
     in_value2:
       type: BaseValue
       kind: single
+      desc: Second input value vector (optional)
   outputs:
+  - name: out_value
+    type: BaseValue
+    desc: Output value vector after applying the operation
+  output_names:
   - out_value

@@ -15,8 +15,18 @@ ElectricFieldCombinator:
     in_ef1:
       type: ElectricField
       kind: single
+      desc: First input electric field (optional, use with in_ef2)
     in_ef2:
       type: ElectricField
       kind: single
+      desc: Second input electric field (optional, use with in_ef1)
+    in_ef_list:
+      type: ElectricField
+      kind: single
+      desc: List of input electric fields to combine (optional)
   outputs:
+  - name: out_ef
+    type: ElectricField
+    desc: Combined output electric field
+  output_names:
   - out_ef

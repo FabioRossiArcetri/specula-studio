@@ -26,7 +26,7 @@ ImCalibrator:
     pupilstop:
       type: Pupilstop
       default: null
-      kind: value
+      kind: object
     dm:
       type: DM
       default: null
@@ -34,7 +34,7 @@ ImCalibrator:
     source:
       type: Source
       default: null
-      kind: value
+      kind: reference
     sensor:
       type: BaseProcessingObj
       default: null
@@ -55,9 +55,18 @@ ImCalibrator:
     in_slopes:
       type: Slopes
       kind: single
+      desc: Input wavefront slopes measured during push-pull calibration
     in_commands:
       type: BaseValue
       kind: single
+      desc: Input command vector applied to the DM during calibration
   outputs:
+  - name: out_intmat
+    type: Intmat
+    desc: Accumulated interaction matrix
+  - name: out_single_im
+    type: list
+    desc: Per-mode interaction matrix contributions (list)
+  output_names:
   - out_intmat
   - out_single_im

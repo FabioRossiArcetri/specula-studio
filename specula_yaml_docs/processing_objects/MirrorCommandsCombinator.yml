@@ -10,7 +10,7 @@ MirrorCommandsCombinator:
     recmat:
       type: Recmat
       default: REQUIRED
-      kind: value
+      kind: object
     dims_LO:
       type: list
       default: []
@@ -39,16 +39,30 @@ MirrorCommandsCombinator:
     in_commandsHO:
       type: BaseValue
       kind: single
+      desc: High-order command vector input
     in_commandsLO:
       type: BaseValue
       kind: single
+      desc: Low-order command vector input
     in_commandsF:
       type: BaseValue
       kind: single
+      desc: Focus command scalar input
     in_commandsP:
       type: BaseValue
       kind: single
+      desc: Pointing command vector input
   outputs:
+  - name: out_result_commands1
+    type: BaseValue
+    desc: First chunk of combined output commands
+  - name: out_result_commands2
+    type: BaseValue
+    desc: Second chunk of combined output commands
+  - name: out_result_commands3
+    type: BaseValue
+    desc: Third chunk of combined output commands
+  output_names:
   - out_result_commands1
   - out_result_commands2
   - out_result_commands3

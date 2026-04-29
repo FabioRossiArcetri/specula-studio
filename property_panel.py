@@ -107,6 +107,10 @@ class PropertyPanel:
                 print(f"[PARAM_DEBUG] Meta type: {type(meta)}, Meta: {meta}")
 
                 is_ref_param = False
+                is_obj_param = False
+                if meta.get("kind") == "object":
+                    is_obj_param = True                    
+
                 if isinstance(meta, dict):
                     if meta.get("kind") == "reference":
                         is_ref_param = True
@@ -151,6 +155,8 @@ class PropertyPanel:
                                 height=20,
                             )
                     else:
+                        if is_obj_param:
+                            display_name = f"{param_name}_object"
                         is_required = False
                         if isinstance(meta, dict):
                             if (
@@ -191,8 +197,14 @@ class PropertyPanel:
                     type_hint = "str"
                 default_val = meta.get("default") if isinstance(meta, dict) else None
 
+                display_name = param_name
+                if is_obj_param:
+                    display_name = f"{param_name}_object"
+                    type_hint = "str"
+                    default_val = ''
+
                 self._render_single_widget(
-                    panel_tag, node_uuid, param_name, val, type_hint, default_val
+                    panel_tag, node_uuid, display_name, val, type_hint, default_val
                 )
                 rendered_params.add(param_name)
 

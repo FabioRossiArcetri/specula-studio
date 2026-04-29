@@ -1,0 +1,132 @@
+PsfCoronagraph:
+  class_name: PsfCoronagraph
+  bases:
+  - PSF
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    wavelengthInNm:
+      type: float
+      default: REQUIRED
+      kind: value
+    nd:
+      type: float
+      default: null
+      kind: value
+    use_average_field:
+      type: bool
+      default: true
+      kind: value
+    pixel_size_mas:
+      type: float
+      default: null
+      kind: value
+    start_time:
+      type: float
+      default: 0.0
+      kind: value
+    compute_profile_metrics:
+      type: bool
+      default: false
+      kind: value
+    compute_metrics_in_trigger:
+      type: bool
+      default: false
+      kind: value
+    ee_radius_in_lambda_d:
+      type: Any
+      default: null
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_ef:
+      type: ElectricField
+      kind: single
+      desc: Input electric field from the telescope pupil
+  outputs:
+  - name: out_sr
+    type: BaseValue
+    desc: Instantaneous Strehl ratio
+  - name: out_psf
+    type: BaseValue
+    desc: Instantaneous PSF
+  - name: out_int_sr
+    type: BaseValue
+    desc: Time-integrated Strehl ratio
+  - name: out_int_psf
+    type: BaseValue
+    desc: Time-integrated PSF
+  - name: out_std_psf
+    type: BaseValue
+    desc: Standard deviation of PSF over time
+  - name: out_psf_profile
+    type: BaseValue
+    desc: Radial profile of the instantaneous PSF
+  - name: out_psf_fwhm
+    type: BaseValue
+    desc: FWHM of the instantaneous PSF
+  - name: out_encircled_energy
+    type: BaseValue
+    desc: Encircled energy of the instantaneous PSF
+  - name: out_encircled_energy_at_radius
+    type: BaseValue
+    desc: Encircled energy at specified radius for instantaneous PSF
+  - name: out_int_psf_profile
+    type: BaseValue
+    desc: Radial profile of the integrated PSF
+  - name: out_int_psf_fwhm
+    type: BaseValue
+    desc: FWHM of the integrated PSF
+  - name: out_int_encircled_energy
+    type: BaseValue
+    desc: Encircled energy of the integrated PSF
+  - name: out_int_encircled_energy_at_radius
+    type: BaseValue
+    desc: Encircled energy at specified radius for integrated PSF
+  - name: out_coronagraph_psf
+    type: BaseValue
+    desc: Instantaneous coronagraph PSF
+  - name: out_int_coronagraph_psf
+    type: BaseValue
+    desc: Time-integrated coronagraph PSF
+  - name: out_std_coronagraph_psf
+    type: BaseValue
+    desc: Standard deviation of coronagraph PSF over time
+  - name: out_coronagraph_psf_profile
+    type: BaseValue
+    desc: Radial profile of the instantaneous coronagraph PSF
+  - name: out_int_coronagraph_psf_profile
+    type: BaseValue
+    desc: Radial profile of the integrated coronagraph PSF
+  - name: out_std_coronagraph_psf_profile
+    type: BaseValue
+    desc: Radial profile of the std dev coronagraph PSF
+  output_names:
+  - out_sr
+  - out_psf
+  - out_int_sr
+  - out_int_psf
+  - out_std_psf
+  - out_psf_profile
+  - out_psf_fwhm
+  - out_encircled_energy
+  - out_encircled_energy_at_radius
+  - out_int_psf_profile
+  - out_int_psf_fwhm
+  - out_int_encircled_energy
+  - out_int_encircled_energy_at_radius
+  - out_coronagraph_psf
+  - out_int_coronagraph_psf
+  - out_std_coronagraph_psf
+  - out_coronagraph_psf_profile
+  - out_int_coronagraph_psf_profile
+  - out_std_coronagraph_psf_profile

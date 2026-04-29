@@ -15,15 +15,7 @@ MultiRecCalibrator:
       type: str
       default: null
       kind: value
-    rec_tag_template:
-      type: str
-      default: null
-      kind: value
     full_rec_tag:
-      type: str
-      default: null
-      kind: value
-    full_rec_tag_template:
       type: str
       default: null
       kind: value
@@ -43,7 +35,9 @@ MultiRecCalibrator:
     intmat_list:
       type: Intmat
       kind: single
+      desc: List of per-sensor interaction matrices to invert
     full_intmat:
       type: Intmat
       kind: single
+      desc: Full combined interaction matrix to invert
   outputs: []

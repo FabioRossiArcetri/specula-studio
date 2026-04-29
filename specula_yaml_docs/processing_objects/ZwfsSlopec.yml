@@ -1,0 +1,60 @@
+ZwfsSlopec:
+  class_name: ZwfsSlopec
+  bases:
+  - Slopec
+  parameters:
+    pup_diam:
+      type: float
+      default: REQUIRED
+      kind: value
+    ccd_size:
+      type: int
+      default: REQUIRED
+      kind: value
+    obsratio:
+      type: float
+      default: null
+      kind: value
+    sn:
+      type: Slopes
+      default: null
+      kind: object
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    thr_value:
+      type: float
+      default: 0.0
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_pixels:
+      type: Pixels
+      kind: single
+      desc: Input pixel data from detector
+  outputs:
+  - name: out_slopes
+    type: Slopes
+    desc: Computed wavefront slopes
+  - name: out_flux_per_subaperture
+    type: BaseValue
+    desc: Flux per subaperture
+  - name: out_total_counts
+    type: BaseValue
+    desc: Total photon counts
+  - name: out_subap_counts
+    type: BaseValue
+    desc: Counts per subaperture
+  - name: out_pupdata
+    type: PupData
+    desc: Pupil data with subaperture geometry
+  output_names:
+  - out_slopes
+  - out_flux_per_subaperture
+  - out_total_counts
+  - out_subap_counts
+  - out_pupdata

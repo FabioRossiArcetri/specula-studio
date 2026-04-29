@@ -21,7 +21,7 @@ AtmoEvolution:
       kind: value
     data_dir:
       type: str
-      default: REQUIRED
+      default: ''
       kind: value
     fov:
       type: float
@@ -38,10 +38,6 @@ AtmoEvolution:
     extra_delta_time:
       type: float
       default: 0
-      kind: value
-    verbose:
-      type: bool
-      default: false
       kind: value
     fov_in_m:
       type: float
@@ -65,11 +61,18 @@ AtmoEvolution:
     seeing:
       type: BaseValue
       kind: single
+      desc: Atmospheric seeing value
     wind_speed:
       type: BaseValue
       kind: single
+      desc: Wind speed for each atmospheric layer
     wind_direction:
       type: BaseValue
       kind: single
+      desc: Wind direction for each atmospheric layer
   outputs:
+  - name: layer_list
+    type: list
+    desc: List of atmospheric phase screen layers
+  output_names:
   - layer_list

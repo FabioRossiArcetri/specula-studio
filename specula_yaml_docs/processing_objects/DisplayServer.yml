@@ -6,7 +6,7 @@ DisplayServer:
     params_dict:
       type: dict
       default: REQUIRED
-      kind: value
+      kind: reference
     input_ref_getter:
       type: typing.Callable
       default: REQUIRED
@@ -26,6 +26,10 @@ DisplayServer:
     port:
       type: int
       default: 0
+      kind: value
+    mode:
+      type: str
+      default: image
       kind: value
   inputs: {}
   outputs: []

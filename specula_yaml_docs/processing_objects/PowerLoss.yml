@@ -35,5 +35,10 @@ PowerLoss:
     se_sr:
       type: BaseValue
       kind: single
+      desc: Input Strehl ratio or flux value
   outputs:
+  - name: out_power_loss
+    type: BaseValue
+    desc: Output power loss in dB
+  output_names:
   - out_power_loss

@@ -8,8 +8,8 @@ RandomGenerator:
       default: NORMAL
       kind: value
     amp:
-      type: float
-      default: 1.0
+      type: Any
+      default: null
       kind: value
     constant:
       type: float
@@ -27,6 +27,18 @@ RandomGenerator:
       type: int
       default: 1
       kind: value
+    modal_rms:
+      type: float
+      default: null
+      kind: value
+    forced_zero_modes:
+      type: int
+      default: 0
+      kind: value
+    scaling_law:
+      type: str
+      default: INVERSE
+      kind: value
     target_device_idx:
       type: int
       default: null
@@ -37,4 +49,8 @@ RandomGenerator:
       kind: value
   inputs: {}
   outputs:
+  - name: output
+    type: BaseValue
+    desc: Generated output signal
+  output_names:
   - output

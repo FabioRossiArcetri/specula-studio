@@ -17,15 +17,15 @@ AtmoRandomPhase:
       kind: value
     source_dict:
       type: dict
-      default: {}
-      kind: value
+      default: null
+      kind: reference
     wavelengthInNm:
       type: float
       default: 500.0
       kind: value
     pixel_phasescreens:
-      type: Any
-      default: null
+      type: int
+      default: 8192
       kind: value
     seed:
       type: int
@@ -35,6 +35,10 @@ AtmoRandomPhase:
       type: int
       default: 1
       kind: value
+    layer_height:
+      type: float
+      default: 0.0
+      kind: value
     target_device_idx:
       type: Any
       default: null
@@ -43,16 +47,24 @@ AtmoRandomPhase:
       type: Any
       default: null
       kind: value
-    verbose:
-      type: Any
-      default: null
-      kind: value
   inputs:
     seeing:
       type: BaseValue
       kind: single
+      desc: Atmospheric seeing value
     pupilstop:
       type: Pupilstop
       kind: single
+      desc: Pupil stop mask defining the valid pupil area
   outputs:
-  - out_' + name + '_ef
+  - name: out_{source_name_}layer
+    type: Layer
+    desc: Output phase-screen layer for named source [source_name]; if source name
+      is None, key is out_layer
+  - name: out_{source_name_}ef
+    type: ElectricField
+    desc: Output electric field for named source [source_name]; if source name is
+      None, key is out_ef
+  output_names:
+  - out_{source_name_}layer
+  - out_{source_name_}ef

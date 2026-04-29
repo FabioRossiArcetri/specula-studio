@@ -6,11 +6,11 @@ ShSlopec:
     subapdata:
       type: SubapData
       default: REQUIRED
-      kind: value
+      kind: reference
     sn:
       type: Slopes
       default: null
-      kind: value
+      kind: object
     thr_value:
       type: float
       default: -1
@@ -63,9 +63,26 @@ ShSlopec:
     in_pixels:
       type: Pixels
       kind: single
+      desc: Input pixel data from detector
   outputs:
-  - out_subapdata
+  - name: out_slopes
+    type: Slopes
+    desc: Computed wavefront slopes
+  - name: out_flux_per_subaperture
+    type: BaseValue
+    desc: Flux per subaperture
+  - name: out_total_counts
+    type: BaseValue
+    desc: Total photon counts
+  - name: out_subap_counts
+    type: BaseValue
+    desc: Counts per subaperture
+  - name: out_subapdata
+    type: SubapData
+    desc: Subaperture data with geometry information
+  output_names:
   - out_slopes
   - out_flux_per_subaperture
   - out_total_counts
   - out_subap_counts
+  - out_subapdata

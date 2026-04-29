@@ -23,5 +23,10 @@ BaseSlicer:
     in_value:
       type: BaseValue
       kind: single
+      desc: Input vector to slice
   outputs:
+  - name: out_value
+    type: BaseValue
+    desc: Output sliced vector
+  output_names:
   - out_value

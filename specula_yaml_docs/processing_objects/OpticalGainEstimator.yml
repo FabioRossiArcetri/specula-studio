@@ -23,9 +23,18 @@ OpticalGainEstimator:
     in_demod_delta_command:
       type: BaseValue
       kind: single
+      desc: Demodulated delta command vector for optical gain estimation
     in_demod_command:
       type: BaseValue
       kind: single
+      desc: Demodulated absolute command vector for optical gain estimation
   outputs:
+  - name: optical_gain
+    type: BaseValue
+    desc: Estimated optical gain scalar or vector
+  - name: output
+    type: BaseValue
+    desc: Output command vector corrected by optical gain
+  output_names:
   - optical_gain
   - output

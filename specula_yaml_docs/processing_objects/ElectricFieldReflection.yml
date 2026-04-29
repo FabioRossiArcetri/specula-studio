@@ -15,5 +15,10 @@ ElectricFieldReflection:
     in_ef:
       type: ElectricField
       kind: single
+      desc: Input electric field to reflect (phase sign is inverted)
   outputs:
+  - name: out_ef
+    type: ElectricField
+    desc: Output electric field with reflected (sign-inverted) phase
+  output_names:
   - out_ef

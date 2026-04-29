@@ -10,7 +10,7 @@ IdealDerivativeSensor:
     subapdata:
       type: SubapData
       default: REQUIRED
-      kind: value
+      kind: reference
     fov:
       type: float
       default: REQUIRED
@@ -27,5 +27,10 @@ IdealDerivativeSensor:
     in_ef:
       type: ElectricField
       kind: single
+      desc: Input electric field from which wavefront slopes are derived
   outputs:
+  - name: out_slopes
+    type: Slopes
+    desc: Computed wavefront slopes from the ideal derivative sensor
+  output_names:
   - out_slopes

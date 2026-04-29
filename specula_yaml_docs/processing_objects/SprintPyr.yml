@@ -1,0 +1,96 @@
+SprintPyr:
+  class_name: SprintPyr
+  bases:
+  - BaseSprintEstimator
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    dm:
+      type: DM
+      default: REQUIRED
+      kind: value
+    slopec:
+      type: Slopec
+      default: REQUIRED
+      kind: value
+    source:
+      type: Source
+      default: REQUIRED
+      kind: reference
+    wfs:
+      type: BaseProcessingObj
+      default: REQUIRED
+      kind: value
+    modes_index:
+      type: list
+      default: REQUIRED
+      kind: value
+    carrier_frequencies:
+      type: list
+      default: REQUIRED
+      kind: value
+    pupil_mask:
+      type: Pupilstop
+      default: null
+      kind: object
+    push_amp:
+      type: Any
+      default: 10
+      kind: value
+    estimation_dt:
+      type: float
+      default: 10.0
+      kind: value
+    max_iterations:
+      type: int
+      default: 10
+      kind: value
+    convergence_threshold:
+      type: float
+      default: 0.001
+      kind: value
+    initial_misreg:
+      type: list
+      default: null
+      kind: value
+    apply_absolute_slopes:
+      type: bool
+      default: false
+      kind: value
+    integration_gain:
+      type: float
+      default: 0.5
+      kind: value
+    forgetting_factor:
+      type: float
+      default: 1.0
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_slopes:
+      type: Slopes
+      kind: single
+      desc: Input slopes from wavefront sensor
+  outputs:
+  - name: out_intmat
+    type: Intmat
+    desc: Estimated interaction matrix
+  - name: out_misreg_params
+    type: BaseValue
+    desc: Misregistration parameters
+  - name: out_convergence_error
+    type: BaseValue
+    desc: Convergence error metric
+  output_names:
+  - out_intmat
+  - out_misreg_params
+  - out_convergence_error

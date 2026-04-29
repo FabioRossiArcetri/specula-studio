@@ -7,6 +7,10 @@ PyrPupdataCalibrator:
       type: str
       default: REQUIRED
       kind: value
+    dt:
+      type: float
+      default: null
+      kind: value
     thr1:
       type: float
       default: 0.1
@@ -43,6 +47,10 @@ PyrPupdataCalibrator:
       type: bool
       default: false
       kind: value
+    save_on_exit:
+      type: bool
+      default: true
+      kind: value
     target_device_idx:
       type: int
       default: null
@@ -55,4 +63,14 @@ PyrPupdataCalibrator:
     in_i:
       type: Intensity
       kind: single
-  outputs: []
+      desc: Input intensity image (optional)
+    in_pixels:
+      type: Pixels
+      kind: single
+      desc: Input pixel image (optional)
+  outputs:
+  - name: out_pupdata
+    type: PupData
+    desc: Calibrated pupil data with subaperture geometry
+  output_names:
+  - out_pupdata

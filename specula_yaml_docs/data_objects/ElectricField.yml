@@ -27,5 +27,13 @@ ElectricField:
       type: int
       default: null
       kind: value
+    wavelengthInNm:
+      type: float
+      default: null
+      kind: value
+    wavelengthToleranceInNm:
+      type: float
+      default: 0.1
+      kind: value
   inputs: {}
   outputs: []

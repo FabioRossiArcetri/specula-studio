@@ -8,27 +8,27 @@ WaveGenerator:
       default: SIN
       kind: value
     amp:
-      type: float
+      type: list[float]
       default: 0.0
       kind: value
     freq:
-      type: float
+      type: list[float]
       default: 0.0
       kind: value
     offset:
-      type: float
+      type: list[float]
       default: 0.0
       kind: value
     constant:
-      type: float
+      type: list[float]
       default: 0.0
       kind: value
     slope:
-      type: float
+      type: list[float]
       default: 0.0
       kind: value
     vsize:
-      type: int
+      type: list[int]
       default: 1
       kind: value
     output_size:
@@ -45,4 +45,8 @@ WaveGenerator:
       kind: value
   inputs: {}
   outputs:
+  - name: output
+    type: BaseValue
+    desc: Generated output signal
+  output_names:
   - output

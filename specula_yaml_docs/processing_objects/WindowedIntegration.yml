@@ -35,5 +35,10 @@ WindowedIntegration:
     input:
       type: BaseValue
       kind: single
+      desc: Input signal to integrate
   outputs:
+  - name: output
+    type: BaseValue
+    desc: Windowed time-integrated output signal
+  output_names:
   - output

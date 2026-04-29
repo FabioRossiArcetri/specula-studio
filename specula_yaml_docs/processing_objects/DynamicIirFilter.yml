@@ -1,0 +1,56 @@
+DynamicIirFilter:
+  class_name: DynamicIirFilter
+  bases:
+  - IirFilter
+  parameters:
+    simul_params:
+      type: SimulParams
+      default: REQUIRED
+      kind: reference
+    iir_filter_data:
+      type: IirFilterData
+      default: REQUIRED
+      kind: reference
+    delay:
+      type: float
+      default: 0
+      kind: value
+    integration:
+      type: bool
+      default: true
+      kind: value
+    target_device_idx:
+      type: Any
+      default: null
+      kind: value
+    precision:
+      type: Any
+      default: null
+      kind: value
+  inputs:
+    delta_comm:
+      type: BaseValue
+      kind: single
+      desc: Input delta command vector
+    gain_mod:
+      type: BaseValue
+      kind: single
+      desc: Optional gain modulation vector (optional)
+    reset:
+      type: BaseValue
+      kind: single
+      desc: Trigger to reset internal filter state (optional)
+    int_gain:
+      type: BaseValue
+      kind: single
+      desc: Dynamic integrator gain update (optional)
+  outputs:
+  - name: out_comm
+    type: BaseValue
+    desc: Output command vector with delay applied
+  - name: out_comm_no_delay
+    type: BaseValue
+    desc: Output command vector without delay (for POLC)
+  output_names:
+  - out_comm
+  - out_comm_no_delay

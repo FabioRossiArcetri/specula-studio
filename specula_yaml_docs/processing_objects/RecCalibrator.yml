@@ -23,10 +23,6 @@ RecCalibrator:
       type: str
       default: null
       kind: value
-    tag_template:
-      type: str
-      default: null
-      kind: value
     overwrite:
       type: bool
       default: false
@@ -63,4 +59,5 @@ RecCalibrator:
     in_intmat:
       type: Intmat
       kind: single
+      desc: Input interaction matrix to invert
   outputs: []

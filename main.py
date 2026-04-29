@@ -2,6 +2,7 @@ import dearpygui.dearpygui as dpg
 import os
 import yaml
 from collections import OrderedDict
+from constants import FONT_SIZE
 from node_manager import NodeManager
 from file_handler import FileHandler, auto_layout_nodes
 from graph_manager import GraphManager
@@ -80,7 +81,7 @@ class SpeculaEditor:
         
         with dpg.font_registry():
             if os.path.exists(FONT_PATH):
-                dpg.bind_font(dpg.add_font(FONT_PATH, 16))
+                dpg.bind_font(dpg.add_font(FONT_PATH, FONT_SIZE))
 
         dpg.create_viewport(title="SPECULA Node Editor", width=1600, height=900)
 
@@ -126,8 +127,8 @@ class SpeculaEditor:
                         pass
 
                 # Right Side: Properties Panel
-                # with dpg.child_window(width=430, tag="property_panel", border=True):
-                #     self._show_property()
+                with dpg.child_window(width=430, tag="property_panel", border=True):
+                    pass
 
         # --- Global Handlers ---
         with dpg.handler_registry():
