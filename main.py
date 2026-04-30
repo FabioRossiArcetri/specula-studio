@@ -64,6 +64,178 @@ class SpeculaEditor:
         print('_toggle_export_defaults', app_data)
         self.export_include_defaults = app_data
 
+    # ------------------------------------------------------------------
+    # Add Multiple Objects dialog
+    # ------------------------------------------------------------------
+
+    def _setup_add_multiple_dialog(self):
+        """Build the 'Add Multiple Objects' modal window (created once)."""
+        self._multi_add_queue = []   # list of node_type strings staged for creation
+
+        proc_types = sorted(self.proc_obj_templates.keys())
+        data_types = sorted(self.data_obj_templates.keys())
+
+        LISTBOX_H = 320   # pixel height of each listbox
+        COL_W     = 260   # width of each column
+
+        with dpg.window(
+            label="Add Multiple Objects",
+            tag="add_multiple_dialog",
+            modal=True,
+            show=False,
+            width=1000,
+            height=550,
+            no_resize=True,
+            on_close=self._on_add_multiple_close,
+        ):
+            # ── header hint ──────────────────────────────────────────
+            dpg.add_text(
+                "Select items from the lists, use the arrows to stage them, "
+                "then click Confirm.",
+                color=[180, 180, 180],
+            )
+            dpg.add_separator()
+            dpg.add_spacer(height=4)
+
+            # ── three-column layout ──────────────────────────────────
+            with dpg.group(horizontal=True):
+
+                # ── col 1 : Processing Objects ───────────────────────
+                with dpg.group(width=COL_W):
+                    dpg.add_text("Processing Objects", color=[180, 220, 255])
+                    dpg.add_listbox(
+                        items=proc_types,
+                        tag="_mo_proc_listbox",
+                        num_items=16,
+                        width=COL_W,
+                    )
+
+                dpg.add_spacer(width=8)
+
+                # ── col 2 : Data Objects ─────────────────────────────
+                with dpg.group(width=COL_W):
+                    dpg.add_text("Data Objects", color=[255, 230, 140])
+                    dpg.add_listbox(
+                        items=data_types,
+                        tag="_mo_data_listbox",
+                        num_items=16,
+                        width=COL_W,
+                    )
+
+                dpg.add_spacer(width=8)
+
+                # ── center arrow buttons ─────────────────────────────
+                with dpg.group(width=70):
+                    dpg.add_spacer(height=90)
+                    dpg.add_button(
+                        label="Add Proc →",
+                        width=70,
+                        callback=self._mo_add_proc,
+                    )
+                    dpg.add_spacer(height=12)
+                    dpg.add_button(
+                        label="Add Data →",
+                        width=70,
+                        callback=self._mo_add_data,
+                    )
+                    dpg.add_spacer(height=12)
+                    dpg.add_button(
+                        label="← Remove",
+                        width=70,
+                        callback=self._mo_remove,
+                    )
+
+                dpg.add_spacer(width=8)
+
+                # ── col 3 : Staged / Selected ────────────────────────
+                with dpg.group(width=COL_W):
+                    dpg.add_text("Staged to Add", color=[150, 255, 150])
+                    dpg.add_listbox(
+                        items=[],
+                        tag="_mo_staged_listbox",
+                        num_items=16,
+                        width=COL_W,
+                    )
+
+            # ── footer ───────────────────────────────────────────────
+            dpg.add_spacer(height=8)
+            dpg.add_separator()
+            dpg.add_spacer(height=6)
+            with dpg.group(horizontal=True):
+                dpg.add_button(
+                    label="Confirm",
+                    tag="_mo_confirm_btn",
+                    width=160,
+                    callback=self._mo_confirm,
+                )
+                dpg.add_spacer(width=8)
+                dpg.add_button(
+                    label="Cancel",
+                    width=100,
+                    callback=self._mo_cancel,
+                )
+                dpg.add_spacer(width=20)
+                dpg.add_text("", tag="_mo_status_text", color=[200, 200, 100])
+
+    def _show_add_multiple_dialog(self):
+        """Open the dialog and reset staged list."""
+        self._multi_add_queue.clear()
+        self._mo_refresh_staged()
+        dpg.show_item("add_multiple_dialog")
+
+    def _on_add_multiple_close(self):
+        """Called when the window X button is pressed."""
+        self._multi_add_queue.clear()
+
+    # ── helpers ──────────────────────────────────────────────────────
+
+    def _mo_refresh_staged(self):
+        """Rebuild the staged listbox from the internal queue."""
+        dpg.configure_item("_mo_staged_listbox", items=list(self._multi_add_queue))
+        count = len(self._multi_add_queue)
+        label = f"Confirm  ({count} node{'s' if count != 1 else ''})"
+        dpg.configure_item("_mo_confirm_btn", label=label)
+        dpg.set_value("_mo_status_text", "")
+
+    def _mo_add_from_listbox(self, listbox_tag: str):
+        """Stage whichever item is currently selected in *listbox_tag*."""
+        selected = dpg.get_value(listbox_tag)
+        if selected and selected.strip():
+            self._multi_add_queue.append(selected)
+            self._mo_refresh_staged()
+
+    def _mo_add_proc(self):
+        self._mo_add_from_listbox("_mo_proc_listbox")
+
+    def _mo_add_data(self):
+        self._mo_add_from_listbox("_mo_data_listbox")
+
+    def _mo_remove(self):
+        """Remove the currently selected item from the staged list."""
+        selected = dpg.get_value("_mo_staged_listbox")
+        if selected and selected in self._multi_add_queue:
+            # Remove the last occurrence so duplicates are handled gracefully
+            idx = len(self._multi_add_queue) - 1 - self._multi_add_queue[::-1].index(selected)
+            self._multi_add_queue.pop(idx)
+            self._mo_refresh_staged()
+
+    def _mo_confirm(self):
+        """Create all staged nodes and close the dialog."""
+        if not self._multi_add_queue:
+            dpg.set_value("_mo_status_text", "Nothing staged.")
+            return
+        for node_type in self._multi_add_queue:
+            self.nm.create_node(node_type=node_type)
+        count = len(self._multi_add_queue)
+        print(f"[ADD_MULTIPLE] Created {count} node(s): {self._multi_add_queue}")
+        self._multi_add_queue.clear()
+        dpg.hide_item("add_multiple_dialog")
+
+    def _mo_cancel(self):
+        """Close without creating anything."""
+        self._multi_add_queue.clear()
+        dpg.hide_item("add_multiple_dialog")
+
 
     # In the create_ui method, add this to the global handlers section:
     def _on_key_press(self, sender, app_data):
@@ -110,6 +282,12 @@ class SpeculaEditor:
                 with dpg.menu(label="Data Objects"):
                     for node_type in sorted(self.data_obj_templates.keys()):
                         dpg.add_menu_item(label=node_type, callback=self._on_menu_create, user_data=node_type)
+
+                # Add Multiple Objects shortcut
+                dpg.add_menu_item(
+                    label="Add Multiple Objects",
+                    callback=self._show_add_multiple_dialog,
+                )
 
                 # In your main UI setup code
                 with dpg.menu(label="Layout"):
@@ -169,6 +347,9 @@ class SpeculaEditor:
         with dpg.file_dialog(label="Load Scene", show=False, callback=self._load_scene_cb, id="load_scene_dialog", width=700, height=400):
             dpg.add_file_extension(".yml")
 
+        # Add Multiple Objects modal
+        self._setup_add_multiple_dialog()
+
     # --- Startup dialog helpers ---
     def _create_startup_dialog(self):
         """Create a modal startup dialog shown at application launch."""
@@ -188,7 +369,7 @@ class SpeculaEditor:
                 dpg.add_button(label="Create New Scene", callback=self._startup_create_new)
                 dpg.add_button(label="Open Existing Scene", callback=lambda s, a: dpg.show_item("load_scene_dialog"))
                 dpg.add_button(label="Import Simulation (new scene)", callback=lambda s, a: dpg.show_item("import_sim_dialog"))
-                dpg.add_same_line(spacing=10)
+                #dpg.add_same_line(spacing=10)
                 dpg.add_button(label="Cancel", callback=lambda s, a: dpg.hide_item("startup_dialog"))
 
     def _startup_create_new(self, sender, app_data):
@@ -212,6 +393,11 @@ class SpeculaEditor:
         # Hide the startup dialog
         if dpg.does_item_exist("startup_dialog"):
             dpg.hide_item("startup_dialog")
+
+
+    # --- Callbacks ---
+    def _on_menu_create(self, sender, app_data, user_data):
+        self.nm.create_node(node_type=user_data)
 
     # --- File Bridge Callbacks ---
     def _import_cb(self, s, a):
