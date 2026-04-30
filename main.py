@@ -38,6 +38,9 @@ class SpeculaEditor:
         self.nm = NodeManager(self.graph, self.all_templates)        
         self.fh = FileHandler(self.nm)
         
+        # Track current scene name
+        self.current_scene_name = None
+        
         # 3. Setup UI
         self.create_ui()
         self.nm.setup_handlers()
@@ -138,6 +141,9 @@ class SpeculaEditor:
         # --- Setup File Dialogs ---
         self.setup_dialogs()
 
+        # --- Show Startup Dialog ---
+        self._create_startup_dialog()
+
         dpg.setup_dearpygui()
         dpg.show_viewport()
 
@@ -163,23 +169,85 @@ class SpeculaEditor:
         with dpg.file_dialog(label="Load Scene", show=False, callback=self._load_scene_cb, id="load_scene_dialog", width=700, height=400):
             dpg.add_file_extension(".yml")
 
-    # --- Callbacks ---
-    def _on_menu_create(self, sender, app_data, user_data):
-        self.nm.create_node(node_type=user_data)
+    # --- Startup dialog helpers ---
+    def _create_startup_dialog(self):
+        """Create a modal startup dialog shown at application launch."""
+        # Avoid recreating if exists
+        if dpg.does_item_exist("startup_dialog"):
+            dpg.show_item("startup_dialog")
+            return
+
+        with dpg.window(label="Welcome", tag="startup_dialog", modal=True, show=True, width=640, height=160):
+            dpg.add_text("Create a new scene, open an existing scene, or import a simulation into a new scene.")
+            dpg.add_spacing(count=1)
+            with dpg.group(horizontal=True):
+                dpg.add_text("Scene name:")
+                dpg.add_input_text(tag="startup_scene_name", width=420, hint="Enter scene name for new/import")
+            dpg.add_spacing(count=1)
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Create New Scene", callback=self._startup_create_new)
+                dpg.add_button(label="Open Existing Scene", callback=lambda s, a: dpg.show_item("load_scene_dialog"))
+                dpg.add_button(label="Import Simulation (new scene)", callback=lambda s, a: dpg.show_item("import_sim_dialog"))
+                dpg.add_same_line(spacing=10)
+                dpg.add_button(label="Cancel", callback=lambda s, a: dpg.hide_item("startup_dialog"))
+
+    def _startup_create_new(self, sender, app_data):
+        name = dpg.get_value("startup_scene_name").strip() if dpg.does_item_exist("startup_scene_name") else ""
+        if not name:
+            # simple feedback - focus the input
+            if dpg.does_item_exist("startup_scene_name"):
+                dpg.set_value("startup_scene_name", "")
+                dpg.focus_item("startup_scene_name")
+            print("Please enter a scene name before creating a new scene.")
+            return
+
+        # Clear existing graph and set scene name
+        self.nm.clear_all()
+        self.nm.graph.nodes.clear()
+        self.nm.graph.connections.clear()
+        self.nm.graph.connection_properties.clear()
+        self.current_scene_name = name
+        print(f"[SCENE] Created new scene: {name}")
+
+        # Hide the startup dialog
+        if dpg.does_item_exist("startup_dialog"):
+            dpg.hide_item("startup_dialog")
 
     # --- File Bridge Callbacks ---
-
     def _import_cb(self, s, a):
         path = pathlib.Path(a['file_path_name']).resolve()
         # Optional: restrict to allowed directories
         # if not path.is_relative_to(pathlib.Path.cwd()):
         #     print(f"[SECURITY] Blocked path traversal: {path}")
         #     return
+        # If user provided a scene name in the startup dialog, use it as the scene name for the imported scene
+        if dpg.does_item_exist("startup_scene_name"):
+            name = dpg.get_value("startup_scene_name").strip()
+            if name:
+                self.current_scene_name = name
+        else:
+            self.current_scene_name = path.stem
+
         self.fh.import_simulation(str(path))
+
+        # Hide startup dialog if still visible
+        if dpg.does_item_exist("startup_dialog"):
+            dpg.hide_item("startup_dialog")
 
     def _export_cb(self, s, a): self.fh.export_simulation(a['file_path_name'], self.export_include_defaults)
     def _save_scene_cb(self, s, a): self.fh.save_scene(a['file_path_name'])
-    def _load_scene_cb(self, s, a): self.fh.load_scene(a['file_path_name'])
+    def _load_scene_cb(self, s, a):
+        self.fh.load_scene(a['file_path_name'])
+        # Set current scene name from file
+        try:
+            path = pathlib.Path(a['file_path_name'])
+            self.current_scene_name = path.stem
+        except Exception:
+            pass
+
+        # Hide startup dialog if still visible
+        if dpg.does_item_exist("startup_dialog"):
+            dpg.hide_item("startup_dialog")
 
     def run(self):
         try:
