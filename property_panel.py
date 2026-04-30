@@ -9,15 +9,6 @@ Responsibilities
 - ``update_connection_panel`` – render connection properties (delay, type).
 - Widget callbacks for editing parameter values and node names.
 - Reference disconnection via the "X" buttons in the panel.
-
-Dependencies
-------------
-- ``GraphManager``    – read node data and connection properties.
-- ``NodeRegistry``    – link_registry, output_attr_registry for lookups.
-- ``MonitorManager``  – active_monitors, open_monitor, close_monitor.
-- Two callbacks supplied by NodeManager:
-    ``delink_callback(sender, link_id)``
-    ``refresh_node_theme(node_uuid)``
 """
 
 import ast
@@ -107,10 +98,6 @@ class PropertyPanel:
                 print(f"[PARAM_DEBUG] Meta type: {type(meta)}, Meta: {meta}")
 
                 is_ref_param = False
-                is_obj_param = False
-                if meta.get("kind") == "object":
-                    is_obj_param = True                    
-
                 if isinstance(meta, dict):
                     if meta.get("kind") == "reference":
                         is_ref_param = True
@@ -155,8 +142,6 @@ class PropertyPanel:
                                 height=20,
                             )
                     else:
-                        if is_obj_param:
-                            display_name = f"{param_name}_object"
                         is_required = False
                         if isinstance(meta, dict):
                             if (
@@ -197,14 +182,8 @@ class PropertyPanel:
                     type_hint = "str"
                 default_val = meta.get("default") if isinstance(meta, dict) else None
 
-                display_name = param_name
-                if is_obj_param:
-                    display_name = f"{param_name}_object"
-                    type_hint = "str"
-                    default_val = ''
-
                 self._render_single_widget(
-                    panel_tag, node_uuid, display_name, val, type_hint, default_val
+                    panel_tag, node_uuid, param_name, val, type_hint, default_val
                 )
                 rendered_params.add(param_name)
 
@@ -237,7 +216,9 @@ class PropertyPanel:
                     with dpg.group(horizontal=True, parent=panel_tag):
                         dpg.add_text(f"{param_name}:", color=[150, 200, 255])
                         input_tag = f"{node_uuid}_{param_name}_object"
+                        # Attach a stable tag so the file dialog can set the widget value
                         dpg.add_input_text(
+                            tag=input_tag,
                             default_value=str(val),
                             width=200,
                             hint="File path or object identifier",
@@ -563,6 +544,10 @@ class PropertyPanel:
         node_uuid, param_name = user_data
         if node_uuid in self.graph.nodes:
             node_data = self.graph.nodes[node_uuid]
+            # Ensure suffixes exists and mark this param as a data-object suffix
+            node_data.setdefault("suffixes", set())
+            node_data["suffixes"].add(param_name)
+
             node_data.setdefault("values", {})
             node_data["values"][param_name] = app_data
             node_data["values"][f"{param_name}_object"] = app_data
@@ -570,9 +555,84 @@ class PropertyPanel:
             self._refresh_node_theme(node_uuid)
 
     def _browse_data_object_file(self, sender, app_data, user_data):
-        """Placeholder: open file browser for a data-object parameter."""
+        """Open file browser for a data-object parameter and write selection back to the input + node."""
         node_uuid, param_name, input_tag = user_data
-        print(f"Browse button clicked for {param_name} on node {node_uuid}")
+
+        dialog_tag = f"file_dialog_{node_uuid}_{param_name}"
+        # If a dialog is already open, bring it to front
+        if dpg.does_item_exist(dialog_tag):
+            dpg.show_item(dialog_tag)
+            dpg.focus_item(dialog_tag)
+            return
+
+        # Callback when a file is selected
+        def _file_selected(dialog_sender, dialog_app_data, dialog_user_data):
+            # dialog_app_data can vary by DPG version. Try multiple ways to extract a path.
+            file_path = None
+
+            if isinstance(dialog_app_data, dict):
+                # Common keys across versions:
+                file_path = dialog_app_data.get("file_path_name") or dialog_app_data.get("file_path")
+                if not file_path:
+                    # selections / file_names may contain a list of names (or full paths)
+                    selections = dialog_app_data.get("selections") or dialog_app_data.get("file_names") or dialog_app_data.get("file_name")
+                    if isinstance(selections, (list, tuple)) and selections:
+                        file_path = selections[0]
+                    elif isinstance(selections, str):
+                        file_path = selections
+
+                # Some versions return a mapping with 'file_path' and 'file_name' separately
+                if file_path and file_path.endswith(".*"):
+                    # try to reconstruct using a provided filename if available
+                    fname = dialog_app_data.get("file_name") or (dialog_app_data.get("selections") or [None])[0]
+                    dirpart = file_path[:-2] if file_path.endswith("/.*") else file_path
+                    if fname:
+                        # if fname is a bare filename, join with dirpart
+                        import os
+                        if not os.path.isabs(fname) and os.path.isdir(dirpart):
+                            file_path = os.path.join(dirpart, fname)
+                        else:
+                            # if fname already contains extension/path, prefer it
+                            file_path = fname
+            elif isinstance(dialog_app_data, (list, tuple)) and dialog_app_data:
+                # older versions sometimes return list of full paths
+                file_path = dialog_app_data[0]
+
+            # Final sanity: remove trailing ".*" if still present (defensive)
+            if isinstance(file_path, str) and file_path.endswith(".*"):
+                file_path = file_path[:-2]
+
+            if file_path:
+                # Write into the input widget if it exists
+                try:
+                    if dpg.does_item_exist(input_tag):
+                        dpg.set_value(input_tag, file_path)
+                except Exception as e:
+                    print(f"[BROWSE] Could not set input tag {input_tag}: {e}")
+
+                # Call the updater to persist into the node values
+                try:
+                    self._update_data_object_param(None, file_path, (node_uuid, param_name))
+                except Exception as e:
+                    print(f"[BROWSE] Error updating node value for {param_name}: {e}")
+
+            # Close the dialog
+            try:
+                dpg.hide_item(dialog_tag)
+                dpg.delete_item(dialog_tag)
+            except Exception:
+                pass
+
+        # Create the dialog (modal style) and set the selection callback
+        # Use explicit filters - FITS first, then All files.
+        with dpg.file_dialog(directory_selector=False, show=True, callback=_file_selected, tag=dialog_tag, width=700, height=400):
+            # FITS filter(s)
+            dpg.add_file_extension(".fits", color=(150, 150, 150), custom_text="FITS")
+            dpg.add_file_extension(".fit", color=(4150, 150, 150), custom_text="FIT")
+            # Generic all files filter
+            dpg.add_file_extension(".*", color=(150, 150, 150), custom_text="All files")
+            pass
+
 
     def _disconnect_reference(self, sender, app_data, user_data):
         """Remove the link that provides a reference parameter."""
@@ -697,6 +757,9 @@ class PropertyPanel:
         if is_required and (val is None or val == "REQUIRED"):
             display_val = "" if type_hint in ("str", "string") else 0
 
+        # stable tag for data-object inputs so browse dialog can set them
+        input_tag = f"{node_uuid}_{param_name}_object"
+
         with dpg.group(horizontal=True, parent=parent):
             dpg.add_text(f"{param_name}:", color=label_color)
 
@@ -731,21 +794,47 @@ class PropertyPanel:
             elif isinstance(display_val, list) or type_hint == "list":
                 if display_val is None:
                     display_val = []
-                dpg.add_input_text(
-                    default_value=str(display_val),
-                    width=150,
-                    callback=self._update_param,
-                    user_data=user_data,
-                )
+                if is_data_object:
+                    dpg.add_input_text(
+                        tag=input_tag,
+                        default_value=str(display_val),
+                        width=150,
+                        callback=self._update_data_object_param,
+                        user_data=(node_uuid, param_name),
+                    )
+                else:
+                    dpg.add_input_text(
+                        default_value=str(display_val),
+                        width=150,
+                        callback=self._update_param,
+                        user_data=user_data,
+                    )
             else:
                 if display_val is None:
                     display_val = ""
-                dpg.add_input_text(
-                    default_value=str(display_val),
-                    width=150,
-                    callback=self._update_param,
-                    user_data=user_data,
-                )
+                if is_data_object:
+                    dpg.add_input_text(
+                        tag=input_tag,
+                        default_value=str(display_val),
+                        width=150,
+                        hint="File path or object identifier",
+                        callback=self._update_data_object_param,
+                        user_data=(node_uuid, param_name),
+                    )
+                    # also offer a small Browse button next to it
+                    dpg.add_button(
+                        label="...",
+                        width=30,
+                        callback=self._browse_data_object_file,
+                        user_data=(node_uuid, param_name, input_tag),
+                    )
+                else:
+                    dpg.add_input_text(
+                        default_value=str(display_val),
+                        width=150,
+                        callback=self._update_param,
+                        user_data=user_data,
+                    )
 
     def is_data_class_type(self, type_name: str) -> bool:
         """Return True if *type_name* looks like a Specula data-object type."""

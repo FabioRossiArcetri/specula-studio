@@ -2272,7 +2272,7 @@ ExtSourcePyramid:
       kind: value
       type: float
     min_pup_dist:
-      default: 0.0
+      default: null
       kind: value
       type: float
     output_resolution:
@@ -3974,7 +3974,7 @@ ModulatedDoubleRoof:
       kind: value
       type: float
     min_pup_dist:
-      default: 0.0
+      default: null
       kind: value
       type: float
     mod_amp:
@@ -4113,7 +4113,7 @@ ModulatedPyramid:
       kind: value
       type: float
     min_pup_dist:
-      default: 0.0
+      default: null
       kind: value
       type: float
     mod_amp:

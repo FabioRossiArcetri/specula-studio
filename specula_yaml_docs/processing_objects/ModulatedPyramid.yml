@@ -83,7 +83,7 @@ ModulatedPyramid:
       kind: value
     min_pup_dist:
       type: float
-      default: 0.0
+      default: null
       kind: value
     rotAnglePhInDeg:
       type: float
