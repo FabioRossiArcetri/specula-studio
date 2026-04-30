@@ -68,6 +68,24 @@ class SpeculaEditor:
     # Add Multiple Objects dialog
     # ------------------------------------------------------------------
 
+    def _mo_on_double_click(self, sender, app_data):
+        # app_data[1] is the item that was double-clicked
+        clicked_id = app_data[1]
+        
+        # 1. Check if the clicked item itself is the listbox
+        # 2. Or check if the parent of the clicked item is the listbox
+        # (DPG sometimes reports the internal selectable item)
+        parent_id = dpg.get_item_info(clicked_id)["parent"]
+        
+        # Resolve IDs to Tags/Aliases for comparison
+        alias = dpg.get_item_alias(clicked_id)
+        parent_alias = dpg.get_item_alias(parent_id)
+
+        if alias == "_mo_proc_listbox" or parent_alias == "_mo_proc_listbox":
+            self._mo_add_proc()
+        elif alias == "_mo_data_listbox" or parent_alias == "_mo_data_listbox":
+            self._mo_add_data()
+
     def _setup_add_multiple_dialog(self):
         """Build the 'Add Multiple Objects' modal window (created once)."""
         self._multi_add_queue = []   # list of node_type strings staged for creation
@@ -77,7 +95,12 @@ class SpeculaEditor:
 
         LISTBOX_H = 320   # pixel height of each listbox
         COL_W     = 260   # width of each column
-
+        
+        # Use a unique tag and check existence
+        if not dpg.does_item_exist("mo_double_click_handler"):
+            with dpg.item_handler_registry(tag="mo_double_click_handler"):
+                dpg.add_item_double_clicked_handler(callback=self._mo_on_double_click)
+                        
         with dpg.window(
             label="Add Multiple Objects",
             tag="add_multiple_dialog",
@@ -100,28 +123,32 @@ class SpeculaEditor:
             # ── three-column layout ──────────────────────────────────
             with dpg.group(horizontal=True):
 
-                # ── col 1 : Processing Objects ───────────────────────
+                # Processing Objects Column
                 with dpg.group(width=COL_W):
-                    dpg.add_text("Processing Objects", color=[180, 220, 255])
+                    dpg.add_text("Processing Objects")
                     dpg.add_listbox(
                         items=proc_types,
                         tag="_mo_proc_listbox",
                         num_items=16,
                         width=COL_W,
                     )
+                    # Bind the handler
+                    dpg.bind_item_handler_registry("_mo_proc_listbox", "mo_double_click_handler")
 
                 dpg.add_spacer(width=8)
 
-                # ── col 2 : Data Objects ─────────────────────────────
+                # Data Objects Column
                 with dpg.group(width=COL_W):
-                    dpg.add_text("Data Objects", color=[255, 230, 140])
+                    dpg.add_text("Data Objects")
                     dpg.add_listbox(
                         items=data_types,
                         tag="_mo_data_listbox",
                         num_items=16,
                         width=COL_W,
                     )
-
+                    # Bind the handler
+                    dpg.bind_item_handler_registry("_mo_data_listbox", "mo_double_click_handler")                    
+                
                 dpg.add_spacer(width=8)
 
                 # ── center arrow buttons ─────────────────────────────
