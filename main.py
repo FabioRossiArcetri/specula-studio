@@ -11,6 +11,8 @@ import pathlib
 
 # Constants
 import matplotlib
+
+from simulation_control import SimulationControl
 FONT_PATH = matplotlib.get_data_path() + '/fonts/ttf/'
 FONT_PATH += "DejaVuSerif.ttf"
 
@@ -32,6 +34,8 @@ class SpeculaEditor:
         self.data_obj_templates = self.load_templates(os.path.join(yaml_folder, 'data_objects'))
         self.proc_obj_templates = self.load_templates(os.path.join(yaml_folder, 'processing_objects'))
         self.all_templates = {**self.data_obj_templates, **self.proc_obj_templates}
+        self.current_scene_name = "untitled"  # Add this line
+        self.sim_control = SimulationControl(self)
         
         # 2. Initialize Logic Layers
         self.graph = GraphManager(self.all_templates)
@@ -321,6 +325,8 @@ class SpeculaEditor:
                     dpg.add_menu_item(label="Auto Layout", callback=lambda: auto_layout_nodes(self.nm.graph, self.nm.uuid_to_dpg))
                     dpg.add_menu_item(label="Debug Info", callback=lambda: print(f"Nodes: {len(self.nm.graph.nodes)}, Connections: {len(self.nm.graph.connections)}"))
   
+                with dpg.menu(label="Simulation"):
+                    dpg.add_menu_item(label="Simulation Control Panel", callback=self.sim_control.show_window)
 
             # 2. Split Workspace
             with dpg.group(horizontal=True):

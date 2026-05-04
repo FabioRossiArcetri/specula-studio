@@ -508,34 +508,67 @@ class PropertyPanel:
                 )
             print(f"Renamed node {node_uuid} to '{new_name}'")
 
-    def _update_param(self, sender, app_data, user_data):
-        """Save a UI widget change back to the graph, enforcing types."""
-        node_uuid, param_name, target_type = user_data
-        if node_uuid not in self.graph.nodes:
-            return
-        values_dict = self.graph.nodes[node_uuid]["values"]
-        final_val = app_data
+    def _parse_value(self, value):
+        """Helper to convert GUI string input to proper Python types."""
+        if not isinstance(value, str):
+            return value
+        val_stripped = value.strip()
+        if not val_stripped:
+            return ""
         try:
-            if target_type == "list" or (
-                isinstance(app_data, str) and app_data.startswith("[")
-            ):
+            # literal_eval handles: numbers, lists, dicts, booleans, and None
+            return ast.literal_eval(val_stripped)
+        except (ValueError, SyntaxError):
+            # Fallback for plain strings (filenames, etc.)
+            return val_stripped
+
+    def _update_param(self, sender, app_data, user_data):
+        """Generic parameter update callback for simple types."""
+        node_uuid, param_name, target_type = user_data
+        node_data = self.graph.nodes[node_uuid]
+        values_dict = node_data.setdefault("values", {})
+
+        try:
+            # 1. Clean input
+            raw_input = app_data.strip()
+            lower_input = raw_input.lower()
+            final_val = raw_input
+
+            # 2. Handle Infinity/NaN explicitly for single values
+            if lower_input in ["inf", "infinity", ".inf"]:
+                final_val = float('inf')
+            elif lower_input in ["-inf", "-infinity", "-.inf"]:
+                final_val = float('-inf')
+            
+            # 3. Handle Lists (which might contain 'inf')
+            elif target_type == "list" or raw_input.startswith("["):
                 try:
-                    final_val = ast.literal_eval(app_data)
-                except (ValueError, SyntaxError):
-                    print(f"Warning: Invalid list syntax for {param_name}")
-                    return
-            elif target_type in ["int", "integer"]:
-                final_val = int(app_data)
+                    # Using yaml.safe_load is better than ast.literal_eval here
+                    # because it recognizes .inf and is generally more forgiving
+                    # We ensure list-like strings are formatted for YAML (e.g. [inf] -> [.inf])
+                    yaml_ready = raw_input.replace("inf", ".inf").replace("nan", ".nan")
+                    final_val = yaml.safe_load(yaml_ready)
+                except Exception:
+                    # Fallback to literal_eval if YAML fails
+                    try:
+                        final_val = ast.literal_eval(raw_input)
+                    except (ValueError, SyntaxError):
+                        print(f"Warning: Invalid list syntax for {param_name}")
+                        return
+
+            # 4. Handle standard numeric types
             elif target_type in ["float", "double", "number"]:
-                final_val = float(app_data)
+                if not isinstance(final_val, float): # if not already set by infinity check
+                    final_val = float(raw_input)
+            elif target_type in ["int", "integer"]:
+                final_val = int(raw_input)
             elif target_type in ["bool", "boolean"]:
-                final_val = bool(app_data)
+                final_val = lower_input in ["true", "1", "yes", "on"]
+
+            # Update and refresh
             values_dict[param_name] = final_val
             self._refresh_node_theme(node_uuid)
-            print(
-                f"Updated {node_uuid} [{param_name}] -> "
-                f"{final_val} ({type(final_val).__name__})"
-            )
+            
         except Exception as e:
             print(f"Error updating parameter {param_name}: {e}")
 
@@ -752,8 +785,11 @@ class PropertyPanel:
             label_color = _MODIFIED_PARAM_COLOR
 
         user_data = (node_uuid, param_name, type_hint)
-        display_val = val
-
+        display_val = str(val)
+        if val == float('inf'):
+            display_val = "inf"
+        elif val == float('-inf'):
+            display_val = "-inf"
         if is_required and (val is None or val == "REQUIRED"):
             display_val = "" if type_hint in ("str", "string") else 0
 
