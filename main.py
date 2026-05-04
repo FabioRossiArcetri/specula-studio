@@ -11,8 +11,6 @@ import pathlib
 
 # Constants
 import matplotlib
-
-from simulation_control import SimulationControl
 FONT_PATH = matplotlib.get_data_path() + '/fonts/ttf/'
 FONT_PATH += "DejaVuSerif.ttf"
 
@@ -34,20 +32,25 @@ class SpeculaEditor:
         self.data_obj_templates = self.load_templates(os.path.join(yaml_folder, 'data_objects'))
         self.proc_obj_templates = self.load_templates(os.path.join(yaml_folder, 'processing_objects'))
         self.all_templates = {**self.data_obj_templates, **self.proc_obj_templates}
-        self.current_scene_name = "untitled"  # Add this line
-        self.sim_control = SimulationControl(self)
         
         # 2. Initialize Logic Layers
         self.graph = GraphManager(self.all_templates)
         self.nm = NodeManager(self.graph, self.all_templates)        
         self.fh = FileHandler(self.nm)
         
-        # Track current scene name
+        # Track current scene name and path
         self.current_scene_name = None
+        self.current_scene_path = None
+        
+        # Track items pending deletion
+        self.pending_deletion_type = None  # 'node', 'link'
+        self.pending_deletion_items = []
         
         # 3. Setup UI
         self.create_ui()
-        self.nm.setup_handlers()
+        # IMPORTANT: Do NOT call self.nm.setup_handlers() - it has an automatic Delete handler
+        # Instead, register handlers manually without the Delete key handler
+        self._setup_custom_handlers()
 
 
     def load_templates(self, folder):
@@ -62,11 +65,189 @@ class SpeculaEditor:
                             templates.update(data)
         return templates
 
+    def _setup_custom_handlers(self):
+        """Register handlers without the automatic Delete key handler from nm.setup_handlers()."""
+        with dpg.handler_registry():
+            dpg.add_mouse_click_handler(callback=self.nm.on_click_editor)
+            dpg.add_key_press_handler(key=dpg.mvKey_D, callback=self.nm.delete_selected_link)
+            # DO NOT register Delete key here - we handle it in our own _on_key_press
+            dpg.add_mouse_double_click_handler(callback=self.nm._on_canvas_double_click)
+            dpg.add_mouse_move_handler(callback=self.nm._on_mouse_move)
     
     # Callback in SpeculaEditor class
     def _toggle_export_defaults(self, sender, app_data):
         print('_toggle_export_defaults', app_data)
         self.export_include_defaults = app_data
+
+    # ------------------------------------------------------------------
+    # Status Bar Management
+    # ------------------------------------------------------------------
+
+    def _update_status_bar(self):
+        """Update the status bar to show the current scene name."""
+        if self.current_scene_name:
+            status_text = f"Scene: {self.current_scene_name}"
+        else:
+            status_text = "Scene: (Unsaved)"
+        
+        if dpg.does_item_exist("status_bar_text"):
+            dpg.set_value("status_bar_text", status_text)
+
+    # ------------------------------------------------------------------
+    # New Scene Handling
+    # ------------------------------------------------------------------
+
+    def _on_new_scene_clicked(self):
+        """Handle 'New Scene' menu click. Offer to save current scene."""
+        if self.current_scene_name is None:
+            # No scene loaded, just show startup dialog
+            self._show_startup_dialog()
+        else:
+            # Scene exists, ask if user wants to save
+            dpg.show_item("new_scene_confirmation_dialog")
+
+    def _on_new_scene_save_and_proceed(self):
+        """User chose to save before creating new scene."""
+        if self.current_scene_path:
+            # Save to existing path
+            self.fh.save_scene(self.current_scene_path)
+        else:
+            # No path set, show save dialog
+            dpg.hide_item("new_scene_confirmation_dialog")
+            dpg.show_item("save_before_new_dialog")
+            return
+        
+        # Proceed with new scene
+        dpg.hide_item("new_scene_confirmation_dialog")
+        self._show_startup_dialog()
+
+    def _on_save_before_new_cb(self, sender, app_data):
+        """Callback from save dialog before creating new scene."""
+        path = app_data['file_path_name']
+        self.fh.save_scene(path)
+        self.current_scene_path = path
+        self.current_scene_name = pathlib.Path(path).stem
+        self._update_status_bar()
+        
+        # Proceed with new scene
+        self._show_startup_dialog()
+
+    def _on_new_scene_discard(self):
+        """User chose not to save, just proceed with new scene."""
+        dpg.hide_item("new_scene_confirmation_dialog")
+        self._show_startup_dialog()
+
+    def _on_new_scene_cancel(self):
+        """User cancelled creating new scene."""
+        dpg.hide_item("new_scene_confirmation_dialog")
+
+    # ------------------------------------------------------------------
+    # Delete Confirmation Dialog
+    # ------------------------------------------------------------------
+
+    def _on_delete_requested(self):
+        """Called when user presses Delete key."""
+        # Check if a link is selected first
+        if self.nm._selected_link_id:
+            self.pending_deletion_items = [self.nm._selected_link_id]
+            self.pending_deletion_type = "link"
+            self._show_delete_confirmation_dialog("Delete 1 connection?")
+            return
+        
+        # Get selected nodes
+        selected_nodes = self.nm.get_selected_nodes()
+        
+        if not selected_nodes:
+            # Nothing selected
+            return
+        
+        # Store pending deletion items
+        self.pending_deletion_items = selected_nodes
+        self.pending_deletion_type = "nodes"
+        self._show_delete_confirmation_dialog(f"Delete {len(selected_nodes)} node(s)?")
+
+    def _show_delete_confirmation_dialog(self, message):
+        """Show the delete confirmation dialog."""
+        if dpg.does_item_exist("delete_confirmation_dialog"):
+            dpg.delete_item("delete_confirmation_dialog")
+        
+        with dpg.window(
+            label="Confirm Deletion",
+            tag="delete_confirmation_dialog",
+            modal=True,
+            show=True,
+            width=400,
+            height=150,
+            no_resize=True
+        ):
+            dpg.add_text(message)
+            dpg.add_spacing(count=2)
+            
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Delete", width=100, callback=self._on_delete_confirm)
+                dpg.add_button(label="Cancel", width=100, callback=self._on_delete_cancel)
+
+    def _on_delete_confirm(self):
+        """User confirmed deletion."""
+        dpg.hide_item("delete_confirmation_dialog")
+        
+        if self.pending_deletion_type == "nodes":
+            # Delete nodes using the original node_manager method
+            for node_uuid in self.pending_deletion_items:
+                self.nm.delete_node(node_uuid)
+        elif self.pending_deletion_type == "link":
+            # Delete links using the original delink_callback
+            for link_id in self.pending_deletion_items:
+                self.nm.delink_callback(None, link_id)
+        
+        # Clear pending deletion
+        self.pending_deletion_items = []
+        self.pending_deletion_type = None
+
+    def _on_delete_cancel(self):
+        """User cancelled deletion."""
+        dpg.hide_item("delete_confirmation_dialog")
+        # Clear pending deletion
+        self.pending_deletion_items = []
+        self.pending_deletion_type = None
+
+    # ------------------------------------------------------------------
+    # Exit and Close Window Handling
+    # ------------------------------------------------------------------
+    
+    def _on_exit_requested(self):
+        """Called when user clicks Exit menu or closes the main window."""
+        # Show confirmation dialog
+        dpg.show_item("exit_confirmation_dialog")
+    
+    def _on_exit_confirm(self):
+        """User confirmed exit without saving."""
+        dpg.hide_item("exit_confirmation_dialog")
+        dpg.stop_dearpygui()
+    
+    def _on_exit_save_and_confirm(self):
+        """User confirmed exit and wants to save first."""
+        # If we have a current scene path, save to that path directly
+        if self.current_scene_path:
+            self.fh.save_scene(self.current_scene_path)
+            dpg.stop_dearpygui()
+        else:
+            # Show save dialog
+            dpg.hide_item("exit_confirmation_dialog")
+            dpg.show_item("save_and_exit_dialog")
+    
+    def _on_save_and_exit_cb(self, sender, app_data):
+        """Callback from save dialog when saving before exit."""
+        path = app_data['file_path_name']
+        self.fh.save_scene(path)
+        self.current_scene_path = path
+        self.current_scene_name = pathlib.Path(path).stem
+        self._update_status_bar()
+        dpg.stop_dearpygui()
+    
+    def _on_exit_cancel(self):
+        """User cancelled the exit."""
+        dpg.hide_item("exit_confirmation_dialog")
 
     # ------------------------------------------------------------------
     # Add Multiple Objects dialog
@@ -268,13 +449,11 @@ class SpeculaEditor:
         dpg.hide_item("add_multiple_dialog")
 
 
-    # In the create_ui method, add this to the global handlers section:
     def _on_key_press(self, sender, app_data):
         """Handle global key presses."""
-        # D key to delete selected link
-        if app_data == dpg.mvKey_D:
-            # Forward to node manager
-            self.nm.delete_selected_link(sender, app_data)
+        # Delete key to delete selected nodes or links with confirmation
+        if app_data == dpg.mvKey_Delete:
+            self._on_delete_requested()
 
 
     def create_ui(self):
@@ -289,23 +468,25 @@ class SpeculaEditor:
             if os.path.exists(FONT_PATH):
                 dpg.bind_font(dpg.add_font(FONT_PATH, FONT_SIZE))
 
-        dpg.create_viewport(title="SPECULA Node Editor", width=1600, height=900)
-
         # --- Main Window ---
-        with dpg.window(label="SPECULA Editor", tag='main_window'):
+        
+        with dpg.window(label="SPECULA Editor", tag='main_window', on_close=self._on_exit_requested):
             
             # 1. Menu Bar
             with dpg.menu_bar():
                 with dpg.menu(label="File"):
-
-                    dpg.add_menu_item(label="Save Scene", callback=lambda: dpg.show_item("save_scene_dialog"))
+                    dpg.add_menu_item(label="New Scene", callback=self._on_new_scene_clicked)
+                    dpg.add_separator()
+                    dpg.add_menu_item(label="Save Scene", callback=self._on_save_scene_clicked)
+                    dpg.add_menu_item(label="Save Scene As", callback=lambda: dpg.show_item("save_scene_dialog"))
                     dpg.add_menu_item(label="Load Scene", callback=lambda: dpg.show_item("load_scene_dialog"))
                     dpg.add_separator()                    
                     dpg.add_menu_item(label="Import Specula Sim", callback=lambda: dpg.show_item("import_sim_dialog"))
                     dpg.add_menu_item(label="Include Defaults in Export", check=True, callback=self._toggle_export_defaults)
                     dpg.add_menu_item(label="Export Specula Sim", callback=lambda: dpg.show_item("export_sim_dialog"))
+                    dpg.add_separator()
+                    dpg.add_menu_item(label="Exit", callback=self._on_exit_requested)
 
-          
                 with dpg.menu(label="Processing Objects"):
                     for node_type in sorted(self.proc_obj_templates.keys()):
                         dpg.add_menu_item(label=node_type, callback=self._on_menu_create, user_data=node_type)
@@ -314,56 +495,62 @@ class SpeculaEditor:
                     for node_type in sorted(self.data_obj_templates.keys()):
                         dpg.add_menu_item(label=node_type, callback=self._on_menu_create, user_data=node_type)
 
-                # Add Multiple Objects shortcut
-                dpg.add_menu_item(
-                    label="Add Multiple Objects",
-                    callback=self._show_add_multiple_dialog,
-                )
+                dpg.add_menu_item(label="Add Multiple Objects", callback=self._show_add_multiple_dialog)
 
-                # In your main UI setup code
                 with dpg.menu(label="Layout"):
                     dpg.add_menu_item(label="Auto Layout", callback=lambda: auto_layout_nodes(self.nm.graph, self.nm.uuid_to_dpg))
                     dpg.add_menu_item(label="Debug Info", callback=lambda: print(f"Nodes: {len(self.nm.graph.nodes)}, Connections: {len(self.nm.graph.connections)}"))
   
-                with dpg.menu(label="Simulation"):
-                    dpg.add_menu_item(label="Simulation Control Panel", callback=self.sim_control.show_window)
+            # 2. Main content area (horizontal: editor + properties)
+            with dpg.group(horizontal=False):
+                with dpg.group(horizontal=True):
+                    # Left Side: The Editor
+                    with dpg.child_window(width=-450, tag="specula_editor_parent", border=False):
+                        with dpg.node_editor(
+                            tag="specula_editor", 
+                            callback=self.nm.link_callback, 
+                            delink_callback=self.nm.delink_callback,
+                            minimap=True
+                        ):
+                            pass
 
-            # 2. Split Workspace
-            with dpg.group(horizontal=True):
-                # Left Side: The Editor
-                with dpg.child_window(width=-450, border=False):
-                    with dpg.node_editor(
-                        tag="specula_editor", 
-                        callback=self.nm.link_callback, 
-                        delink_callback=self.nm.delink_callback,
-                        minimap=True
-                    ):
+                    # Right Side: Properties Panel
+                    with dpg.child_window(width=430, tag="property_panel", border=True):
                         pass
 
-                # Right Side: Properties Panel
-                with dpg.child_window(width=430, tag="property_panel", border=True):
-                    pass
+                # 3. Status Bar at the bottom
+                with dpg.child_window(height=30, tag="status_bar",border=False):
+                    dpg.add_text("Scene: (Unsaved)", tag="status_bar_text", color=(180, 180, 180))
 
         # --- Global Handlers ---
         with dpg.handler_registry():
-            dpg.add_key_press_handler(callback=self._on_key_press)  # Add this line
+            dpg.add_key_press_handler(callback=self._on_key_press)
 
+        dpg.create_viewport(title="SPECULA Node Editor", width=1600, height=900)
+
+        dpg.set_viewport_resize_callback(self._resize_callback)
 
         # --- Setup File Dialogs ---
         self.setup_dialogs()
 
         # --- Show Startup Dialog ---
-        self._create_startup_dialog()
+        self._show_startup_dialog()
 
         dpg.setup_dearpygui()
         dpg.show_viewport()
 
         self.nm.after_dpg_init()
-    
 
         dpg.set_primary_window('main_window', True)
 
 
+    def _resize_callback(self):
+        # Get current viewport height
+        h = dpg.get_viewport_height()
+        # Subtract roughly 80px (for menu bar + status bar + margins)
+        new_height = h - 80 
+        dpg.set_item_height("specula_editor_parent", new_height)
+        dpg.set_item_height("property_panel", new_height)
 
 
     def setup_dialogs(self):
@@ -380,13 +567,72 @@ class SpeculaEditor:
         with dpg.file_dialog(label="Load Scene", show=False, callback=self._load_scene_cb, id="load_scene_dialog", width=700, height=400):
             dpg.add_file_extension(".yml")
 
+        with dpg.file_dialog(label="Save Scene Before Exit", show=False, callback=self._on_save_and_exit_cb, id="save_and_exit_dialog", width=700, height=400):
+            dpg.add_file_extension(".yml")
+
+        with dpg.file_dialog(label="Save Scene Before New", show=False, callback=self._on_save_before_new_cb, id="save_before_new_dialog", width=700, height=400):
+            dpg.add_file_extension(".yml")
+
+        # Exit Confirmation Dialog
+        self._create_exit_confirmation_dialog()
+
+        # New Scene Confirmation Dialog
+        self._create_new_scene_confirmation_dialog()
+
         # Add Multiple Objects modal
         self._setup_add_multiple_dialog()
 
+    def _create_exit_confirmation_dialog(self):
+        """Create the exit confirmation modal dialog."""
+        with dpg.window(
+            label="Confirm Exit",
+            tag="exit_confirmation_dialog",
+            modal=True,
+            show=False,
+            width=450,
+            height=180,
+            no_resize=True
+        ):
+            dpg.add_text("Are you sure you want to exit?")
+            dpg.add_text("Would you like to save your current simulation before exiting?", color=[180, 180, 180])
+            dpg.add_spacing(count=2)
+            
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Save and Exit", width=140, callback=self._on_exit_save_and_confirm)
+                dpg.add_button(label="Exit without Saving", width=140, callback=self._on_exit_confirm)
+                dpg.add_button(label="Cancel", width=100, callback=self._on_exit_cancel)
+
+    def _create_new_scene_confirmation_dialog(self):
+        """Create the new scene confirmation modal dialog."""
+        with dpg.window(
+            label="Create New Scene?",
+            tag="new_scene_confirmation_dialog",
+            modal=True,
+            show=False,
+            width=450,
+            height=180,
+            no_resize=True
+        ):
+            dpg.add_text("Create a new scene?")
+            dpg.add_text("Your current scene will be cleared. Would you like to save it first?", color=[180, 180, 180])
+            dpg.add_spacing(count=2)
+            
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Save and Continue", width=140, callback=self._on_new_scene_save_and_proceed)
+                dpg.add_button(label="Discard", width=100, callback=self._on_new_scene_discard)
+                dpg.add_button(label="Cancel", width=100, callback=self._on_new_scene_cancel)
+
     # --- Startup dialog helpers ---
+    def _show_startup_dialog(self):
+        """Show the startup dialog (reused for new scenes)."""
+        if dpg.does_item_exist("startup_dialog"):
+            dpg.set_value("startup_scene_name", "")
+            dpg.show_item("startup_dialog")
+        else:
+            self._create_startup_dialog()
+
     def _create_startup_dialog(self):
         """Create a modal startup dialog shown at application launch."""
-        # Avoid recreating if exists
         if dpg.does_item_exist("startup_dialog"):
             dpg.show_item("startup_dialog")
             return
@@ -402,13 +648,11 @@ class SpeculaEditor:
                 dpg.add_button(label="Create New Scene", callback=self._startup_create_new)
                 dpg.add_button(label="Open Existing Scene", callback=lambda s, a: dpg.show_item("load_scene_dialog"))
                 dpg.add_button(label="Import Simulation (new scene)", callback=lambda s, a: dpg.show_item("import_sim_dialog"))
-                #dpg.add_same_line(spacing=10)
                 dpg.add_button(label="Cancel", callback=lambda s, a: dpg.hide_item("startup_dialog"))
 
     def _startup_create_new(self, sender, app_data):
         name = dpg.get_value("startup_scene_name").strip() if dpg.does_item_exist("startup_scene_name") else ""
         if not name:
-            # simple feedback - focus the input
             if dpg.does_item_exist("startup_scene_name"):
                 dpg.set_value("startup_scene_name", "")
                 dpg.focus_item("startup_scene_name")
@@ -421,9 +665,10 @@ class SpeculaEditor:
         self.nm.graph.connections.clear()
         self.nm.graph.connection_properties.clear()
         self.current_scene_name = name
+        self.current_scene_path = None
         print(f"[SCENE] Created new scene: {name}")
+        self._update_status_bar()
 
-        # Hide the startup dialog
         if dpg.does_item_exist("startup_dialog"):
             dpg.hide_item("startup_dialog")
 
@@ -432,14 +677,16 @@ class SpeculaEditor:
     def _on_menu_create(self, sender, app_data, user_data):
         self.nm.create_node(node_type=user_data)
 
+    def _on_save_scene_clicked(self):
+        """Handle 'Save Scene' menu click."""
+        if self.current_scene_path:
+            self.fh.save_scene(self.current_scene_path)
+        else:
+            dpg.show_item("save_scene_dialog")
+
     # --- File Bridge Callbacks ---
     def _import_cb(self, s, a):
         path = pathlib.Path(a['file_path_name']).resolve()
-        # Optional: restrict to allowed directories
-        # if not path.is_relative_to(pathlib.Path.cwd()):
-        #     print(f"[SECURITY] Blocked path traversal: {path}")
-        #     return
-        # If user provided a scene name in the startup dialog, use it as the scene name for the imported scene
         if dpg.does_item_exist("startup_scene_name"):
             name = dpg.get_value("startup_scene_name").strip()
             if name:
@@ -447,24 +694,33 @@ class SpeculaEditor:
         else:
             self.current_scene_name = path.stem
 
+        self.current_scene_path = None
         self.fh.import_simulation(str(path))
+        self._update_status_bar()
 
-        # Hide startup dialog if still visible
         if dpg.does_item_exist("startup_dialog"):
             dpg.hide_item("startup_dialog")
 
-    def _export_cb(self, s, a): self.fh.export_simulation(a['file_path_name'], self.export_include_defaults)
-    def _save_scene_cb(self, s, a): self.fh.save_scene(a['file_path_name'])
+    def _export_cb(self, s, a): 
+        self.fh.export_simulation(a['file_path_name'], self.export_include_defaults)
+    
+    def _save_scene_cb(self, s, a):
+        path = a['file_path_name']
+        self.fh.save_scene(path)
+        self.current_scene_path = path
+        self.current_scene_name = pathlib.Path(path).stem
+        self._update_status_bar()
+    
     def _load_scene_cb(self, s, a):
-        self.fh.load_scene(a['file_path_name'])
-        # Set current scene name from file
+        path = pathlib.Path(a['file_path_name']).resolve()
+        self.fh.load_scene(str(path))
         try:
-            path = pathlib.Path(a['file_path_name'])
+            self.current_scene_path = str(path)
             self.current_scene_name = path.stem
         except Exception:
             pass
+        self._update_status_bar()
 
-        # Hide startup dialog if still visible
         if dpg.does_item_exist("startup_dialog"):
             dpg.hide_item("startup_dialog")
 
@@ -473,10 +729,8 @@ class SpeculaEditor:
             self.nm.start_periodic_tasks()
             dpg.start_dearpygui()
         finally:
-            # Clean up monitors before destroying context
             dpg.destroy_context()
 
 if __name__ == "__main__":
-    # Ensure this points to your actual config folder
     editor = SpeculaEditor(yaml_folder="specula_yaml_docs") 
     editor.run()

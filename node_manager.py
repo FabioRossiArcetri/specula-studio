@@ -32,8 +32,8 @@ from property_panel import PropertyPanel
 
 # Pin shapes
 REF_SHAPE = dpg.mvNode_PinShape_QuadFilled  # Square for references
-DATA_SHAPE = dpg.mvNode_PinShape_CircleFilled  # Circle for data
-
+DATA_SHAPE = dpg.mvNode_PinShape_TriangleFilled  # Circle for data
+DATA_MULTIPLE_SHAPE = dpg.mvNode_PinShape_TriangleFilled  # Circle for data
 
 class NodeManager:
     """
@@ -793,7 +793,6 @@ class NodeManager:
         with dpg.handler_registry():
             dpg.add_mouse_click_handler(callback=self.on_click_editor)
             dpg.add_key_press_handler(key=dpg.mvKey_D, callback=self.delete_selected_link)
-            dpg.add_key_press_handler(dpg.mvKey_Delete, callback=self.delete_selection)
             dpg.add_mouse_double_click_handler(callback=self._on_canvas_double_click)
             dpg.add_mouse_move_handler(callback=self._on_mouse_move)
 

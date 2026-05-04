@@ -4,7 +4,6 @@ import dearpygui.dearpygui as dpg
 from dpg_utils import auto_layout_nodes
 import uuid
 import traceback
-import ast
 
 class FileHandler:
     def __init__(self, node_manager):
@@ -23,129 +22,321 @@ class FileHandler:
                 if self.nm._last_selected_uuid == u_id:
                     self.nm.update_property_panel(u_id, "property_panel")
 
-    def import_simulation(self, file_path):
-        with open(file_path, "r") as f:
-            sim_data = yaml.safe_load(f)
+    def _load_yaml_file(self, file_path):
+        """Load and validate YAML file. Returns parsed data or None."""
+        try:
+            with open(file_path, "r") as f:
+                data = yaml.safe_load(f)
+            
+            if not isinstance(data, dict):
+                print(f"[FILE_HANDLER] Error: YAML root must be a mapping, got {type(data)}")
+                return None
+            
+            return data
+        except Exception as e:
+            print(f"[FILE_HANDLER] Error loading YAML file: {e}")
+            return None
 
-        if not isinstance(sim_data, dict):
-            print(f"[IMPORT] Error: YAML root must be a mapping, got {type(sim_data)}")
-            return
+    def _populate_graph_from_yaml(self, yaml_data):
+        """
+        Populate graph model from YAML data (Pass 1).
         
-        # Clear existing graph
-        self.nm.clear_all()
+        Creates nodes in the graph model and loads their parameter values,
+        but does not create UI elements or connections yet.
+        
+        Args:
+            yaml_data (dict): Parsed YAML data
+            
+        Returns:
+            dict: Mapping of node names to UUIDs
+        """
         name_to_uuid = {}
 
-        # --- PASS 1: Create UI Nodes first ---
-        # This initializes the graph model structure and DPG items.
-        for node_name, content in sim_data.items():
-            if not isinstance(content, dict) or 'class' not in content:
+        for node_name, content in yaml_data.items():
+            if not isinstance(content, dict):
+                print(f"[FILE_HANDLER] Warning: Skipping '{node_name}' — expected dict, got {type(content)}")
+                continue
+            if 'class' not in content:
+                print(f"[FILE_HANDLER] Warning: Skipping '{node_name}' — missing 'class' key")
                 continue
 
+            node_type = content.get('class')
             u = str(uuid.uuid4())[:8]
             name_to_uuid[node_name] = u
-            pos = content.get('pos', [100, 100])
             
-            # This ensures the node is fully registered in DPG and GraphManager
-            self.nm.create_node(content['class'], pos=pos, existing_uuid=u, name_override=node_name)
-        
-        # Allow DPG to process node creations before setting values or links
-        dpg.split_frame()
-        dpg.split_frame()
-
-        # --- PASS 2: Apply Parameters & Sync UI ---
-        for node_name, content in sim_data.items():
-            u = name_to_uuid.get(node_name)
-            if not u: continue
-            
+            self.nm.graph.add_node(u, node_type)
             node_data = self.nm.graph.nodes[u]
-            # Ensure metadata fields exist
+            node_data['name'] = node_name
             node_data['outputs_extra'] = [] 
             node_data['suffixes'] = set()
+            node_data['values'] = {}
             
-            template = self.nm.all_templates.get(node_data['type'], {})
+            # Store position if available
+            if 'pos' in content:
+                node_data['pos'] = content['pos']
+            
+            # IMPORTANT: Import ALL parameter values from YAML
+            template = self.nm.all_templates.get(node_type, {})
             template_params = template.get('parameters', {})
             
+            # Process all key-value pairs in the content
             for key, value in content.items():
-                # Skip reserved YAML keys and references
-                if key in ['class', 'inputs', 'outputs', 'pos'] or key.endswith('_ref') or key == 'layer_list':
+                # Skip reserved fields
+                if key in ['class', 'inputs', 'outputs', 'pos']:
                     continue
                 
-                # Handle _object suffix logic
-                is_obj = key.endswith('_object')
-                base_key = key[:-7] if is_obj else key
-                
-                if base_key in template_params:
-                    node_data['values'][base_key] = self._parse_value(value)
-                    if is_obj:
+                # Skip reference connections (handled later)
+                if key.endswith('_ref') or key == 'layer_list':
+                    continue
+                    
+                # Check if this is a template parameter
+                if key in template_params:
+                    param_meta = template_params[key]
+                    param_kind = param_meta.get('kind', 'value')
+                    
+                    # For object parameters with suffix
+                    if param_kind == 'object' or key.endswith('_object'):
+                        base_key = key[:-7] if key.endswith('_object') else key
                         node_data['suffixes'].add(base_key)
-                    
-                    # CRITICAL: Push value to the DPG widget if it exists on the node
-                    widget_tag = f"{u}_{base_key}"
-                    if dpg.does_item_exist(widget_tag):
-                        try:
-                            dpg.set_value(widget_tag, self._parse_value(value))
-                        except Exception:
-                            pass 
+                        node_data['values'][base_key] = value
+                    else:
+                        # Regular parameter - store directly
+                        node_data['values'][key] = value
                 else:
-                    # Store non-template values directly
-                    node_data['values'][key] = self._parse_value(value)
+                    # Not in template, but exists in YAML - store it anyway
+                    node_data['values'][key] = value
 
-        # --- PASS 3: Create Links (Connections) ---
+        return name_to_uuid
+
+    def _create_ui_nodes(self, yaml_data, name_to_uuid):
+        """
+        Create UI nodes from graph model (Pass 2).
+        
+        Creates the actual DPG node elements with positions.
+        
+        Args:
+            yaml_data (dict): Original YAML data (for positions)
+            name_to_uuid (dict): Mapping of node names to UUIDs
+        """
+        for node_name, content in yaml_data.items():
+            u = name_to_uuid[node_name]
+            pos = content.get('pos', [100, 100])
+            self.nm.create_node(content['class'], pos=pos, existing_uuid=u, name_override=node_name)
+        
+        # Let DPG process the node creations
+        dpg.split_frame()
+        dpg.split_frame()
+
+    def _create_connections(self, yaml_data, name_to_uuid):
+        """
+        Create connections between nodes (Pass 3).
+        
+        Processes inputs and reference links from YAML and creates connections
+        in both the graph model and the UI.
+        
+        Args:
+            yaml_data (dict): Original YAML data (for connections)
+            name_to_uuid (dict): Mapping of node names to UUIDs
+        """
         connections_to_create = []
-        for node_name, content in sim_data.items():
+        
+        for node_name, content in yaml_data.items():
             dst_u = name_to_uuid.get(node_name)
-            if not dst_u or "inputs" not in content: continue
+            if not dst_u: 
+                continue
 
-            for in_pin, src_raw in content["inputs"].items():
-                sources = src_raw if isinstance(src_raw, list) else [src_raw]
-                for s in sources:
-                    if not isinstance(s, str): continue
+            # Standard Inputs
+            if "inputs" in content:
+                for in_pin, src_raw in content["inputs"].items():
+                    sources = src_raw if isinstance(src_raw, list) else [src_raw]
                     
-                    # Handle DataStore filenames
-                    filename = None
-                    if in_pin == "input_list" and "-" in s:
-                        filename, s = s.split("-", 1)
-
-                    src_node_name, src_attr, delay = self._parse_source_info(s)
-                    if src_node_name in name_to_uuid:
-                        connections_to_create.append((
-                            name_to_uuid[src_node_name], src_attr, dst_u, in_pin, delay, filename
-                        ))
+                    for s in sources:
+                        if not isinstance(s, str): 
+                            continue
+                        
+                        # DataStore input_list with filename
+                        if in_pin == "input_list" and "-" in s:
+                            filename, node_and_attr = s.split("-", 1)
+                            src_node_name, src_attr, delay = self._parse_source_info(node_and_attr)
+                            
+                            if src_node_name in name_to_uuid:
+                                connections_to_create.append((
+                                    name_to_uuid[src_node_name], src_attr, dst_u, in_pin, delay, filename
+                                ))
+                            continue
+                        
+                        # Regular connection
+                        actual_source = s
+                        src_node_name, src_attr, delay = self._parse_source_info(actual_source)
+                        
+                        if src_node_name in name_to_uuid:
+                            connections_to_create.append((
+                                name_to_uuid[src_node_name], src_attr, dst_u, in_pin, delay, None
+                            ))
 
             # Reference Links
             for key, val in content.items():
                 if key.endswith("_ref") or key == "layer_list":
                     refs = val if isinstance(val, list) else [val]
+                    connection_key = key
+                    
                     for r_name in refs:
                         if r_name in name_to_uuid:
                             connections_to_create.append((
-                                name_to_uuid[r_name], "ref", dst_u, key, 0, None
+                                name_to_uuid[r_name], "ref", dst_u, connection_key, 0, None
                             ))
-                            # Sync reference values for the property panel
+                            
+                            # Store in values for display
+                            dst_node_data = self.nm.graph.nodes[dst_u]
+                            if 'values' not in dst_node_data:
+                                dst_node_data['values'] = {}
+                            
                             if key in ['source_dict_ref', 'layer_list']:
-                                node_data = self.nm.graph.nodes[dst_u]
-                                node_data['values'].setdefault(key, []).append(r_name)
+                                if key not in dst_node_data['values']:
+                                    dst_node_data['values'][key] = []
+                                if r_name not in dst_node_data['values'][key]:
+                                    dst_node_data['values'][key].append(r_name)
                             else:
-                                self.nm.graph.nodes[dst_u]['values'][key] = r_name
+                                dst_node_data['values'][key] = r_name
         
-        # Execute links
+        # Create all connections
         for src_u, src_a, dst_u, dst_a, delay, filename in connections_to_create:
             self.nm.manual_link(src_u, src_a, dst_u, dst_a, delay=delay)
+            
             if filename and dst_a == "input_list":
-                self.nm.graph.nodes[dst_u].setdefault('filename_map', {})[f"{src_u}.{src_a}"] = filename
-                    
-        # Final UI refreshes
+                if 'filename_map' not in self.nm.graph.nodes[dst_u]:
+                    self.nm.graph.nodes[dst_u]['filename_map'] = {}
+                conn_key = f"{src_u}.{src_a}"
+                self.nm.graph.nodes[dst_u]['filename_map'][conn_key] = filename
+
+    def _finalize_load(self, perform_auto_layout=True, operation_name="LOAD"):
+        """
+        Finalize a load operation with theme refresh and optional auto-layout.
+        
+        Args:
+            perform_auto_layout (bool): Whether to perform auto-layout on nodes
+            operation_name (str): Name for logging (e.g., "IMPORT" or "LOAD_SCENE")
+        """
         current_frame = dpg.get_frame_count()
         dpg.set_frame_callback(current_frame + 3, self.refresh_all_themes)
+        
+        current_frame = dpg.get_frame_count()
         dpg.set_frame_callback(current_frame + 3, self.update_ui_values)
         
-        # Trigger layout
-        # self.nm.graph.auto_layout_nodes(self.nm.uuid_to_dpg) # Assuming helper is available
+        def verify_nodes(attempt=1, max_attempts=5):
+            """Verify all nodes are loaded and perform layout if needed."""
+            missing_nodes = []
+            for node_id in self.nm.graph.nodes:
+                if node_id not in self.nm.uuid_to_dpg:
+                    missing_nodes.append(node_id)
+            
+            if missing_nodes and attempt < max_attempts:
+                print(f"[{operation_name}] Attempt {attempt}: {len(missing_nodes)} nodes missing DPG IDs, retrying...")
+                dpg.set_frame_callback(dpg.get_frame_count() + 5, 
+                                    lambda: verify_nodes(attempt + 1, max_attempts))
+                return
+            
+            if missing_nodes:
+                print(f"[{operation_name}] Failed after {max_attempts} attempts. {len(missing_nodes)} nodes still missing DPG IDs")
+                return
+            
+            if perform_auto_layout:
+                print(f"[{operation_name}] All nodes have DPG IDs, performing layout...")
+                try:                
+                    auto_layout_nodes(self.nm.graph, self.nm.uuid_to_dpg)
+                    print(f"[{operation_name}] Layout completed successfully")
+                except Exception as e:
+                    print(f"[{operation_name}] Layout error: {e}")                
+                    traceback.print_exc()
+            else:
+                print(f"[{operation_name}] All {len(self.nm.graph.nodes)} nodes loaded successfully with saved positions")
+        
+        current_frame = dpg.get_frame_count()
+        dpg.set_frame_callback(current_frame + 10, lambda: verify_nodes(1, 5))
 
-        auto_layout_nodes(self.nm.graph, self.nm.uuid_to_dpg)
-        print(f"[IMPORT] Completed. {len(self.nm.graph.nodes)} nodes loaded.")
+    def import_simulation(self, file_path):
+        """
+        Import a Specula simulation from YAML.
+        
+        Creates a new graph from simulation data and performs auto-layout
+        to arrange nodes. Use this when importing a new simulation.
+        
+        Args:
+            file_path (str): Path to the simulation file
+        """
+        yaml_data = self._load_yaml_file(file_path)
+        if yaml_data is None:
+            return
+        
+        # Clear existing graph
+        self.nm.clear_all()
+        self.nm.graph.nodes.clear()
+        self.nm.graph.connections.clear()
+        self.nm.graph.connection_properties.clear()
+        
+        # Load in three passes
+        name_to_uuid = self._populate_graph_from_yaml(yaml_data)
+        self._create_ui_nodes(yaml_data, name_to_uuid)
+        self._create_connections(yaml_data, name_to_uuid)
+        
+        # Finalize with auto-layout
+        self._finalize_load(perform_auto_layout=True, operation_name="IMPORT")
+        
+        print(f"[IMPORT] Import completed. Loaded {len(self.nm.graph.nodes)} nodes with their actual values")
 
+    def load_scene(self, file_path):
+        """
+        Load a saved scene from YAML.
+        
+        Loads a complete scene including all nodes, connections, and positions
+        as they were when saved. Unlike import_simulation, this respects saved
+        node positions and does NOT perform auto-layout.
+        
+        Args:
+            file_path (str): Path to the scene file to load
+        """
+        yaml_data = self._load_yaml_file(file_path)
+        if yaml_data is None:
+            return
+        
+        # Clear existing graph
+        self.nm.clear_all()
+        self.nm.graph.nodes.clear()
+        self.nm.graph.connections.clear()
+        self.nm.graph.connection_properties.clear()
+        
+        # Load in three passes
+        name_to_uuid = self._populate_graph_from_yaml(yaml_data)
+        self._create_ui_nodes(yaml_data, name_to_uuid)
+        self._create_connections(yaml_data, name_to_uuid)
+        
+        # Finalize WITHOUT auto-layout (preserve saved positions)
+        self._finalize_load(perform_auto_layout=False, operation_name="LOAD_SCENE")
+        
+        print(f"[LOAD_SCENE] Scene loaded from {file_path}")
 
+    def save_scene(self, file_path):
+        """
+        Save the current scene layout to YAML.
+        
+        Exports the entire simulation with node positions preserved.
+        Captures the current position of each node from the DPG node editor.
+        
+        Args:
+            file_path (str): Path to save the scene file
+        """
+        # First, capture current positions from DPG
+        for node_uuid, dpg_id in self.nm.uuid_to_dpg.items():
+            if node_uuid in self.nm.graph.nodes:
+                node_data = self.nm.graph.nodes[node_uuid]
+                # Get current position from the DPG node
+                if dpg.does_item_exist(dpg_id):
+                    current_pos = dpg.get_item_pos(dpg_id)
+                    node_data['pos'] = current_pos
+        
+        # Export the simulation (which now includes positions)
+        self.export_simulation(file_path, include_defaults=False)
+        print(f"[SAVE_SCENE] Scene saved to {file_path}")
 
     def export_simulation(self, file_path, include_defaults=False):
         """Exports the graph state to YAML."""
@@ -396,15 +587,6 @@ class FileHandler:
             
         print(f"Exported simulation to {file_path}")
 
-    def _parse_value(self, value):
-        """Ensure imported strings are converted to literals if applicable."""
-        if not isinstance(value, str):
-            return value
-        try:
-            return ast.literal_eval(value)
-        except (ValueError, SyntaxError):
-            return value
-        
     def _parse_source_info(self, source_val):
         """Handles strings, lists, and indexed attributes from Specula YAML.
         Returns (node_name, attr_name, delay)
@@ -445,4 +627,3 @@ class FileHandler:
             return node_name, attr_name, delay
         
         return None, None, 0
-
