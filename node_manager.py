@@ -136,17 +136,12 @@ class NodeManager:
 
     def _on_server_params(self, data: dict):
         """
-        Handle server 'params' event: update UUID mapping, notify monitors.
-        
-        Args:
-            data: Server parameters with node definitions
+        Handle server 'params' event: update UUID mapping.
         """
         self.sio_client.bind_nodes_to_server(self.graph.nodes, data)
         self.sio_client.update_uuid_mapping(self.graph.nodes)
-        
-        # Notify monitors of successful connection
-        for monitor_id in self.monitors.active_monitors:
-            self.monitors._safe_update_monitor_status(monitor_id, "connected")
+        # Note: monitors are now separate processes and manage their own
+        # connection status display — no status push needed here.
 
     def _on_data_update(self, name: str, raw_data):
         """Handle real-time data update from server."""
