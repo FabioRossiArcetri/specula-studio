@@ -74,6 +74,24 @@ class SpeculaEditor:
             dpg.add_mouse_double_click_handler(callback=self.nm._on_canvas_double_click)
             dpg.add_mouse_move_handler(callback=self.nm._on_mouse_move)
     
+    def _center_dialog(self, dialog_tag):
+        """Center a dialog window on the viewport."""
+        if dpg.does_item_exist(dialog_tag):
+            try:
+                viewport_width = dpg.get_viewport_width()
+                viewport_height = dpg.get_viewport_height()
+                
+                dialog_width = dpg.get_item_width(dialog_tag)
+                dialog_height = dpg.get_item_height(dialog_tag)
+                
+                center_x = (viewport_width - dialog_width) // 2
+                center_y = (viewport_height - dialog_height) // 2
+                
+                dpg.set_item_pos(dialog_tag, [center_x, center_y])
+            except SystemError:
+                # File dialogs don't support set_item_pos, skip silently
+                pass
+    
     # Callback in SpeculaEditor class
     def _toggle_export_defaults(self, sender, app_data):
         print('_toggle_export_defaults', app_data)
@@ -104,6 +122,7 @@ class SpeculaEditor:
             self._show_startup_dialog()
         else:
             # Scene exists, ask if user wants to save
+            self._center_dialog("new_scene_confirmation_dialog")
             dpg.show_item("new_scene_confirmation_dialog")
 
     def _on_new_scene_save_and_proceed(self):
@@ -114,6 +133,7 @@ class SpeculaEditor:
         else:
             # No path set, show save dialog
             dpg.hide_item("new_scene_confirmation_dialog")
+            self._center_dialog("save_before_new_dialog")
             dpg.show_item("save_before_new_dialog")
             return
         
@@ -186,6 +206,9 @@ class SpeculaEditor:
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Delete", width=100, callback=self._on_delete_confirm)
                 dpg.add_button(label="Cancel", width=100, callback=self._on_delete_cancel)
+        
+        # Center the dialog after creation
+        self._center_dialog("delete_confirmation_dialog")
 
     def _on_delete_confirm(self):
         """User confirmed deletion."""
@@ -218,6 +241,7 @@ class SpeculaEditor:
     def _on_exit_requested(self):
         """Called when user clicks Exit menu or closes the main window."""
         # Show confirmation dialog
+        self._center_dialog("exit_confirmation_dialog")
         dpg.show_item("exit_confirmation_dialog")
     
     def _on_exit_confirm(self):
@@ -234,6 +258,7 @@ class SpeculaEditor:
         else:
             # Show save dialog
             dpg.hide_item("exit_confirmation_dialog")
+            self._center_dialog("save_and_exit_dialog")
             dpg.show_item("save_and_exit_dialog")
     
     def _on_save_and_exit_cb(self, sender, app_data):
@@ -393,6 +418,7 @@ class SpeculaEditor:
         """Open the dialog and reset staged list."""
         self._multi_add_queue.clear()
         self._mo_refresh_staged()
+        self._center_dialog("add_multiple_dialog")
         dpg.show_item("add_multiple_dialog")
 
     def _on_add_multiple_close(self):
@@ -627,6 +653,7 @@ class SpeculaEditor:
         """Show the startup dialog (reused for new scenes)."""
         if dpg.does_item_exist("startup_dialog"):
             dpg.set_value("startup_scene_name", "")
+            self._center_dialog("startup_dialog")
             dpg.show_item("startup_dialog")
         else:
             self._create_startup_dialog()
@@ -634,6 +661,7 @@ class SpeculaEditor:
     def _create_startup_dialog(self):
         """Create a modal startup dialog shown at application launch."""
         if dpg.does_item_exist("startup_dialog"):
+            self._center_dialog("startup_dialog")
             dpg.show_item("startup_dialog")
             return
 
@@ -649,6 +677,9 @@ class SpeculaEditor:
                 dpg.add_button(label="Open Existing Scene", callback=lambda s, a: dpg.show_item("load_scene_dialog"))
                 dpg.add_button(label="Import Simulation (new scene)", callback=lambda s, a: dpg.show_item("import_sim_dialog"))
                 dpg.add_button(label="Cancel", callback=lambda s, a: dpg.hide_item("startup_dialog"))
+        
+        # Center the startup dialog after creation
+        self._center_dialog("startup_dialog")
 
     def _startup_create_new(self, sender, app_data):
         name = dpg.get_value("startup_scene_name").strip() if dpg.does_item_exist("startup_scene_name") else ""

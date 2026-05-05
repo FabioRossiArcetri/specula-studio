@@ -6052,7 +6052,7 @@ Source:
       kind: value
       type: tuple
     height:
-      default: float('inf')
+      default: .inf
       kind: value
       type: float
     magnitude:

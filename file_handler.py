@@ -88,17 +88,40 @@ class FileHandler:
                 # Skip reference connections (handled later)
                 if key.endswith('_ref') or key == 'layer_list':
                     continue
+                
+                # Check if this is an object parameter with _object suffix
+                if key.endswith('_object'):
+                    base_key = key[:-7]  # Remove '_object' suffix
                     
-                # Check if this is a template parameter
-                if key in template_params:
+                    # Check if the base parameter is in the template
+                    if base_key in template_params:
+                        param_meta = template_params[base_key]
+                        param_kind = param_meta.get('kind', 'value')
+                        
+                        # For object parameters
+                        if param_kind == 'object' or key.endswith('_object'):
+                            node_data['suffixes'].add(base_key)
+                            node_data['values'][base_key] = value
+                            print(f"[FILE_HANDLER] Imported object parameter: {base_key} = {value}")
+                        else:
+                            # Base key exists but not as an object - still import it
+                            node_data['values'][base_key] = value
+                            print(f"[FILE_HANDLER] Imported parameter: {base_key} = {value}")
+                    else:
+                        # Base key not in template, store under base name anyway
+                        node_data['suffixes'].add(base_key)
+                        node_data['values'][base_key] = value
+                        print(f"[FILE_HANDLER] Imported unknown object parameter: {base_key} = {value}")
+                    
+                # Check if this is a template parameter (non-object version)
+                elif key in template_params:
                     param_meta = template_params[key]
                     param_kind = param_meta.get('kind', 'value')
                     
                     # For object parameters with suffix
-                    if param_kind == 'object' or key.endswith('_object'):
-                        base_key = key[:-7] if key.endswith('_object') else key
-                        node_data['suffixes'].add(base_key)
-                        node_data['values'][base_key] = value
+                    if param_kind == 'object':
+                        node_data['suffixes'].add(key)
+                        node_data['values'][key] = value
                     else:
                         # Regular parameter - store directly
                         node_data['values'][key] = value

@@ -17,7 +17,7 @@ Source:
       kind: value
     height:
       type: float
-      default: float('inf')
+      default: .inf
       kind: value
     band:
       type: str

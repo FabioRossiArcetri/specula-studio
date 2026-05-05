@@ -13,6 +13,7 @@ Responsibilities
 
 import ast
 
+import numpy as np
 import dearpygui.dearpygui as dpg
 
 from dpg_utils import apply_link_style
@@ -530,35 +531,38 @@ class PropertyPanel:
 
         try:
             # 1. Clean input
-            raw_input = app_data.strip()
+            raw_input = app_data.strip() if isinstance(app_data, str) else str(app_data)
             lower_input = raw_input.lower()
             final_val = raw_input
 
-            # 2. Handle Infinity/NaN explicitly for single values
+            # 2. Handle Infinity/NaN explicitly – stored as np.inf so that YAML
+            #    serialisation and downstream numpy code both work correctly.
             if lower_input in ["inf", "infinity", ".inf"]:
-                final_val = float('inf')
+                final_val = np.inf
             elif lower_input in ["-inf", "-infinity", "-.inf"]:
-                final_val = float('-inf')
-            
+                final_val = -np.inf
+
             # 3. Handle Lists (which might contain 'inf')
             elif target_type == "list" or raw_input.startswith("["):
                 try:
-                    # Using yaml.safe_load is better than ast.literal_eval here
-                    # because it recognizes .inf and is generally more forgiving
-                    # We ensure list-like strings are formatted for YAML (e.g. [inf] -> [.inf])
-                    yaml_ready = raw_input.replace("inf", ".inf").replace("nan", ".nan")
-                    final_val = yaml.safe_load(yaml_ready)
+                    # Replace bare 'inf' tokens with '.inf' for YAML compatibility,
+                    # then use ast.literal_eval as a safe fallback.
+                    import re as _re
+                    # Replace standalone inf/-inf tokens (not part of another word)
+                    yaml_ready = _re.sub(
+                        r'(?<![.\w])-?inf(?![\w])',
+                        lambda m: str(np.inf) if not m.group().startswith('-') else str(-np.inf),
+                        raw_input,
+                        flags=_re.IGNORECASE,
+                    )
+                    final_val = ast.literal_eval(yaml_ready)
                 except Exception:
-                    # Fallback to literal_eval if YAML fails
-                    try:
-                        final_val = ast.literal_eval(raw_input)
-                    except (ValueError, SyntaxError):
-                        print(f"Warning: Invalid list syntax for {param_name}")
-                        return
+                    print(f"Warning: Invalid list syntax for {param_name}")
+                    return
 
             # 4. Handle standard numeric types
             elif target_type in ["float", "double", "number"]:
-                if not isinstance(final_val, float): # if not already set by infinity check
+                if not isinstance(final_val, float):  # not already set by infinity check
                     final_val = float(raw_input)
             elif target_type in ["int", "integer"]:
                 final_val = int(raw_input)
@@ -568,7 +572,7 @@ class PropertyPanel:
             # Update and refresh
             values_dict[param_name] = final_val
             self._refresh_node_theme(node_uuid)
-            
+
         except Exception as e:
             print(f"Error updating parameter {param_name}: {e}")
 
@@ -743,6 +747,18 @@ class PropertyPanel:
     # Helpers
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _float_to_display(val) -> str:
+        """Convert a float value to its display string, rendering infinities as 'inf'/'-inf'."""
+        try:
+            if val == np.inf or val == float('inf'):
+                return "inf"
+            if val == -np.inf or val == float('-inf'):
+                return "-inf"
+        except Exception:
+            pass
+        return str(val)
+
     def _render_single_widget(
         self, parent, node_uuid, param_name, val, type_hint, default_val=None
     ):
@@ -785,13 +801,12 @@ class PropertyPanel:
             label_color = _MODIFIED_PARAM_COLOR
 
         user_data = (node_uuid, param_name, type_hint)
-        display_val = str(val)
-        if val == float('inf'):
-            display_val = "inf"
-        elif val == float('-inf'):
-            display_val = "-inf"
+
+        # Build display string; always render inf as the text "inf"/"-inf"
+        display_val = self._float_to_display(val) if val is not None else str(val)
+
         if is_required and (val is None or val == "REQUIRED"):
-            display_val = "" if type_hint in ("str", "string") else 0
+            display_val = "" if type_hint in ("str", "string") else "0"
 
         # stable tag for data-object inputs so browse dialog can set them
         input_tag = f"{node_uuid}_{param_name}_object"
@@ -800,58 +815,63 @@ class PropertyPanel:
             dpg.add_text(f"{param_name}:", color=label_color)
 
             if type_hint in ("bool", "boolean"):
-                if display_val is None:
-                    display_val = False
+                bool_val = False
+                if val is not None:
+                    bool_val = bool(val)
                 dpg.add_checkbox(
-                    default_value=bool(display_val),
+                    default_value=bool_val,
                     callback=self._update_param,
                     user_data=user_data,
                 )
             elif type_hint in ("int", "integer"):
-                if display_val is None:
-                    display_val = 0
+                try:
+                    int_val = int(val) if val is not None else 0
+                except (ValueError, TypeError):
+                    int_val = 0
                 dpg.add_input_int(
-                    default_value=int(display_val),
+                    default_value=int_val,
                     width=150,
                     step=1,
                     callback=self._update_param,
                     user_data=user_data,
                 )
             elif type_hint in ("float", "double", "number"):
-                if display_val is None or display_val in ("inf", "REQUIRED"):
-                    display_val = 0.0
-                dpg.add_input_float(
-                    default_value=float(display_val),
+                # Use an input_text widget so that the user can type either a
+                # number or the special strings "inf" / "-inf".  The value is
+                # displayed as "inf"/"-inf" when the stored value is np.inf.
+                float_display = self._float_to_display(val) if val is not None else ""
+                if is_required and not has_value:
+                    float_display = ""
+                dpg.add_input_text(
+                    default_value=float_display,
                     width=150,
-                    step=0.1,
+                    hint="number",
                     callback=self._update_param,
                     user_data=user_data,
                 )
-            elif isinstance(display_val, list) or type_hint == "list":
-                if display_val is None:
-                    display_val = []
+            elif isinstance(val, list) or type_hint == "list":
+                list_display = display_val if display_val is not None else "[]"
                 if is_data_object:
                     dpg.add_input_text(
                         tag=input_tag,
-                        default_value=str(display_val),
+                        default_value=list_display,
                         width=150,
                         callback=self._update_data_object_param,
                         user_data=(node_uuid, param_name),
                     )
                 else:
                     dpg.add_input_text(
-                        default_value=str(display_val),
+                        default_value=list_display,
                         width=150,
                         callback=self._update_param,
                         user_data=user_data,
                     )
             else:
-                if display_val is None:
-                    display_val = ""
+                str_display = display_val if display_val is not None else ""
                 if is_data_object:
                     dpg.add_input_text(
                         tag=input_tag,
-                        default_value=str(display_val),
+                        default_value=str_display,
                         width=150,
                         hint="File path or object identifier",
                         callback=self._update_data_object_param,
@@ -866,7 +886,7 @@ class PropertyPanel:
                     )
                 else:
                     dpg.add_input_text(
-                        default_value=str(display_val),
+                        default_value=str_display,
                         width=150,
                         callback=self._update_param,
                         user_data=user_data,

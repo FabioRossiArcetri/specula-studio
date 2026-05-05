@@ -1,5 +1,6 @@
 import ast
 import importlib
+import math
 import pkgutil
 import re
 import sys
@@ -10,6 +11,58 @@ def represent_tuple(dumper, data):
     return dumper.represent_sequence('tag:yaml.org,2002:seq', data)
 
 yaml.add_representer(tuple, represent_tuple)
+
+
+def _try_eval_inf(node):
+    """
+    Try to evaluate AST nodes that represent float infinity / negative infinity
+    but cannot be handled by ``ast.literal_eval`` because they involve calls or
+    attribute accesses.
+
+    Recognised patterns (case-insensitive on the string argument):
+      - ``float('inf')``  / ``float('infinity')``   →  math.inf
+      - ``float('-inf')`` / ``float('-infinity')``  → -math.inf
+      - ``math.inf``  / ``np.inf``                  →  math.inf
+      - ``-math.inf`` / ``-np.inf``                 → -math.inf
+
+    Returns the float value on a match, or ``None`` if the node is not
+    recognised as an infinity expression.
+    """
+    # --- float('inf') / float('-inf') ----------------------------------------
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "float"
+        and len(node.args) == 1
+        and not node.keywords
+        and isinstance(node.args[0], ast.Constant)
+        and isinstance(node.args[0].value, str)
+    ):
+        s = node.args[0].value.strip().lower()
+        if s in ("inf", "infinity", "+inf", "+infinity"):
+            return math.inf
+        if s in ("-inf", "-infinity"):
+            return -math.inf
+
+    # --- math.inf / np.inf / similar attribute accesses ----------------------
+    if (
+        isinstance(node, ast.Attribute)
+        and node.attr == "inf"
+        and isinstance(node.value, ast.Name)
+    ):
+        return math.inf
+
+    # --- Unary minus: -math.inf / -np.inf ------------------------------------
+    if (
+        isinstance(node, ast.UnaryOp)
+        and isinstance(node.op, ast.USub)
+    ):
+        inner = _try_eval_inf(node.operand)
+        if inner is not None:
+            return -inner
+
+    return None
+
 
 class SpeculaMetadataParser(ast.NodeVisitor):
     def __init__(self):
@@ -66,11 +119,28 @@ class SpeculaMetadataParser(ast.NodeVisitor):
             default_val = "REQUIRED"
             if i >= diff:
                 default_node = defaults[i - diff]
+
+                # 1. Try the standard literal evaluator first (handles numbers,
+                #    strings, booleans, None, lists, dicts, tuples).
                 try:
                     default_val = ast.literal_eval(default_node)
-                except Exception as e:
-                    print(f"[INIT_PARSE] Could not evaluate default for {name} in {info['class_name']}: {e}")
-                    default_val = ast.unparse(default_node)
+                except Exception:
+                    # 2. Before falling back to a raw string, check for
+                    #    infinity expressions that literal_eval cannot handle.
+                    inf_val = _try_eval_inf(default_node)
+                    if inf_val is not None:
+                        # Store as a real Python float so that yaml.dump
+                        # will write the canonical YAML value (.inf / -.inf).
+                        default_val = inf_val
+                    else:
+                        # 3. Last resort: store the source representation as
+                        #    a plain string (previous behaviour).
+                        default_val = ast.unparse(default_node)
+                        print(
+                            f"[INIT_PARSE] Could not evaluate default for "
+                            f"{name} in {info['class_name']}: "
+                            f"stored as string '{default_val}'"
+                        )
 
             info["parameters"][name] = { "type": param_type, "default": default_val }
 
