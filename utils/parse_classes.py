@@ -76,7 +76,6 @@ class SpeculaMetadataParser(ast.NodeVisitor):
         self.variadic_input_names = {
             "input_list",           # DataStore variadic input            
             "common_layer_list",    # Common layers shared across sources (multiple)            
-            "source_dict_ref",      # Source dictionary references
         }
         self.get_as_data = {
             "Recmat",

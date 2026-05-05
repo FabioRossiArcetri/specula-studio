@@ -37,6 +37,11 @@ class SpeculaEditor:
         self.graph = GraphManager(self.all_templates)
         self.nm = NodeManager(self.graph, self.all_templates)        
         self.fh = FileHandler(self.nm)
+
+        # 3. Initialize Simulation Control
+        from simulation_control import SimulationControl
+        self.sim_control = SimulationControl(self)
+
         
         # Track current scene name and path
         self.current_scene_name = None
@@ -522,6 +527,9 @@ class SpeculaEditor:
                         dpg.add_menu_item(label=node_type, callback=self._on_menu_create, user_data=node_type)
 
                 dpg.add_menu_item(label="Add Multiple Objects", callback=self._show_add_multiple_dialog)
+
+                with dpg.menu(label="Simulation"):
+                    dpg.add_menu_item(label="Control Panel", callback=lambda: self.sim_control.show_control_window())
 
                 with dpg.menu(label="Layout"):
                     dpg.add_menu_item(label="Auto Layout", callback=lambda: auto_layout_nodes(self.nm.graph, self.nm.uuid_to_dpg))

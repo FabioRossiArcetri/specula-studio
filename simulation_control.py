@@ -17,7 +17,7 @@ class SimulationControl:
             name = "untitled"
         return f"{name}_simul.yml"
 
-    def show_window(self):
+    def show_control_window(self):
         if dpg.does_item_exist("sim_control_window"):
             dpg.show_item("sim_control_window")
             dpg.focus_item("sim_control_window")

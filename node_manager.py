@@ -558,7 +558,6 @@ class NodeManager:
     # ==========================================================================
     # LINK MANAGEMENT
     # ==========================================================================
-
     def link_callback(self, sender, app_data):
         """Handle user creating a link."""
         out_attr_id, in_attr_id = app_data
@@ -566,6 +565,11 @@ class NodeManager:
         in_node_uuid, in_name = self.input_attr_registry.get(in_attr_id, (None, None))
 
         if not out_node_uuid or not in_node_uuid:
+            return
+
+        # Check if this input can accept the connection
+        if not self._can_connect_to_input(in_node_uuid, in_name):
+            self._log(f"Connection rejected: input '{in_name}' on node {in_node_uuid} is single and already connected")
             return
 
         is_feedback = ":-" in str(out_name)
@@ -615,6 +619,56 @@ class NodeManager:
         self._refresh_node_theme(in_node_uuid)
         self._refresh_node_theme(out_node_uuid)
 
+    def _can_connect_to_input(self, node_uuid: str, input_name: str) -> bool:
+        """
+        Check if an input can accept a new connection.
+        
+        Returns False if:
+        - The input is 'single' kind AND
+        - There is already a connection to this input AND
+        - The input name does NOT end with 'dict_ref'
+        
+        Returns True if:
+        - The input is 'variadic' (allows multiple connections)
+        - The input name ends with 'dict_ref' (allows multiple references)
+        - The input has no existing connections
+        
+        Args:
+            node_uuid: UUID of the destination node
+            input_name: Name of the input attribute
+            
+        Returns:
+            bool: True if connection is allowed, False otherwise
+        """
+        # Get the node data
+        node_data = self.graph.nodes.get(node_uuid)
+        if not node_data:
+            return True  # Default to allowing if we can't find the node
+        
+        # Special case: dict_ref parameters always allow multiple connections
+        if input_name.endswith("dict_ref"):
+            self._log(f"Input '{input_name}' is a dict_ref parameter - allowing multiple connections")
+            return True
+        
+        # Get the input metadata from the node's inputs
+        node_inputs = node_data.get("inputs", {})
+        input_meta = node_inputs.get(input_name, {})
+        input_kind = input_meta.get("kind", "single")
+        
+        # If it's variadic, allow multiple connections
+        if input_kind == "variadic":
+            return True
+        
+        # If it's single, check if there's already a connection
+        # Check the graph connections for any existing connection to this input
+        for src_u, src_a, dst_u, dst_a in self.graph.connections:
+            if dst_u == node_uuid and dst_a == input_name:
+                # Found an existing connection to this single input
+                self._log(f"Input '{input_name}' on node {node_uuid} is single and already has a connection from {src_u}.{src_a}")
+                return False
+        
+        return True
+    
     def delink_callback(self, sender, app_data):
         """Handle user deleting a link."""
         link_id = app_data
