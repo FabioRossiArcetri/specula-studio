@@ -72,8 +72,8 @@ class FileHandler:
             node_data['values'] = {}
             
             # Store position if available
-            if 'pos' in content:
-                node_data['pos'] = content['pos']
+            if 'gui_pos' in content:
+                node_data['gui_pos'] = content['gui_pos']
             
             # IMPORTANT: Import ALL parameter values from YAML
             template = self.nm.all_templates.get(node_type, {})
@@ -82,7 +82,7 @@ class FileHandler:
             # Process all key-value pairs in the content
             for key, value in content.items():
                 # Skip reserved fields
-                if key in ['class', 'inputs', 'outputs', 'pos']:
+                if key in ['class', 'inputs', 'outputs', 'gui_pos']:
                     continue
                 
                 # Skip reference connections (handled later)
@@ -143,7 +143,7 @@ class FileHandler:
         """
         for node_name, content in yaml_data.items():
             u = name_to_uuid[node_name]
-            pos = content.get('pos', [100, 100])
+            pos = content.get('gui_pos', [100, 100])
             self.nm.create_node(content['class'], pos=pos, existing_uuid=u, name_override=node_name)
         
         # Let DPG process the node creations
@@ -355,7 +355,7 @@ class FileHandler:
                 # Get current position from the DPG node
                 if dpg.does_item_exist(dpg_id):
                     current_pos = dpg.get_item_pos(dpg_id)
-                    node_data['pos'] = current_pos
+                    node_data['gui_pos'] = current_pos
         
         # Export the simulation (which now includes positions)
         self.export_simulation(file_path, include_defaults=False)
@@ -378,8 +378,8 @@ class FileHandler:
             }
 
             # Add position if available
-            if 'pos' in node_data:
-                node_dict['pos'] = node_data['pos']
+            if 'gui_pos' in node_data:
+                node_dict['gui_pos'] = node_data['gui_pos']
 
             # --- 2. OUTPUTS LOGIC ---
             # Handle outputs for all nodes

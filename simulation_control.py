@@ -1,6 +1,7 @@
 import subprocess
 import threading
 import os
+import yaml
 import dearpygui.dearpygui as dpg
 
 class SimulationControl:
@@ -65,11 +66,62 @@ class SimulationControl:
             except Exception:
                 pass
 
+    def _strip_gui_fields(self, yaml_data):
+        """
+        Strip GUI-specific fields from node representations in YAML.
+        Removes 'gui_pos' field from all node definitions.
+        
+        Args:
+            yaml_data (dict): The parsed YAML data structure
+            
+        Returns:
+            dict: The cleaned YAML data
+        """
+        for node_name, node_dict in yaml_data.items():
+            if isinstance(node_dict, dict):
+                # Remove 'gui_pos' field if present
+                if 'gui_pos' in node_dict:
+                    del node_dict['gui_pos']
+        
+        return yaml_data
+
+    def _clean_simulation_yaml(self, file_path):
+        """
+        Load the exported YAML, strip GUI fields, and save it back.
+        This ensures specula receives a clean representation without GUI positioning.
+        
+        Args:
+            file_path (str): Path to the exported simulation YAML file
+        """
+        try:
+            # Load the exported YAML
+            with open(file_path, 'r', encoding='utf-8') as f:
+                yaml_data = yaml.safe_load(f)
+            
+            if not isinstance(yaml_data, dict):
+                print(f"[SIMULATION] Warning: YAML root is not a dict, skipping cleanup")
+                return
+            
+            # Strip GUI fields (like 'gui_pos')
+            yaml_data = self._strip_gui_fields(yaml_data)
+            
+            # Write back the cleaned YAML
+            with open(file_path, 'w', encoding='utf-8') as f:
+                yaml.dump(yaml_data, f, sort_keys=False, default_flow_style=False)
+            
+            print(f"[SIMULATION] Cleaned YAML: removed GUI fields from {file_path}")
+            
+        except Exception as e:
+            print(f"[SIMULATION] Warning: Could not clean YAML file {file_path}: {e}")
+
     def start_sim(self, sender=None, app_data=None, run_all_mode=False):
         if self.is_running: return
         
         temp_path = self._get_sim_path()
         self.editor.fh.export_simulation(temp_path, include_defaults=True)
+        
+        # Clean the exported YAML: strip GUI fields like 'gui_pos'
+        self._clean_simulation_yaml(temp_path)
         
         cmd = ["specula", temp_path]
         if not run_all_mode and dpg.get_value("sim_stepping"):

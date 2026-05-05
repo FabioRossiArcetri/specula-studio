@@ -32,7 +32,7 @@ from property_panel import PropertyPanel
 
 # Pin shapes
 REF_SHAPE = dpg.mvNode_PinShape_QuadFilled  # Square for references
-DATA_SHAPE = dpg.mvNode_PinShape_TriangleFilled  # Circle for data
+DATA_SHAPE = dpg.mvNode_PinShape_TriangleFilled  # Triangle for data
 DATA_MULTIPLE_SHAPE = dpg.mvNode_PinShape_TriangleFilled  # Circle for data
 
 class NodeManager:
