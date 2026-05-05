@@ -71,6 +71,12 @@ class SpeculaMetadataParser(ast.NodeVisitor):
         self.variadic_input_classes = {
             "DataStore",
             "DataBuffer",
+            'AtmoPropagation'
+        }
+        self.variadic_input_names = {
+            "input_list",           # DataStore variadic input            
+            "common_layer_list",    # Common layers shared across sources (multiple)            
+            "source_dict_ref",      # Source dictionary references
         }
         self.get_as_data = {
             "Recmat",
@@ -157,7 +163,7 @@ class SpeculaMetadataParser(ast.NodeVisitor):
                                         info["inputs"][key] = {
                                             "type": ast.unparse(kw.value),
                                             "kind": "variadic" if (
-                                                key == "input_list" and
+                                                key in self.variadic_input_names and
                                                 info.get("class_name") in self.variadic_input_classes
                                             ) else "single"
                                         }

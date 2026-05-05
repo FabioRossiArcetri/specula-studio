@@ -423,7 +423,7 @@ AtmoPropagation:
       type: Layer
     common_layer_list:
       desc: List of common turbulence layers shared across sources
-      kind: single
+      kind: variadic
       type: Layer
   output_names:
   - out_{source_name}_ef
