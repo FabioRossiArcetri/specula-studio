@@ -85,6 +85,7 @@ class SpeculaMetadataParser(ast.NodeVisitor):
             'IFuncInv',
             'M2C',
             'Pupilstop',
+            'TimeHistory'
         }
         # Explicitly define parameters that should NEVER be treated as references
         self.ref_block_list = {'target_device_idx', 'precision'}

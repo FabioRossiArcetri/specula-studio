@@ -43,9 +43,9 @@ class SpeculaEditor:
         self.sim_control = SimulationControl(self)
 
         
-        # Track current scene name and path
-        self.current_scene_name = None
-        self.current_scene_path = None
+        # Track current simulation name and path
+        self.current_simulation_name = None
+        self.current_simulation_path = None
         
         # Track items pending deletion
         self.pending_deletion_type = None  # 'node', 'link'
@@ -107,64 +107,64 @@ class SpeculaEditor:
     # ------------------------------------------------------------------
 
     def _update_status_bar(self):
-        """Update the status bar to show the current scene name."""
-        if self.current_scene_name:
-            status_text = f"Scene: {self.current_scene_name}"
+        """Update the status bar to show the current simulation name."""
+        if self.current_simulation_name:
+            status_text = f"Simulation: {self.current_simulation_name}"
         else:
-            status_text = "Scene: (Unsaved)"
+            status_text = "Simulation: (Unsaved)"
         
         if dpg.does_item_exist("status_bar_text"):
             dpg.set_value("status_bar_text", status_text)
 
     # ------------------------------------------------------------------
-    # New Scene Handling
+    # New Simulation Handling
     # ------------------------------------------------------------------
 
-    def _on_new_scene_clicked(self):
-        """Handle 'New Scene' menu click. Offer to save current scene."""
-        if self.current_scene_name is None:
-            # No scene loaded, just show startup dialog
+    def _on_new_simulation_clicked(self):
+        """Handle 'New Simulation' menu click. Offer to save current simulation."""
+        if self.current_simulation_name is None:
+            # No simulation loaded, just show startup dialog
             self._show_startup_dialog()
         else:
-            # Scene exists, ask if user wants to save
-            self._center_dialog("new_scene_confirmation_dialog")
-            dpg.show_item("new_scene_confirmation_dialog")
+            # Simulation exists, ask if user wants to save
+            self._center_dialog("new_simulation_confirmation_dialog")
+            dpg.show_item("new_simulation_confirmation_dialog")
 
-    def _on_new_scene_save_and_proceed(self):
-        """User chose to save before creating new scene."""
-        if self.current_scene_path:
+    def _on_new_simulation_save_and_proceed(self):
+        """User chose to save before creating new simulation."""
+        if self.current_simulation_path:
             # Save to existing path
-            self.fh.save_scene(self.current_scene_path)
+            self.fh.save_simulation(self.current_simulation_path)
         else:
             # No path set, show save dialog
-            dpg.hide_item("new_scene_confirmation_dialog")
+            dpg.hide_item("new_simulation_confirmation_dialog")
             self._center_dialog("save_before_new_dialog")
             dpg.show_item("save_before_new_dialog")
             return
         
-        # Proceed with new scene
-        dpg.hide_item("new_scene_confirmation_dialog")
+        # Proceed with new simulation
+        dpg.hide_item("new_simulation_confirmation_dialog")
         self._show_startup_dialog()
 
     def _on_save_before_new_cb(self, sender, app_data):
-        """Callback from save dialog before creating new scene."""
+        """Callback from save dialog before creating new simulation."""
         path = app_data['file_path_name']
-        self.fh.save_scene(path)
-        self.current_scene_path = path
-        self.current_scene_name = pathlib.Path(path).stem
+        self.fh.save_simulation(path)
+        self.current_simulation_path = path
+        self.current_simulation_name = pathlib.Path(path).stem
         self._update_status_bar()
         
-        # Proceed with new scene
+        # Proceed with new simulation
         self._show_startup_dialog()
 
-    def _on_new_scene_discard(self):
-        """User chose not to save, just proceed with new scene."""
-        dpg.hide_item("new_scene_confirmation_dialog")
+    def _on_new_simulation_discard(self):
+        """User chose not to save, just proceed with new simulation."""
+        dpg.hide_item("new_simulation_confirmation_dialog")
         self._show_startup_dialog()
 
-    def _on_new_scene_cancel(self):
-        """User cancelled creating new scene."""
-        dpg.hide_item("new_scene_confirmation_dialog")
+    def _on_new_simulation_cancel(self):
+        """User cancelled creating new simulation."""
+        dpg.hide_item("new_simulation_confirmation_dialog")
 
     # ------------------------------------------------------------------
     # Delete Confirmation Dialog
@@ -256,9 +256,9 @@ class SpeculaEditor:
     
     def _on_exit_save_and_confirm(self):
         """User confirmed exit and wants to save first."""
-        # If we have a current scene path, save to that path directly
-        if self.current_scene_path:
-            self.fh.save_scene(self.current_scene_path)
+        # If we have a current simulation path, save to that path directly
+        if self.current_simulation_path:
+            self.fh.save_simulation(self.current_simulation_path)
             dpg.stop_dearpygui()
         else:
             # Show save dialog
@@ -269,9 +269,9 @@ class SpeculaEditor:
     def _on_save_and_exit_cb(self, sender, app_data):
         """Callback from save dialog when saving before exit."""
         path = app_data['file_path_name']
-        self.fh.save_scene(path)
-        self.current_scene_path = path
-        self.current_scene_name = pathlib.Path(path).stem
+        self.fh.save_simulation(path)
+        self.current_simulation_path = path
+        self.current_simulation_name = pathlib.Path(path).stem
         self._update_status_bar()
         dpg.stop_dearpygui()
     
@@ -430,7 +430,7 @@ class SpeculaEditor:
         """Called when the window X button is pressed."""
         self._multi_add_queue.clear()
 
-    # ── helpers ──────────────────────────────────────────────────────
+    # ── helpers ──────────��───────────────────────────────────────────
 
     def _mo_refresh_staged(self):
         """Rebuild the staged listbox from the internal queue."""
@@ -506,15 +506,13 @@ class SpeculaEditor:
             # 1. Menu Bar
             with dpg.menu_bar():
                 with dpg.menu(label="File"):
-                    dpg.add_menu_item(label="New Scene", callback=self._on_new_scene_clicked)
+                    dpg.add_menu_item(label="New Simulation", callback=self._on_new_simulation_clicked)
                     dpg.add_separator()
-                    dpg.add_menu_item(label="Save Scene", callback=self._on_save_scene_clicked)
-                    dpg.add_menu_item(label="Save Scene As", callback=lambda: dpg.show_item("save_scene_dialog"))
-                    dpg.add_menu_item(label="Load Scene", callback=lambda: dpg.show_item("load_scene_dialog"))
+                    dpg.add_menu_item(label="Save Simulation", callback=self._on_save_simulation_clicked)
+                    dpg.add_menu_item(label="Save Simulation As", callback=lambda: dpg.show_item("save_simulation_dialog"))
+                    dpg.add_menu_item(label="Load Simulation", callback=lambda: dpg.show_item("load_simulation_dialog"))
                     dpg.add_separator()                    
-                    dpg.add_menu_item(label="Import Specula Sim", callback=lambda: dpg.show_item("import_sim_dialog"))
-                    dpg.add_menu_item(label="Include Defaults in Export", check=True, callback=self._toggle_export_defaults)
-                    dpg.add_menu_item(label="Export Specula Sim", callback=lambda: dpg.show_item("export_sim_dialog"))
+                    dpg.add_menu_item(label="Include Defaults in saved simulations", check=True, callback=self._toggle_export_defaults)                    
                     dpg.add_separator()
                     dpg.add_menu_item(label="Exit", callback=self._on_exit_requested)
 
@@ -534,7 +532,7 @@ class SpeculaEditor:
                 with dpg.menu(label="Layout"):
                     dpg.add_menu_item(label="Auto Layout", callback=lambda: auto_layout_nodes(self.nm.graph, self.nm.uuid_to_dpg))
                     dpg.add_menu_item(label="Debug Info", callback=lambda: print(f"Nodes: {len(self.nm.graph.nodes)}, Connections: {len(self.nm.graph.connections)}"))
-  
+   
             # 2. Main content area (horizontal: editor + properties)
             with dpg.group(horizontal=False):
                 with dpg.group(horizontal=True):
@@ -554,7 +552,7 @@ class SpeculaEditor:
 
                 # 3. Status Bar at the bottom
                 with dpg.child_window(height=30, tag="status_bar",border=False):
-                    dpg.add_text("Scene: (Unsaved)", tag="status_bar_text", color=(180, 180, 180))
+                    dpg.add_text("Simulation: (Unsaved)", tag="status_bar_text", color=(180, 180, 180))
 
         # --- Global Handlers ---
         with dpg.handler_registry():
@@ -589,29 +587,24 @@ class SpeculaEditor:
 
     def setup_dialogs(self):
         # We point these to FileHandler's logic via thin wrappers
-        with dpg.file_dialog(label="Import Specula Simulation", show=False, callback=self._import_cb, id="import_sim_dialog", width=700, height=400):
-            dpg.add_file_extension(".yml")
         
-        with dpg.file_dialog(label="Export Specula Simulation", show=False, callback=self._export_cb, id="export_sim_dialog", width=700, height=400):
+        with dpg.file_dialog(label="Save Simulation", show=False, callback=self._save_simulation_cb, id="save_simulation_dialog", width=700, height=400):
             dpg.add_file_extension(".yml")
 
-        with dpg.file_dialog(label="Save Scene", show=False, callback=self._save_scene_cb, id="save_scene_dialog", width=700, height=400):
+        with dpg.file_dialog(label="Load Simulation", show=False, callback=self._load_simulation_cb, id="load_simulation_dialog", width=700, height=400):
             dpg.add_file_extension(".yml")
 
-        with dpg.file_dialog(label="Load Scene", show=False, callback=self._load_scene_cb, id="load_scene_dialog", width=700, height=400):
+        with dpg.file_dialog(label="Save Simulation Before Exit", show=False, callback=self._on_save_and_exit_cb, id="save_and_exit_dialog", width=700, height=400):
             dpg.add_file_extension(".yml")
 
-        with dpg.file_dialog(label="Save Scene Before Exit", show=False, callback=self._on_save_and_exit_cb, id="save_and_exit_dialog", width=700, height=400):
-            dpg.add_file_extension(".yml")
-
-        with dpg.file_dialog(label="Save Scene Before New", show=False, callback=self._on_save_before_new_cb, id="save_before_new_dialog", width=700, height=400):
+        with dpg.file_dialog(label="Save Simulation Before New", show=False, callback=self._on_save_before_new_cb, id="save_before_new_dialog", width=700, height=400):
             dpg.add_file_extension(".yml")
 
         # Exit Confirmation Dialog
         self._create_exit_confirmation_dialog()
 
-        # New Scene Confirmation Dialog
-        self._create_new_scene_confirmation_dialog()
+        # New Simulation Confirmation Dialog
+        self._create_new_simulation_confirmation_dialog()
 
         # Add Multiple Objects modal
         self._setup_add_multiple_dialog()
@@ -636,31 +629,31 @@ class SpeculaEditor:
                 dpg.add_button(label="Exit without Saving", width=140, callback=self._on_exit_confirm)
                 dpg.add_button(label="Cancel", width=100, callback=self._on_exit_cancel)
 
-    def _create_new_scene_confirmation_dialog(self):
-        """Create the new scene confirmation modal dialog."""
+    def _create_new_simulation_confirmation_dialog(self):
+        """Create the new simulation confirmation modal dialog."""
         with dpg.window(
-            label="Create New Scene?",
-            tag="new_scene_confirmation_dialog",
+            label="Create New Simulation?",
+            tag="new_simulation_confirmation_dialog",
             modal=True,
             show=False,
             width=450,
             height=180,
             no_resize=True
         ):
-            dpg.add_text("Create a new scene?")
-            dpg.add_text("Your current scene will be cleared. Would you like to save it first?", color=[180, 180, 180])
+            dpg.add_text("Create a new simulation?")
+            dpg.add_text("Your current simulation will be cleared. Would you like to save it first?", color=[180, 180, 180])
             dpg.add_spacing(count=2)
             
             with dpg.group(horizontal=True):
-                dpg.add_button(label="Save and Continue", width=140, callback=self._on_new_scene_save_and_proceed)
-                dpg.add_button(label="Discard", width=100, callback=self._on_new_scene_discard)
-                dpg.add_button(label="Cancel", width=100, callback=self._on_new_scene_cancel)
+                dpg.add_button(label="Save and Continue", width=140, callback=self._on_new_simulation_save_and_proceed)
+                dpg.add_button(label="Discard", width=100, callback=self._on_new_simulation_discard)
+                dpg.add_button(label="Cancel", width=100, callback=self._on_new_simulation_cancel)
 
     # --- Startup dialog helpers ---
     def _show_startup_dialog(self):
-        """Show the startup dialog (reused for new scenes)."""
+        """Show the startup dialog (reused for new simulations)."""
         if dpg.does_item_exist("startup_dialog"):
-            dpg.set_value("startup_scene_name", "")
+            dpg.set_value("startup_simulation_name", "")
             self._center_dialog("startup_dialog")
             dpg.show_item("startup_dialog")
         else:
@@ -674,38 +667,37 @@ class SpeculaEditor:
             return
 
         with dpg.window(label="Welcome", tag="startup_dialog", modal=True, show=True, width=640, height=160):
-            dpg.add_text("Create a new scene, open an existing scene, or import a simulation into a new scene.")
+            dpg.add_text("Create a new simulation, open an existing simulation, or import a Specula config into a new simulation.")
             dpg.add_spacing(count=1)
             with dpg.group(horizontal=True):
-                dpg.add_text("Scene name:")
-                dpg.add_input_text(tag="startup_scene_name", width=420, hint="Enter scene name for new/import")
+                dpg.add_text("Simulation name:")
+                dpg.add_input_text(tag="startup_simulation_name", width=420, hint="Enter simulation name for new/import")
             dpg.add_spacing(count=1)
             with dpg.group(horizontal=True):
-                dpg.add_button(label="Create New Scene", callback=self._startup_create_new)
-                dpg.add_button(label="Open Existing Scene", callback=lambda s, a: dpg.show_item("load_scene_dialog"))
-                dpg.add_button(label="Import Simulation (new scene)", callback=lambda s, a: dpg.show_item("import_sim_dialog"))
+                dpg.add_button(label="Create New Simulation", callback=self._startup_create_new)
+                dpg.add_button(label="Open Existing Simulation", callback=lambda s, a: dpg.show_item("load_simulation_dialog"))                
                 dpg.add_button(label="Cancel", callback=lambda s, a: dpg.hide_item("startup_dialog"))
         
         # Center the startup dialog after creation
         self._center_dialog("startup_dialog")
 
     def _startup_create_new(self, sender, app_data):
-        name = dpg.get_value("startup_scene_name").strip() if dpg.does_item_exist("startup_scene_name") else ""
+        name = dpg.get_value("startup_simulation_name").strip() if dpg.does_item_exist("startup_simulation_name") else ""
         if not name:
-            if dpg.does_item_exist("startup_scene_name"):
-                dpg.set_value("startup_scene_name", "")
-                dpg.focus_item("startup_scene_name")
-            print("Please enter a scene name before creating a new scene.")
+            if dpg.does_item_exist("startup_simulation_name"):
+                dpg.set_value("startup_simulation_name", "")
+                dpg.focus_item("startup_simulation_name")
+            print("Please enter a simulation name before creating a new simulation.")
             return
 
-        # Clear existing graph and set scene name
+        # Clear existing graph and set simulation name
         self.nm.clear_all()
         self.nm.graph.nodes.clear()
         self.nm.graph.connections.clear()
         self.nm.graph.connection_properties.clear()
-        self.current_scene_name = name
-        self.current_scene_path = None
-        print(f"[SCENE] Created new scene: {name}")
+        self.current_simulation_name = name
+        self.current_simulation_path = None
+        print(f"[SIMULATION] Created new simulation: {name}")
         self._update_status_bar()
 
         if dpg.does_item_exist("startup_dialog"):
@@ -716,46 +708,28 @@ class SpeculaEditor:
     def _on_menu_create(self, sender, app_data, user_data):
         self.nm.create_node(node_type=user_data)
 
-    def _on_save_scene_clicked(self):
-        """Handle 'Save Scene' menu click."""
-        if self.current_scene_path:
-            self.fh.save_scene(self.current_scene_path)
+    def _on_save_simulation_clicked(self):
+        """Handle 'Save Simulation' menu click."""
+        if self.current_simulation_path:
+            self.fh.save_simulation(self.current_simulation_path, self.export_include_defaults)
         else:
-            dpg.show_item("save_scene_dialog")
+            dpg.show_item("save_simulation_dialog")
 
     # --- File Bridge Callbacks ---
-    def _import_cb(self, s, a):
-        path = pathlib.Path(a['file_path_name']).resolve()
-        if dpg.does_item_exist("startup_scene_name"):
-            name = dpg.get_value("startup_scene_name").strip()
-            if name:
-                self.current_scene_name = name
-        else:
-            self.current_scene_name = path.stem
-
-        self.current_scene_path = None
-        self.fh.import_simulation(str(path))
-        self._update_status_bar()
-
-        if dpg.does_item_exist("startup_dialog"):
-            dpg.hide_item("startup_dialog")
-
-    def _export_cb(self, s, a): 
-        self.fh.export_simulation(a['file_path_name'], self.export_include_defaults)
     
-    def _save_scene_cb(self, s, a):
+    def _save_simulation_cb(self, s, a):
         path = a['file_path_name']
-        self.fh.save_scene(path)
-        self.current_scene_path = path
-        self.current_scene_name = pathlib.Path(path).stem
+        self.fh.save_simulation(path)
+        self.current_simulation_path = path
+        self.current_simulation_name = pathlib.Path(path).stem
         self._update_status_bar()
     
-    def _load_scene_cb(self, s, a):
+    def _load_simulation_cb(self, s, a):
         path = pathlib.Path(a['file_path_name']).resolve()
-        self.fh.load_scene(str(path))
+        self.fh.load_simulation(str(path))
         try:
-            self.current_scene_path = str(path)
-            self.current_scene_name = path.stem
+            self.current_simulation_path = str(path)
+            self.current_simulation_name = path.stem
         except Exception:
             pass
         self._update_status_bar()

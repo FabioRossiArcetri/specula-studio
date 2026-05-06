@@ -1671,7 +1671,7 @@ DisplayServer:
       kind: value
       type: typing.Callable
     mode:
-      default: image
+      default: data
       kind: value
       type: str
     output_ref_getter:
@@ -1683,7 +1683,7 @@ DisplayServer:
       kind: reference
       type: dict
     port:
-      default: 0
+      default: 5000
       kind: value
       type: int
 DistributedSH:
@@ -6554,7 +6554,7 @@ TimeHistoryGenerator:
       type: int
     time_hist:
       default: REQUIRED
-      kind: reference
+      kind: object
       type: TimeHistory
 VibrationGenerator:
   bases:

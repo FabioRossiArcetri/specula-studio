@@ -238,7 +238,7 @@ class FileHandler:
         
         Args:
             perform_auto_layout (bool): Whether to perform auto-layout on nodes
-            operation_name (str): Name for logging (e.g., "IMPORT" or "LOAD_SCENE")
+            operation_name (str): Name for logging (e.g., "IMPORT" or "LOAD")
         """
         current_frame = dpg.get_frame_count()
         dpg.set_frame_callback(current_frame + 3, self.refresh_all_themes)
@@ -277,46 +277,17 @@ class FileHandler:
         current_frame = dpg.get_frame_count()
         dpg.set_frame_callback(current_frame + 10, lambda: verify_nodes(1, 5))
 
-    def import_simulation(self, file_path):
+    def load_simulation(self, file_path,include_defaults=False):
         """
-        Import a Specula simulation from YAML.
+        Load a saved simulation from YAML.
         
-        Creates a new graph from simulation data and performs auto-layout
-        to arrange nodes. Use this when importing a new simulation.
+        Loads a complete simulation including all nodes, connections, and positions
+        as they were when saved. This respects saved node positions and does NOT 
+        perform auto-layout.
         
         Args:
-            file_path (str): Path to the simulation file
-        """
-        yaml_data = self._load_yaml_file(file_path)
-        if yaml_data is None:
-            return
-        
-        # Clear existing graph
-        self.nm.clear_all()
-        self.nm.graph.nodes.clear()
-        self.nm.graph.connections.clear()
-        self.nm.graph.connection_properties.clear()
-        
-        # Load in three passes
-        name_to_uuid = self._populate_graph_from_yaml(yaml_data)
-        self._create_ui_nodes(yaml_data, name_to_uuid)
-        self._create_connections(yaml_data, name_to_uuid)
-        
-        # Finalize with auto-layout
-        self._finalize_load(perform_auto_layout=True, operation_name="IMPORT")
-        
-        print(f"[IMPORT] Import completed. Loaded {len(self.nm.graph.nodes)} nodes with their actual values")
-
-    def load_scene(self, file_path):
-        """
-        Load a saved scene from YAML.
-        
-        Loads a complete scene including all nodes, connections, and positions
-        as they were when saved. Unlike import_simulation, this respects saved
-        node positions and does NOT perform auto-layout.
-        
-        Args:
-            file_path (str): Path to the scene file to load
+            file_path (str): Path to the simulation YAML file
+            include_defaults (bool): Whether to include default values when loading
         """
         yaml_data = self._load_yaml_file(file_path)
         if yaml_data is None:
@@ -334,19 +305,19 @@ class FileHandler:
         self._create_connections(yaml_data, name_to_uuid)
         
         # Finalize WITHOUT auto-layout (preserve saved positions)
-        self._finalize_load(perform_auto_layout=False, operation_name="LOAD_SCENE")
+        self._finalize_load(perform_auto_layout=False, operation_name="LOAD")
         
-        print(f"[LOAD_SCENE] Scene loaded from {file_path}")
+        print(f"[LOAD] Simulation loaded from {file_path}")
 
-    def save_scene(self, file_path):
+    def save_simulation(self, file_path):
         """
-        Save the current scene layout to YAML.
+        Save the current simulation layout to YAML.
         
         Exports the entire simulation with node positions preserved.
         Captures the current position of each node from the DPG node editor.
         
         Args:
-            file_path (str): Path to save the scene file
+            file_path (str): Path to save the simulation file
         """
         # First, capture current positions from DPG
         for node_uuid, dpg_id in self.nm.uuid_to_dpg.items():
@@ -359,7 +330,7 @@ class FileHandler:
         
         # Export the simulation (which now includes positions)
         self.export_simulation(file_path, include_defaults=False)
-        print(f"[SAVE_SCENE] Scene saved to {file_path}")
+        print(f"[SAVE] Simulation saved to {file_path}")
 
     def export_simulation(self, file_path, include_defaults=False):
         """Exports the graph state to YAML."""

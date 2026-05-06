@@ -6,7 +6,7 @@ TimeHistoryGenerator:
     time_hist:
       type: TimeHistory
       default: REQUIRED
-      kind: reference
+      kind: object
     target_device_idx:
       type: int
       default: null
