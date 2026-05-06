@@ -506,11 +506,11 @@ class SpeculaEditor:
             # 1. Menu Bar
             with dpg.menu_bar():
                 with dpg.menu(label="File"):
-                    dpg.add_menu_item(label="New Simulation", callback=self._on_new_simulation_clicked)
+                    dpg.add_menu_item(label="New Simulation", callback=self._on_new_simulation_clicked)                    
+                    dpg.add_menu_item(label="Load Simulation", callback=lambda: dpg.show_item("load_simulation_dialog"))
                     dpg.add_separator()
                     dpg.add_menu_item(label="Save Simulation", callback=self._on_save_simulation_clicked)
-                    dpg.add_menu_item(label="Save Simulation As", callback=lambda: dpg.show_item("save_simulation_dialog"))
-                    dpg.add_menu_item(label="Load Simulation", callback=lambda: dpg.show_item("load_simulation_dialog"))
+                    dpg.add_menu_item(label="Save Simulation As", callback=lambda: dpg.show_item("save_simulation_dialog"))                    
                     dpg.add_separator()                    
                     dpg.add_menu_item(label="Include Defaults in saved simulations", check=True, callback=self._toggle_export_defaults)                    
                     dpg.add_separator()
@@ -659,6 +659,12 @@ class SpeculaEditor:
         else:
             self._create_startup_dialog()
 
+    def _on_startup_open_existing(self, sender, app_data):
+        """Open the load simulation dialog from startup dialog and close startup dialog."""
+        if dpg.does_item_exist("startup_dialog"):
+            dpg.hide_item("startup_dialog")
+        dpg.show_item("load_simulation_dialog")
+
     def _create_startup_dialog(self):
         """Create a modal startup dialog shown at application launch."""
         if dpg.does_item_exist("startup_dialog"):
@@ -675,7 +681,7 @@ class SpeculaEditor:
             dpg.add_spacing(count=1)
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Create New Simulation", callback=self._startup_create_new)
-                dpg.add_button(label="Open Existing Simulation", callback=lambda s, a: dpg.show_item("load_simulation_dialog"))                
+                dpg.add_button(label="Open Existing Simulation", callback=self._on_startup_open_existing)                
                 dpg.add_button(label="Cancel", callback=lambda s, a: dpg.hide_item("startup_dialog"))
         
         # Center the startup dialog after creation

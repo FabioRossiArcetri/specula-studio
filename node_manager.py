@@ -25,15 +25,18 @@ from dpg_utils import (
     create_proc_node_theme_incomplete,
 )
 from constants import SOCKETIO_SERVER
+from constants import (
+    DATA_SHAPE_EMPTY,
+    DATA_SHAPE_FILLED,
+    DATA_MULTIPLE_SHAPE_EMPTY,
+    DATA_MULTIPLE_SHAPE_FILLED,
+    REF_SHAPE_EMPTY,
+    REF_SHAPE_FILLED,
+)
 from node_registry import NodeRegistry
 from socketio_client import SocketIOClient
 from monitor_manager import MonitorManager
 from property_panel import PropertyPanel
-
-# Pin shapes
-REF_SHAPE = dpg.mvNode_PinShape_QuadFilled  # Square for references
-DATA_SHAPE = dpg.mvNode_PinShape_TriangleFilled  # Triangle for data
-DATA_MULTIPLE_SHAPE = dpg.mvNode_PinShape_TriangleFilled  # Circle for data
 
 class NodeManager:
     """
@@ -374,7 +377,7 @@ class NodeManager:
                 if isinstance(param_meta, dict) and param_meta.get("kind") == "reference":
                     display_name = f"{param_name}_ref"
                     with dpg.node_attribute(
-                        attribute_type=dpg.mvNode_Attr_Input, shape=REF_SHAPE
+                        attribute_type=dpg.mvNode_Attr_Input, shape=REF_SHAPE_EMPTY
                     ) as attr_id:
                         dpg.add_text(display_name, color=[150, 255, 150])
                         self.input_attr_registry[attr_id] = (node_uuid, display_name)
@@ -385,8 +388,11 @@ class NodeManager:
                     continue
 
                 kind = meta.get("kind", "single")
+                # Use circle for variadic (multiple) inputs, triangle for single
+                pin_shape = DATA_MULTIPLE_SHAPE_EMPTY if kind == "variadic" else DATA_SHAPE_EMPTY
+                
                 with dpg.node_attribute(
-                    attribute_type=dpg.mvNode_Attr_Input, shape=DATA_SHAPE
+                    attribute_type=dpg.mvNode_Attr_Input, shape=pin_shape
                 ) as attr_id:
                     label = f"{in_attr} [*]" if kind == "variadic" else in_attr
                     dpg.add_text(label, color=[255, 255, 255])
@@ -431,7 +437,7 @@ class NodeManager:
 
                 display_label = out_name.replace(":", " [") + "]" if ":" in out_name else out_name
                 with dpg.node_attribute(
-                    attribute_type=dpg.mvNode_Attr_Output, shape=DATA_SHAPE
+                    attribute_type=dpg.mvNode_Attr_Output, shape=DATA_SHAPE_EMPTY
                 ) as attr_id:
                     with dpg.group(horizontal=True):
                         dpg.add_spacer(width=100)
@@ -440,7 +446,7 @@ class NodeManager:
 
         elif node_type == "SimulParams":
             with dpg.node_attribute(
-                attribute_type=dpg.mvNode_Attr_Output, shape=REF_SHAPE
+                attribute_type=dpg.mvNode_Attr_Output, shape=REF_SHAPE_EMPTY
             ) as attr_id:
                 with dpg.group(horizontal=True):
                     dpg.add_spacer(width=100)
@@ -461,7 +467,7 @@ class NodeManager:
 
                 display_label = out_name.replace(":", " [") + "]" if ":" in out_name else out_name
                 with dpg.node_attribute(
-                    attribute_type=dpg.mvNode_Attr_Output, shape=DATA_SHAPE
+                    attribute_type=dpg.mvNode_Attr_Output, shape=DATA_SHAPE_EMPTY
                 ) as attr_id:
                     with dpg.group(horizontal=True):
                         dpg.add_spacer(width=100)
@@ -471,7 +477,7 @@ class NodeManager:
         # Special refs for Source/Pupilstop
         if node_type in ("Source", "Pupilstop"):
             with dpg.node_attribute(
-                attribute_type=dpg.mvNode_Attr_Output, shape=REF_SHAPE
+                attribute_type=dpg.mvNode_Attr_Output, shape=REF_SHAPE_EMPTY
             ) as attr_id:
                 with dpg.group(horizontal=True):
                     dpg.add_spacer(width=100)
@@ -516,7 +522,7 @@ class NodeManager:
             node_uuid: Node UUID
         """
         with dpg.node_attribute(
-            attribute_type=dpg.mvNode_Attr_Input, parent=dpg_id, shape=REF_SHAPE
+            attribute_type=dpg.mvNode_Attr_Input, parent=dpg_id, shape=REF_SHAPE_EMPTY
         ) as attr_id:
             dpg.add_text("source_dict_ref", color=[150, 255, 150])
             self.input_attr_registry[attr_id] = (node_uuid, "source_dict_ref")
@@ -542,7 +548,7 @@ class NodeManager:
         self._refresh_node_theme(node_uuid)
 
         with dpg.node_attribute(
-            attribute_type=dpg.mvNode_Attr_Output, shape=DATA_SHAPE, parent=dpg_id
+            attribute_type=dpg.mvNode_Attr_Output, shape=DATA_SHAPE_EMPTY, parent=dpg_id
         ) as attr_id:
             with dpg.group(horizontal=True):
                 dpg.add_spacer(width=100)
@@ -611,6 +617,10 @@ class NodeManager:
         if self._last_selected_uuid == in_node_uuid:
             self.update_property_panel(in_node_uuid, "property_panel")
 
+        # Update pin shapes when connection is established
+        self._update_input_pin_shape(in_node_uuid, in_name)
+        self._update_output_pin_shape(out_node_uuid, out_name)
+        
         self._refresh_node_theme(in_node_uuid)
         self._refresh_node_theme(out_node_uuid)
 
@@ -664,6 +674,93 @@ class NodeManager:
         
         return True
     
+    def _update_input_pin_shape(self, node_uuid: str, input_name: str):
+        """Update the pin shape of an input based on whether it has connections.
+        
+        For single data inputs: empty triangle -> filled triangle
+        For variadic data inputs: empty circle -> filled circle
+        For reference inputs: empty quad -> filled quad
+        """
+        node_data = self.graph.nodes.get(node_uuid)
+        if not node_data:
+            return
+        
+        # Determine if this is a reference input
+        is_ref = input_name.endswith("_ref") or input_name == "layer_list"
+        
+        # Get input kind from node data (for data inputs)
+        node_inputs = node_data.get("inputs", {})
+        input_meta = node_inputs.get(input_name, {})
+        input_kind = input_meta.get("kind", "single")
+        
+        # Find the attribute ID for this input
+        attr_id = None
+        for aid, (uid, name) in self.input_attr_registry.items():
+            if uid == node_uuid and name == input_name:
+                attr_id = aid
+                break
+        
+        if attr_id is None:
+            return
+        
+        # Check if there's at least one connection to this input
+        has_connection = any(
+            dst_u == node_uuid and dst_a == input_name
+            for _, _, dst_u, dst_a in self.graph.connections
+        )
+        
+        # Update the pin shape based on connection status, input kind, and type
+        if is_ref:
+            # Reference inputs: empty quad -> filled quad
+            new_shape = REF_SHAPE_FILLED if has_connection else REF_SHAPE_EMPTY
+        else:
+            # Data inputs
+            if has_connection:
+                new_shape = DATA_MULTIPLE_SHAPE_FILLED if input_kind == "variadic" else DATA_SHAPE_FILLED
+            else:
+                new_shape = DATA_MULTIPLE_SHAPE_EMPTY if input_kind == "variadic" else DATA_SHAPE_EMPTY
+        
+        # Update the attribute's pin shape
+        if dpg.does_item_exist(attr_id):
+            dpg.configure_item(attr_id, shape=new_shape)
+
+    def _update_output_pin_shape(self, node_uuid: str, output_name: str):
+        """Update the pin shape of an output based on whether it has connections.
+        
+        For reference outputs: empty quad -> filled quad
+        For data outputs: empty triangle -> filled triangle
+        """
+        # Determine if this is a reference output
+        is_ref = output_name == "ref"
+        
+        # Find the attribute ID for this output
+        attr_id = None
+        for aid, (uid, name) in self.output_attr_registry.items():
+            if uid == node_uuid and name == output_name:
+                attr_id = aid
+                break
+        
+        if attr_id is None:
+            return
+        
+        # Check if there's at least one connection from this output
+        has_connection = any(
+            src_u == node_uuid and src_a == output_name
+            for src_u, src_a, _, _ in self.graph.connections
+        )
+        
+        # Update the pin shape based on connection status and type
+        if is_ref:
+            # Reference outputs: empty quad -> filled quad
+            new_shape = REF_SHAPE_FILLED if has_connection else REF_SHAPE_EMPTY
+        else:
+            # Data outputs: empty triangle -> filled triangle
+            new_shape = DATA_SHAPE_FILLED if has_connection else DATA_SHAPE_EMPTY
+        
+        # Update the attribute's pin shape
+        if dpg.does_item_exist(attr_id):
+            dpg.configure_item(attr_id, shape=new_shape)
+
     def delink_callback(self, sender, app_data):
         """Handle user deleting a link."""
         link_id = app_data
@@ -731,6 +828,10 @@ class NodeManager:
         if dpg.does_item_exist(link_id):
             dpg.delete_item(link_id)
 
+        # Update pin shapes when connection is removed
+        self._update_input_pin_shape(dst_uuid, dst_attr)
+        self._update_output_pin_shape(src_uuid, src_attr)
+
         self._refresh_node_theme(dst_uuid)
         self._refresh_node_theme(src_uuid)
 
@@ -754,7 +855,7 @@ class NodeManager:
             parent = self.uuid_to_dpg.get(src_uuid)
             if parent:
                 is_ref_link = dst_attr.endswith("_ref") or "params" in dst_attr.lower()
-                shape = REF_SHAPE if is_ref_link else DATA_SHAPE
+                shape = REF_SHAPE_EMPTY if is_ref_link else DATA_SHAPE_EMPTY
                 color = (
                     [255, 100, 100] if is_feedback
                     else ([150, 150, 150] if is_ref_link else [255, 255, 255])
@@ -791,7 +892,7 @@ class NodeManager:
             parent = self.uuid_to_dpg.get(dst_uuid)
             if parent:
                 is_ref = dst_attr.endswith("_ref") or dst_attr == "layer_list"
-                pin_shape = REF_SHAPE if is_ref else DATA_SHAPE
+                pin_shape = REF_SHAPE_EMPTY if is_ref else DATA_SHAPE_EMPTY
 
                 with dpg.node_attribute(
                     attribute_type=dpg.mvNode_Attr_Input, parent=parent, shape=pin_shape
@@ -813,6 +914,10 @@ class NodeManager:
             self.graph.add_connection(
                 src_uuid, base_src_attr, dst_uuid, dst_attr, {"delay": delay}
             )
+
+            # Update pin shapes when connection is established
+            self._update_input_pin_shape(dst_uuid, dst_attr)
+            self._update_output_pin_shape(src_uuid, base_src_attr)
 
             self._refresh_node_theme(dst_uuid)
             self._refresh_node_theme(src_uuid)
@@ -1027,7 +1132,7 @@ class NodeManager:
         parent = self.uuid_to_dpg[node_uuid]
 
         with dpg.node_attribute(
-            attribute_type=dpg.mvNode_Attr_Input, parent=parent, shape=REF_SHAPE
+            attribute_type=dpg.mvNode_Attr_Input, parent=parent, shape=REF_SHAPE_EMPTY
         ) as attr_id:
             dpg.add_text("source_dict_ref", color=[150, 255, 150])
             self.input_attr_registry[attr_id] = (node_uuid, "source_dict_ref")
