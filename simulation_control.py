@@ -10,14 +10,20 @@ import dearpygui.dearpygui as dpg
 from constants import SOCKETIO_SERVER
 
 # ---------------------------------------------------------------------------
-# Patterns used to extract the display-server URL from specula stdout
+# Fixed port for the injected DisplayServer node.
+# Must match SOCKETIO_SERVER in constants.py.
 # ---------------------------------------------------------------------------
-# Matches:  "Running on http://0.0.0.0:5432"   (aiohttp / uvicorn style)
+_DISPLAY_SERVER_PORT = 5000
+_DISPLAY_SERVER_NODE_NAME = "specula_studio_display_server"
+
+# ---------------------------------------------------------------------------
+# Patterns used to extract the display-server URL from specula stdout
+# (kept as a confirmation mechanism even though the port is now fixed)
+# ---------------------------------------------------------------------------
 _URL_RE = re.compile(
     r'https?://(?:0\.0\.0\.0|127\.0\.0\.1|localhost):(\d{4,5})',
     re.IGNORECASE,
 )
-# Matches:  "display server … port 5432"  /  "server started on :5432"
 _PORT_KW_RE = re.compile(
     r'(?:display[_\s]?server|socket\.?io|server|running|listening|started)'
     r'.{0,80}?[:\s](\d{4,5})\b',
@@ -34,12 +40,10 @@ class SimulationControl:
         self._reconnect_timer = None
 
         # Path to the coordination file shared with monitor subprocesses.
-        # Written as soon as we detect the display-server port from specula stdout.
         self._server_url_file: str = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
             "specula_studio_server.json",
         )
-        # Remove any stale file from a previous run
         self._clear_server_url_file()
 
     # ------------------------------------------------------------------
@@ -47,7 +51,6 @@ class SimulationControl:
     # ------------------------------------------------------------------
 
     def _clear_server_url_file(self):
-        """Remove the coordination file (called on start and on process exit)."""
         try:
             if os.path.exists(self._server_url_file):
                 os.remove(self._server_url_file)
@@ -55,7 +58,6 @@ class SimulationControl:
             pass
 
     def _write_server_url_file(self, url: str):
-        """Write the discovered display-server URL for monitor subprocesses."""
         try:
             with open(self._server_url_file, "w", encoding="utf-8") as f:
                 json.dump({"url": url}, f)
@@ -64,7 +66,7 @@ class SimulationControl:
             print(f"[SIMULATION] Could not write server URL file: {e}")
 
     # ------------------------------------------------------------------
-    # Display window helpers
+    # Control window
     # ------------------------------------------------------------------
 
     def _get_sim_path(self):
@@ -120,43 +122,110 @@ class SimulationControl:
     # YAML preparation
     # ------------------------------------------------------------------
 
-    def _strip_gui_fields(self, yaml_data):
+    def _strip_gui_fields(self, yaml_data: dict) -> dict:
+        """Remove GUI-only fields (gui_pos) from all nodes."""
         for node_name, node_dict in yaml_data.items():
             if isinstance(node_dict, dict) and "gui_pos" in node_dict:
                 del node_dict["gui_pos"]
         return yaml_data
 
-    def _inject_display_server_into_yaml(self, yaml_data):
+    def _inject_display_server_node(self, yaml_data: dict) -> bool:
         """
-        Ensure SimulParams has display_server: true so specula auto-creates
-        its built-in Socket.IO display server.
-        """
-        found = False
-        for node_name, node_dict in yaml_data.items():
-            if not isinstance(node_dict, dict):
-                continue
-            if node_dict.get("class") != "SimulParams":
-                continue
-            found = True
-            if not node_dict.get("display_server", False):
-                node_dict["display_server"] = True
-                print(f"[SIMULATION] Injected 'display_server: true' into SimulParams '{node_name}'")
+        Inject a DisplayServer node into the simulation YAML so that specula
+        always starts its built-in Socket.IO server on a fixed port when
+        launched from the GUI.
 
-        if not found:
+        The injected block looks like:
+
+            specula_studio_display_server:
+              class: DisplayServer
+              port: 5000
+              mode: data
+              params_dict_ref: <SimulParams node name>
+
+        Rules
+        -----
+        - If a DisplayServer block already exists (user added one manually),
+          it is left untouched and we return True immediately.
+        - The node is appended at the end of yaml_data so it does not affect
+          the order of user-defined nodes.
+        - Any legacy ``display_server: true`` flag on SimulParams is removed
+          to avoid having two display servers.
+
+        Returns True if the block was added or already present, False if no
+        SimulParams node was found (DisplayServer cannot be wired).
+        """
+        # ── Check whether a DisplayServer already exists ──────────────────
+        for node_name, node_dict in yaml_data.items():
+            if isinstance(node_dict, dict) and node_dict.get("class") == "DisplayServer":
+                print(
+                    f"[SIMULATION] DisplayServer node '{node_name}' already present "
+                    f"— skipping injection"
+                )
+                return True
+
+        # ── Find the SimulParams node name ────────────────────────────────
+        simul_params_name = None
+        for node_name, node_dict in yaml_data.items():
+            if isinstance(node_dict, dict) and node_dict.get("class") == "SimulParams":
+                simul_params_name = node_name
+                # Remove legacy display_server flag if present
+                if node_dict.get("display_server") is True:
+                    del node_dict["display_server"]
+                    print(
+                        f"[SIMULATION] Removed legacy 'display_server: true' "
+                        f"from SimulParams '{node_name}'"
+                    )
+                break
+
+        if simul_params_name is None:
             print(
                 "[SIMULATION] Warning: No SimulParams block found — "
-                "display_server could not be injected."
+                "cannot inject DisplayServer node."
             )
-        return found
+            return False
 
-    def _prepare_simulation_yaml(self, file_path):
+        # ── Build the DisplayServer block ─────────────────────────────────
+        # input_ref_getter, output_ref_getter and info_getter are internal
+        # callables that specula's simulation runner provides automatically;
+        # they must NOT appear in the YAML config.
+        ds_block = {
+            "class":            "DisplayServer",
+            "port":             _DISPLAY_SERVER_PORT,
+            "mode":             "data",            
+        }
+
+        # Choose a node name that does not clash with existing keys
+        ds_name = _DISPLAY_SERVER_NODE_NAME
+        suffix  = 1
+        while ds_name in yaml_data:
+            ds_name = f"{_DISPLAY_SERVER_NODE_NAME}_{suffix}"
+            suffix += 1
+
+        yaml_data[ds_name] = ds_block
+        print(
+            f"[SIMULATION] Injected DisplayServer node '{ds_name}' "
+            f"(port={_DISPLAY_SERVER_PORT}, mode=data, "            
+        )
+        return True
+
+    def _prepare_simulation_yaml(self, file_path: str):
+        """
+        Post-process the exported YAML before handing it to specula:
+          1. Strip GUI-only fields (gui_pos).
+          2. Inject a DisplayServer node so the Socket.IO display server
+             always starts on the fixed port.
+        """
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 yaml_data = yaml.safe_load(f)
             if not isinstance(yaml_data, dict):
+                print(f"[SIMULATION] Warning: YAML root is not a dict, skipping preparation")
                 return
+
             yaml_data = self._strip_gui_fields(yaml_data)
-            self._inject_display_server_into_yaml(yaml_data)
+            self._inject_display_server_node(yaml_data)
+
             with open(file_path, "w", encoding="utf-8") as f:
                 yaml.dump(yaml_data, f, sort_keys=False, default_flow_style=False)
             print(f"[SIMULATION] Prepared simulation YAML: {file_path}")
@@ -168,45 +237,31 @@ class SimulationControl:
         self._prepare_simulation_yaml(file_path)
 
     # ------------------------------------------------------------------
-    # Port / URL detection
+    # Port / URL detection (confirmation mechanism)
     # ------------------------------------------------------------------
 
     def _try_extract_port(self, line: str):
-        """
-        Attempt to extract the display-server port from a single stdout line.
-        Returns the port as int, or None if not found.
-        """
         for pattern in (_URL_RE, _PORT_KW_RE):
             m = pattern.search(line)
             if m:
                 port = int(m.group(1))
-                # Ignore obviously wrong values (e.g. year, small numbers)
                 if 1024 <= port <= 65535:
                     return port
         return None
 
     def _on_display_server_port_found(self, port: int):
-        """
-        Called (from the stdout reader thread) when specula announces its port.
-        Updates sio_client and MonitorManager, then writes the coordination file.
-        """
         new_url = f"http://127.0.0.1:{port}"
-        print(f"[SIMULATION] Display server detected at {new_url}")
+        print(f"[SIMULATION] Display server confirmed at {new_url}")
         self.append_terminal(f"[INFO] Display server running at {new_url}\n")
 
-        # Update the main-process Socket.IO client
         sio = self.editor.nm.sio_client
         sio.server_url = new_url
-
-        # Write coordination file so monitor subprocesses can discover the URL
         self._write_server_url_file(new_url)
 
-        # Notify MonitorManager (flushes any pending monitors, restarts wrong-URL ones)
         mm = self.editor.nm.monitors
         if hasattr(mm, "on_display_server_ready"):
             mm.on_display_server_ready(new_url)
 
-        # Reconnect main-process sio_client
         if not sio.connected:
             threading.Thread(target=sio.reconnect, daemon=True).start()
 
@@ -216,8 +271,8 @@ class SimulationControl:
 
     def _schedule_display_server_reconnect(self, delay: float = 4.0):
         """
-        Fallback: if we never detect the port from stdout, try port 5000 (the
-        default in constants.py) after *delay* seconds, then once more.
+        Fallback reconnect attempt in case the port never appears in stdout.
+        With a fixed port this should rarely be needed.
         """
         def _attempt(attempt_no, delay_s):
             time.sleep(delay_s)
@@ -235,11 +290,11 @@ class SimulationControl:
         if self.is_running:
             return
 
-        # Remove stale coordination file from any previous run
         self._clear_server_url_file()
 
         temp_path = self._get_sim_path()
         self.editor.fh.export_simulation(temp_path, include_defaults=True)
+        # Strip GUI fields and inject the DisplayServer node
         self._prepare_simulation_yaml(temp_path)
 
         cmd = ["specula", temp_path]
@@ -254,7 +309,7 @@ class SimulationControl:
 
         self.append_terminal(f"Executing: {' '.join(cmd)}\n")
         self.append_terminal(
-            "[INFO] Waiting for specula to announce display-server port …\n"
+            f"[INFO] DisplayServer will start on port {_DISPLAY_SERVER_PORT} …\n"
         )
 
         try:
@@ -268,10 +323,14 @@ class SimulationControl:
             )
             self.is_running = True
             threading.Thread(target=self._read_output, daemon=True).start()
-
-            # Fallback in case the port never appears in stdout
-            self._schedule_display_server_reconnect(delay=5.0)
-
+            # Write the expected URL immediately (port is fixed)
+            expected_url = f"http://127.0.0.1:{_DISPLAY_SERVER_PORT}"
+            self._write_server_url_file(expected_url)
+            mm = self.editor.nm.monitors
+            if hasattr(mm, "on_display_server_ready"):
+                mm.on_display_server_ready(expected_url)
+            # Fallback in case specula reports a different port
+            self._schedule_display_server_reconnect(delay=4.0)
         except Exception as e:
             self.append_terminal(f"Launch Error: {e}\n")
 

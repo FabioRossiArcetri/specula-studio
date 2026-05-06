@@ -418,11 +418,12 @@ AtmoPropagation:
   class_name: AtmoPropagation
   inputs:
     atmo_layer_list:
-      desc: List of atmospheric turbulence layers (optional)
+      desc: List of atmospheric turbulence layers (optional). Altitudes scaled by
+        airmass.
       kind: single
       type: Layer
     common_layer_list:
-      desc: List of common turbulence layers shared across sources
+      desc: List of common layers shared across sources. Altitudes not scaled.
       kind: variadic
       type: Layer
   output_names:
@@ -1671,7 +1672,7 @@ DisplayServer:
       kind: value
       type: typing.Callable
     mode:
-      default: data
+      default: image
       kind: value
       type: str
     output_ref_getter:
@@ -1683,7 +1684,7 @@ DisplayServer:
       kind: reference
       type: dict
     port:
-      default: 5000
+      default: 0
       kind: value
       type: int
 DistributedSH:

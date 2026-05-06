@@ -59,11 +59,12 @@ AtmoPropagation:
     atmo_layer_list:
       type: Layer
       kind: single
-      desc: List of atmospheric turbulence layers (optional)
+      desc: List of atmospheric turbulence layers (optional). Altitudes scaled by
+        airmass.
     common_layer_list:
       type: Layer
       kind: variadic
-      desc: List of common turbulence layers shared across sources
+      desc: List of common layers shared across sources. Altitudes not scaled.
   outputs:
   - name: out_{source_name}_ef
     type: ElectricField
