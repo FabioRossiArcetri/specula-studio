@@ -33,6 +33,7 @@ from constants import (
     REF_SHAPE_EMPTY,
     REF_SHAPE_FILLED,
 )
+import render_scale
 from node_registry import NodeRegistry
 from socketio_client import SocketIOClient
 from monitor_manager import MonitorManager
@@ -138,13 +139,9 @@ class NodeManager:
         self.monitors.on_server_connect_error(data)
 
     def _on_server_params(self, data: dict):
-        """
-        Handle server 'params' event: update UUID mapping.
-        """
+        """Handle server 'params' event: update UUID mapping."""
         self.sio_client.bind_nodes_to_server(self.graph.nodes, data)
         self.sio_client.update_uuid_mapping(self.graph.nodes)
-        # Note: monitors are now separate processes and manage their own
-        # connection status display — no status push needed here.
 
     def _on_data_update(self, name: str, raw_data):
         """Handle real-time data update from server."""
@@ -260,7 +257,6 @@ class NodeManager:
             if param_meta.get("kind") != "reference":
                 continue
 
-            # Check if REQUIRED
             default_val = param_meta.get("default")
             is_required = (
                 default_val == "REQUIRED" or param_meta.get("required", False)
@@ -361,6 +357,9 @@ class NodeManager:
         node_data["name"] = node_name
         final_pos = pos if pos else [100, 100]
 
+        # Read spacer width from the active render scale at creation time
+        header_spacer_w = render_scale.node_header_spacer_width()
+
         with dpg.node(label=node_name, parent="specula_editor") as dpg_id:
             self.node_item_registry[node_uuid] = dpg_id
             dpg.set_item_pos(dpg_id, final_pos)
@@ -370,7 +369,7 @@ class NodeManager:
             # Static header
             with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Static):
                 dpg.add_text(f"Class: {node_type}", color=[130, 130, 130])
-                dpg.add_spacer(width=200)
+                dpg.add_spacer(width=header_spacer_w)
 
             # Reference parameter inputs
             for param_name, param_meta in template.get("parameters", {}).items():
@@ -388,7 +387,6 @@ class NodeManager:
                     continue
 
                 kind = meta.get("kind", "single")
-                # Use circle for variadic (multiple) inputs, triangle for single
                 pin_shape = DATA_MULTIPLE_SHAPE_EMPTY if kind == "variadic" else DATA_SHAPE_EMPTY
                 
                 with dpg.node_attribute(
@@ -413,23 +411,16 @@ class NodeManager:
         return node_uuid
     
     def _create_node_outputs(self, dpg_id, node_uuid, node_type, node_data):
-        """Create output pins for a node.
-        
-        Outputs can be in new format (list of dicts with name/type/desc)
-        or old format (list of strings). Handles both gracefully.
-        """
-        template = self.all_templates.get(node_type, {})
+        """Create output pins for a node."""
+        output_spacer_w = render_scale.node_output_spacer_width()
 
-        # Handle AtmoPropagation special case
         if node_type == "AtmoPropagation":
             all_outputs = list(node_data.get("outputs", []))
             if "outputs_extra" in node_data:
                 all_outputs.extend(node_data["outputs_extra"])
 
             for out in all_outputs:
-                # Extract output name from new format (dict) or old format (string)
                 out_name = self._extract_output_name(out)
-                
                 if not out_name or '{' in out_name or '}' in out_name:
                     continue
                 if out_name.startswith("out_' + ") and out_name.endswith(" + '_ef'"):
@@ -440,7 +431,7 @@ class NodeManager:
                     attribute_type=dpg.mvNode_Attr_Output, shape=DATA_SHAPE_EMPTY
                 ) as attr_id:
                     with dpg.group(horizontal=True):
-                        dpg.add_spacer(width=100)
+                        dpg.add_spacer(width=output_spacer_w)
                         dpg.add_text(display_label)
                     self.output_attr_registry[attr_id] = (node_uuid, out_name)
 
@@ -449,7 +440,7 @@ class NodeManager:
                 attribute_type=dpg.mvNode_Attr_Output, shape=REF_SHAPE_EMPTY
             ) as attr_id:
                 with dpg.group(horizontal=True):
-                    dpg.add_spacer(width=100)
+                    dpg.add_spacer(width=output_spacer_w)
                     dpg.add_text("ref", color=[150, 150, 150])
                 self.output_attr_registry[attr_id] = (node_uuid, "ref")
 
@@ -459,9 +450,7 @@ class NodeManager:
                 all_outputs.extend(node_data["outputs_extra"])
 
             for out in all_outputs:
-                # Extract output name from new format (dict) or old format (string)
                 out_name = self._extract_output_name(out)
-                
                 if not out_name or '{' in out_name or '}' in out_name:
                     continue
 
@@ -470,57 +459,30 @@ class NodeManager:
                     attribute_type=dpg.mvNode_Attr_Output, shape=DATA_SHAPE_EMPTY
                 ) as attr_id:
                     with dpg.group(horizontal=True):
-                        dpg.add_spacer(width=100)
+                        dpg.add_spacer(width=output_spacer_w)
                         dpg.add_text(display_label)
                     self.output_attr_registry[attr_id] = (node_uuid, out_name)
 
-        # Special refs for Source/Pupilstop
         if node_type in ("Source", "Pupilstop"):
             with dpg.node_attribute(
                 attribute_type=dpg.mvNode_Attr_Output, shape=REF_SHAPE_EMPTY
             ) as attr_id:
                 with dpg.group(horizontal=True):
-                    dpg.add_spacer(width=100)
+                    dpg.add_spacer(width=output_spacer_w)
                     dpg.add_text("ref", color=[100, 200, 255])
                 self.output_attr_registry[attr_id] = (node_uuid, "ref")
 
     def _extract_output_name(self, output):
-        """Extract output name from new format (dict) or old format (string).
-        
-        New format: {'name': 'layer_list', 'type': 'list', 'desc': '...'}
-        Old format: 'layer_list' or 'layer_list:float'
-        
-        Args:
-            output: Either dict or string
-            
-        Returns:
-            str: The output name, or None if invalid
-        """
+        """Extract output name from new format (dict) or old format (string)."""
         if isinstance(output, dict):
-            # New format: extract the 'name' field
             return output.get('name')
         elif isinstance(output, str):
-            # Old format: return as-is
             return output if output else None
         else:
             return None
 
     def _add_atmo_source_input(self, dpg_id, node_uuid: str):
-        """Add source_dict_ref input slot to AtmoPropagation node.
-        
-        This special input enables dynamic output creation when sources are connected.
-        The source_dict_ref stores a list of connected source node names, which
-        triggers the creation of corresponding dynamic outputs (e.g., out_source1_ef).
-        
-        When a source node is connected to this input:
-        1. The source node name is added to source_dict_ref list
-        2. A corresponding output pin (out_<source_name>_ef) is created
-        3. This allows the node to propagate effects from multiple sources
-        
-        Args:
-            dpg_id: DPG node ID
-            node_uuid: Node UUID
-        """
+        """Add source_dict_ref input slot to AtmoPropagation node."""
         with dpg.node_attribute(
             attribute_type=dpg.mvNode_Attr_Input, parent=dpg_id, shape=REF_SHAPE_EMPTY
         ) as attr_id:
@@ -547,18 +509,103 @@ class NodeManager:
         node_data["outputs_extra"].append(new_output)
         self._refresh_node_theme(node_uuid)
 
+        output_spacer_w = render_scale.node_output_spacer_width()
         with dpg.node_attribute(
             attribute_type=dpg.mvNode_Attr_Output, shape=DATA_SHAPE_EMPTY, parent=dpg_id
         ) as attr_id:
             with dpg.group(horizontal=True):
-                dpg.add_spacer(width=100)
+                dpg.add_spacer(width=output_spacer_w)
                 dpg.add_text(new_output, color=[100, 255, 255])
             self.output_attr_registry[attr_id] = (node_uuid, new_output)
             self._log(f"Created dynamic output '{new_output}'")
 
     # ==========================================================================
+    # RENDER SCALE REBUILD
+    # ==========================================================================
+
+    def rebuild_all_nodes_ui(self):
+        """
+        Rebuild every DPG node item to reflect the current render_scale settings.
+
+        The graph model (nodes dict + all parameter values) is left completely
+        intact.  Only the DPG items (node widgets, attribute pins, link lines)
+        are destroyed and re-created so that the new spacer widths and font take
+        effect immediately.
+
+        Steps
+        -----
+        1. Snapshot positions (read from DPG before tearing down).
+        2. Snapshot connections + their properties.
+        3. Tear down all DPG items and clear every registry.
+        4. Re-create every node DPG item (create_node preserves existing_uuid
+           so all uuid↔dpg mappings are refreshed).
+        5. Re-create every link (manual_link re-adds to graph.connections).
+        6. Refresh all themes.
+        7. Clear the property panel (selected node/link is gone).
+        """
+        self._log("Rebuilding all node UI items for new render scale…")
+
+        # ── 1. Save positions ──────────────────────────────────────────────────
+        saved_positions: dict = {}
+        for node_uuid, dpg_id in list(self.uuid_to_dpg.items()):
+            if dpg.does_item_exist(dpg_id):
+                saved_positions[node_uuid] = dpg.get_item_pos(dpg_id)
+            else:
+                saved_positions[node_uuid] = [100, 100]
+
+        # ── 2. Snapshot connections ────────────────────────────────────────────
+        saved_connections = list(self.graph.connections)
+        saved_conn_props  = dict(self.graph.connection_properties)
+
+        # ── 3. Tear down DPG items and clear registries ────────────────────────
+        self.node_item_registry.clear()
+        self.registry.clear()                                   # clears all 5 dicts
+        dpg.delete_item("specula_editor", children_only=True)   # removes all DPG nodes/links
+
+        # Also clear graph-level connection state so manual_link can re-add cleanly
+        self.graph.connections.clear()
+        self.graph.connection_properties.clear()
+
+        # Clear UI selection state
+        self._last_selected_uuid = None
+        self._selected_link_id   = None
+
+        # ── 4. Re-create node DPG items ────────────────────────────────────────
+        for node_uuid, node_data in self.graph.nodes.items():
+            node_type = node_data.get("type", "")
+            node_name = node_data.get("name", node_type)
+            pos       = saved_positions.get(node_uuid, [100, 100])
+            self.create_node(
+                node_type     = node_type,
+                pos           = pos,
+                existing_uuid = node_uuid,
+                name_override = node_name,
+            )
+
+        # ── 5. Re-create DPG links ──────────────────────────────���──────────────
+        # DPG needs a frame to register the freshly created node attributes before
+        # we can add links between them.
+        dpg.split_frame()
+        dpg.split_frame()
+
+        for (src_u, src_a, dst_u, dst_a) in saved_connections:
+            props = saved_conn_props.get((src_u, src_a, dst_u, dst_a), {})
+            delay = props.get("delay", 0)
+            self.manual_link(src_u, src_a, dst_u, dst_a, delay=delay)
+
+        # ── 6. Refresh all node themes ─────────────────────────────────────────
+        for node_uuid in self.graph.nodes:
+            self._refresh_node_theme(node_uuid)
+
+        self._log(
+            f"Rebuild complete: {len(self.graph.nodes)} nodes, "
+            f"{len(saved_connections)} connections restored."
+        )
+
+    # ==========================================================================
     # LINK MANAGEMENT
     # ==========================================================================
+
     def link_callback(self, sender, app_data):
         """Handle user creating a link."""
         out_attr_id, in_attr_id = app_data
@@ -568,7 +615,6 @@ class NodeManager:
         if not out_node_uuid or not in_node_uuid:
             return
 
-        # Check if this input can accept the connection
         if not self._can_connect_to_input(in_node_uuid, in_name):
             self._log(f"Connection rejected: input '{in_name}' on node {in_node_uuid} is single and already connected")
             return
@@ -592,7 +638,6 @@ class NodeManager:
         src_name = src_node.get("name", out_node_uuid)
         is_ref_connection = in_name.endswith("_ref") or in_name == "layer_list"
 
-        # Handle reference connections
         if is_ref_connection:
             if in_name == "source_dict_ref":
                 dst_node["values"].setdefault(in_name, [])
@@ -608,7 +653,6 @@ class NodeManager:
                 dst_node["values"][in_name] = src_name
                 self._log(f"Set reference parameter {in_name} = {src_name}")
 
-        # Apply link styling
         if is_feedback:
             apply_link_style(link_id, color=[255, 0, 0, 255])
         elif is_ref_connection:
@@ -617,7 +661,6 @@ class NodeManager:
         if self._last_selected_uuid == in_node_uuid:
             self.update_property_panel(in_node_uuid, "property_panel")
 
-        # Update pin shapes when connection is established
         self._update_input_pin_shape(in_node_uuid, in_name)
         self._update_output_pin_shape(out_node_uuid, out_name)
         
@@ -625,139 +668,86 @@ class NodeManager:
         self._refresh_node_theme(out_node_uuid)
 
     def _can_connect_to_input(self, node_uuid: str, input_name: str) -> bool:
-        """
-        Check if an input can accept a new connection.
-        
-        Returns False if:
-        - The input is 'single' kind AND
-        - There is already a connection to this input AND
-        - The input name does NOT end with 'dict_ref'
-        
-        Returns True if:
-        - The input is 'variadic' (allows multiple connections)
-        - The input name ends with 'dict_ref' (allows multiple references)
-        - The input has no existing connections
-        
-        Args:
-            node_uuid: UUID of the destination node
-            input_name: Name of the input attribute
-            
-        Returns:
-            bool: True if connection is allowed, False otherwise
-        """
-        # Get the node data
+        """Check if an input can accept a new connection."""
         node_data = self.graph.nodes.get(node_uuid)
         if not node_data:
-            return True  # Default to allowing if we can't find the node
-        
-        # Special case: dict_ref parameters always allow multiple connections
-        if input_name.endswith("dict_ref"):
-            self._log(f"Input '{input_name}' is a dict_ref parameter - allowing multiple connections")
             return True
-        
-        # Get the input metadata from the node's inputs
+
+        if input_name.endswith("dict_ref"):
+            return True
+
         node_inputs = node_data.get("inputs", {})
         input_meta = node_inputs.get(input_name, {})
         input_kind = input_meta.get("kind", "single")
-        
-        # If it's variadic, allow multiple connections
+
         if input_kind == "variadic":
             return True
-        
-        # If it's single, check if there's already a connection
-        # Check the graph connections for any existing connection to this input
+
         for src_u, src_a, dst_u, dst_a in self.graph.connections:
             if dst_u == node_uuid and dst_a == input_name:
-                # Found an existing connection to this single input
-                self._log(f"Input '{input_name}' on node {node_uuid} is single and already has a connection from {src_u}.{src_a}")
                 return False
-        
+
         return True
     
     def _update_input_pin_shape(self, node_uuid: str, input_name: str):
-        """Update the pin shape of an input based on whether it has connections.
-        
-        For single data inputs: empty triangle -> filled triangle
-        For variadic data inputs: empty circle -> filled circle
-        For reference inputs: empty quad -> filled quad
-        """
+        """Update the pin shape of an input based on whether it has connections."""
         node_data = self.graph.nodes.get(node_uuid)
         if not node_data:
             return
-        
-        # Determine if this is a reference input
+
         is_ref = input_name.endswith("_ref") or input_name == "layer_list"
-        
-        # Get input kind from node data (for data inputs)
         node_inputs = node_data.get("inputs", {})
         input_meta = node_inputs.get(input_name, {})
         input_kind = input_meta.get("kind", "single")
-        
-        # Find the attribute ID for this input
+
         attr_id = None
         for aid, (uid, name) in self.input_attr_registry.items():
             if uid == node_uuid and name == input_name:
                 attr_id = aid
                 break
-        
+
         if attr_id is None:
             return
-        
-        # Check if there's at least one connection to this input
+
         has_connection = any(
             dst_u == node_uuid and dst_a == input_name
             for _, _, dst_u, dst_a in self.graph.connections
         )
-        
-        # Update the pin shape based on connection status, input kind, and type
+
         if is_ref:
-            # Reference inputs: empty quad -> filled quad
             new_shape = REF_SHAPE_FILLED if has_connection else REF_SHAPE_EMPTY
         else:
-            # Data inputs
             if has_connection:
                 new_shape = DATA_MULTIPLE_SHAPE_FILLED if input_kind == "variadic" else DATA_SHAPE_FILLED
             else:
                 new_shape = DATA_MULTIPLE_SHAPE_EMPTY if input_kind == "variadic" else DATA_SHAPE_EMPTY
-        
-        # Update the attribute's pin shape
+
         if dpg.does_item_exist(attr_id):
             dpg.configure_item(attr_id, shape=new_shape)
 
     def _update_output_pin_shape(self, node_uuid: str, output_name: str):
-        """Update the pin shape of an output based on whether it has connections.
-        
-        For reference outputs: empty quad -> filled quad
-        For data outputs: empty triangle -> filled triangle
-        """
-        # Determine if this is a reference output
+        """Update the pin shape of an output based on whether it has connections."""
         is_ref = output_name == "ref"
-        
-        # Find the attribute ID for this output
+
         attr_id = None
         for aid, (uid, name) in self.output_attr_registry.items():
             if uid == node_uuid and name == output_name:
                 attr_id = aid
                 break
-        
+
         if attr_id is None:
             return
-        
-        # Check if there's at least one connection from this output
+
         has_connection = any(
             src_u == node_uuid and src_a == output_name
             for src_u, src_a, _, _ in self.graph.connections
         )
-        
-        # Update the pin shape based on connection status and type
+
         if is_ref:
-            # Reference outputs: empty quad -> filled quad
             new_shape = REF_SHAPE_FILLED if has_connection else REF_SHAPE_EMPTY
         else:
-            # Data outputs: empty triangle -> filled triangle
             new_shape = DATA_SHAPE_FILLED if has_connection else DATA_SHAPE_EMPTY
-        
-        # Update the attribute's pin shape
+
         if dpg.does_item_exist(attr_id):
             dpg.configure_item(attr_id, shape=new_shape)
 
@@ -782,7 +772,6 @@ class NodeManager:
         src_name = src_node.get("name", src_uuid)
         values = dst_node.get("values", {})
 
-        # Handle reference disconnections
         if dst_attr == "source_dict_ref":
             lst = values.get("source_dict_ref", [])
             if src_name in lst:
@@ -790,7 +779,6 @@ class NodeManager:
             if not lst:
                 values.pop("source_dict_ref", None)
 
-            # Remove dynamic output if needed
             if dst_node.get("type") == "AtmoPropagation":
                 dynamic_output = f"out_{src_name}_ef"
                 if src_name not in values.get("source_dict_ref", []):
@@ -828,7 +816,6 @@ class NodeManager:
         if dpg.does_item_exist(link_id):
             dpg.delete_item(link_id)
 
-        # Update pin shapes when connection is removed
         self._update_input_pin_shape(dst_uuid, dst_attr)
         self._update_output_pin_shape(src_uuid, src_attr)
 
@@ -842,7 +829,6 @@ class NodeManager:
         is_feedback = delay == -1
         base_src_attr = src_attr
 
-        # Find or create source pin
         src_id = next(
             (
                 d for d, (u, n) in self.output_attr_registry.items()
@@ -850,6 +836,8 @@ class NodeManager:
             ),
             None,
         )
+
+        output_spacer_w = render_scale.node_output_spacer_width()
 
         if src_id is None:
             parent = self.uuid_to_dpg.get(src_uuid)
@@ -865,13 +853,12 @@ class NodeManager:
                     attribute_type=dpg.mvNode_Attr_Output, parent=parent, shape=shape
                 ) as new_id:
                     with dpg.group(horizontal=True):
-                        dpg.add_spacer(width=100)
+                        dpg.add_spacer(width=output_spacer_w)
                         text = f"{base_src_attr}:-1" if is_feedback else base_src_attr
                         dpg.add_text(text, color=color)
                     self.output_attr_registry[new_id] = (src_uuid, base_src_attr)
                     src_id = new_id
 
-        # Update destination node values for references
         if dst_attr.endswith("_ref") or dst_attr == "layer_list":
             dst_node = self.graph.nodes.get(dst_uuid)
             src_node = self.graph.nodes.get(src_uuid)
@@ -879,7 +866,6 @@ class NodeManager:
                 dst_node.setdefault("values", {})
                 dst_node["values"][dst_attr] = src_node.get("name", src_uuid)
 
-        # Find or create destination pin
         dst_id = next(
             (
                 d for d, (u, n) in self.input_attr_registry.items()
@@ -901,7 +887,6 @@ class NodeManager:
                     self.input_attr_registry[new_id] = (dst_uuid, dst_attr)
                     dst_id = new_id
 
-        # Create link
         if src_id and dst_id:
             link_id = dpg.add_node_link(src_id, dst_id, parent="specula_editor")
 
@@ -915,7 +900,6 @@ class NodeManager:
                 src_uuid, base_src_attr, dst_uuid, dst_attr, {"delay": delay}
             )
 
-            # Update pin shapes when connection is established
             self._update_input_pin_shape(dst_uuid, dst_attr)
             self._update_output_pin_shape(src_uuid, base_src_attr)
 
@@ -952,18 +936,15 @@ class NodeManager:
 
     def on_click_editor(self, sender, app_data):
         """Handle editor click - select node or link."""
-        # Check for link click first
         for link_id in self.link_registry:
             if dpg.is_item_hovered(link_id):
                 self._on_link_click(sender, app_data, link_id)
                 return
 
-        # Check for empty canvas click
         if dpg.is_item_hovered("specula_editor"):
             if not self.get_selected_nodes():
                 self._clear_link_selection()
 
-        # Handle node selection
         selected = self.get_selected_nodes()
 
         if len(selected) == 1:
@@ -1061,7 +1042,6 @@ class NodeManager:
 
         dpg_id = self.uuid_to_dpg[node_uuid]
 
-        # Delete links
         links_to_remove = [
             lid for lid, (s, _, d, _) in list(self.link_registry.items())
             if s == node_uuid or d == node_uuid
@@ -1073,17 +1053,14 @@ class NodeManager:
             conn_data = self.link_registry.pop(link_id)
             self.graph.remove_connection(*conn_data)
 
-        # Delete attributes
         for attr in [k for k, v in self.input_attr_registry.items() if v[0] == node_uuid]:
             del self.input_attr_registry[attr]
         for attr in [k for k, v in self.output_attr_registry.items() if v[0] == node_uuid]:
             del self.output_attr_registry[attr]
 
-        # Delete DPG node
         if dpg.does_item_exist(dpg_id):
             dpg.delete_item(dpg_id)
 
-        # Delete from registries
         del self.dpg_to_uuid[dpg_id]
         del self.uuid_to_dpg[node_uuid]
 
@@ -1094,6 +1071,7 @@ class NodeManager:
 
     def clear_all(self):
         """Clear entire graph."""
+        self.node_item_registry.clear()
         self.registry.clear()
         dpg.delete_item("specula_editor", children_only=True)
 
@@ -1130,6 +1108,7 @@ class NodeManager:
     def add_dynamic_io(self, node_uuid: str):
         """Add dynamic I/O pins."""
         parent = self.uuid_to_dpg[node_uuid]
+        output_spacer_w = render_scale.node_output_spacer_width()
 
         with dpg.node_attribute(
             attribute_type=dpg.mvNode_Attr_Input, parent=parent, shape=REF_SHAPE_EMPTY
@@ -1141,18 +1120,19 @@ class NodeManager:
             attribute_type=dpg.mvNode_Attr_Output, parent=parent
         ) as attr_id:
             with dpg.group(horizontal=True):
-                dpg.add_spacer(width=100)
+                dpg.add_spacer(width=output_spacer_w)
                 dpg.add_text("output", color=[255, 200, 100])
             self.output_attr_registry[attr_id] = (node_uuid, "output")
 
     def add_data_output(self, node_uuid: str):
         """Add data output pin."""
         parent = self.uuid_to_dpg[node_uuid]
+        output_spacer_w = render_scale.node_output_spacer_width()
 
         with dpg.node_attribute(
             attribute_type=dpg.mvNode_Attr_Output, parent=parent
         ) as attr_id:
             with dpg.group(horizontal=True):
-                dpg.add_spacer(width=100)
+                dpg.add_spacer(width=output_spacer_w)
                 dpg.add_text("Output: ref")
             self.output_attr_registry[attr_id] = (node_uuid, "ref")

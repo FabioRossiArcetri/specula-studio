@@ -1,6 +1,7 @@
 import dearpygui.dearpygui as dpg
 from collections import deque
-from constants import LAYOUT_HORIZONTAL_SPACING, LAYOUT_VERTICAL_SPACING
+import render_scale
+
 
 def create_node_theme(
     node_background,
@@ -121,130 +122,139 @@ def set_zebra_theme():
 
 def auto_layout_nodes(graph, uuid_to_dpg, debug=False):
     """Organize nodes into a grid layout, ignoring feedback loops and references."""
-    if debug: print(f"[AUTO_LAYOUT] Starting auto layout with {len(graph.nodes)} nodes")
-    
+    if debug:
+        print(f"[AUTO_LAYOUT] Starting auto layout with {len(graph.nodes)} nodes")
+
     if not graph.nodes:
         print("[AUTO_LAYOUT] No nodes to layout")
         return
-    
+
     # Build dependency graph for topological sorting
     nodes = list(graph.nodes.keys())
-    
+
     # Filter out connections that shouldn't affect layout
-    # We need to access connection properties to check for delay
     clean_connections = []
-    
+
     for conn in graph.connections:
         src, src_attr, dst, dst_attr = conn
-        
+
         # Skip reference connections
         if dst_attr.endswith("_ref") or dst_attr == "layer_list" or "params" in dst_attr.lower():
-            if debug: print(f"[AUTO_LAYOUT] Skipping reference connection: {src}.{src_attr} -> {dst}.{dst_attr}")
+            if debug:
+                print(f"[AUTO_LAYOUT] Skipping reference connection: {src}.{src_attr} -> {dst}.{dst_attr}")
             continue
-        
+
         # Check connection properties for delay
         conn_props = graph.connection_properties.get(conn, {})
         delay = conn_props.get('delay', 0)
-        
+
         # Skip feedback connections (delay = -1)
         if delay == -1:
-            if debug: print(f"[AUTO_LAYOUT] Skipping feedback connection (delay={delay}): {src}.{src_attr} -> {dst}.{dst_attr}")
+            if debug:
+                print(f"[AUTO_LAYOUT] Skipping feedback connection (delay={delay}): {src}.{src_attr} -> {dst}.{dst_attr}")
             continue
-        
+
         # Also check for feedback patterns in attribute names
         if ":-" in str(src_attr):
-            if debug: print(f"[AUTO_LAYOUT] Skipping feedback connection (pattern): {src}.{src_attr} -> {dst}.{dst_attr}")
+            if debug:
+                print(f"[AUTO_LAYOUT] Skipping feedback connection (pattern): {src}.{src_attr} -> {dst}.{dst_attr}")
             continue
-        
+
         clean_connections.append((src, dst))
-        if debug: print(f"[AUTO_LAYOUT] Keeping connection for layout: {src} -> {dst}")
-    
-    if debug: print(f"[AUTO_LAYOUT] Using {len(clean_connections)} clean connections for dependency analysis")
-    
+        if debug:
+            print(f"[AUTO_LAYOUT] Keeping connection for layout: {src} -> {dst}")
+
+    if debug:
+        print(f"[AUTO_LAYOUT] Using {len(clean_connections)} clean connections for dependency analysis")
+
     # Build adjacency lists and in-degree counts
     adj = {node: [] for node in nodes}
     in_degree = {node: 0 for node in nodes}
-    
+
     for src, dst in clean_connections:
         if src in adj and dst in adj:
             adj[src].append(dst)
             in_degree[dst] += 1
-    
+
     # Find nodes with no incoming edges
     queue = deque([node for node in nodes if in_degree[node] == 0])
-    
+
     # If all nodes have dependencies, start with the first node
     if not queue and nodes:
         queue.append(nodes[0])
-        if debug: print(f"[AUTO_LAYOUT] No nodes with zero in-degree, starting with {nodes[0]}")
-    
+        if debug:
+            print(f"[AUTO_LAYOUT] No nodes with zero in-degree, starting with {nodes[0]}")
+
     levels = {}
     level = 0
-    
+
     # Process nodes level by level
     while queue:
         level_size = len(queue)
         next_queue = deque()
-        
+
         for _ in range(level_size):
             node = queue.popleft()
             levels[node] = level
-            
+
             for neighbor in adj[node]:
                 in_degree[neighbor] -= 1
                 if in_degree[neighbor] == 0:
                     next_queue.append(neighbor)
-        
+
         queue = next_queue
         level += 1
-    
+
     # Assign level 0 to any remaining nodes (cycles or disconnected)
     for node in nodes:
         if node not in levels:
             levels[node] = 0
-            if debug: print(f"[AUTO_LAYOUT] Node {node} had no level assigned, setting to 0")
-    
+            if debug:
+                print(f"[AUTO_LAYOUT] Node {node} had no level assigned, setting to 0")
+
     # Group nodes by level
     level_groups = {}
     for node, lvl in levels.items():
         if lvl not in level_groups:
             level_groups[lvl] = []
         level_groups[lvl].append(node)
-    
-    if debug: print(f"[AUTO_LAYOUT] Found {len(level_groups)} levels")
-    for lvl, nodes_in_level in sorted(level_groups.items()):
-        if debug: print(f"  Level {lvl}: {len(nodes_in_level)} nodes")
-        for node in nodes_in_level:
-            node_name = graph.nodes[node].get('name', node[:4])
-            if debug: print(f"    - {node_name}")
-    
-    # Position nodes in a grid
-    base_x = 50  # Starting X position
-    base_y = 50  # Starting Y position
-    horizontal_spacing = 450  # Space between columns
-    vertical_spacing = 220    # Space between rows
-    
+
+    if debug:
+        print(f"[AUTO_LAYOUT] Found {len(level_groups)} levels")
+        for lvl, nodes_in_level in sorted(level_groups.items()):
+            print(f"  Level {lvl}: {len(nodes_in_level)} nodes")
+            for node in nodes_in_level:
+                node_name = graph.nodes[node].get('name', node[:4])
+                print(f"    - {node_name}")
+
+    # Read grid spacing from the active render scale
+    h_spacing = render_scale.layout_horizontal_spacing()
+    v_spacing = render_scale.layout_vertical_spacing()
+    base_x    = render_scale.auto_layout_base_x()
+    base_y    = render_scale.auto_layout_base_y()
+
     positioned_nodes = 0
-    
+
     for level in sorted(level_groups.keys()):
         nodes_in_level = level_groups[level]
-        num_nodes = len(nodes_in_level)
-        
-        # Calculate vertical positions
+
         for i, node_id in enumerate(nodes_in_level):
             dpg_id = uuid_to_dpg.get(node_id)
             if not dpg_id or not dpg.does_item_exist(dpg_id):
-                if debug: print(f"[AUTO_LAYOUT] Warning: Node {node_id} has no valid DPG ID")
+                if debug:
+                    print(f"[AUTO_LAYOUT] Warning: Node {node_id} has no valid DPG ID")
                 continue
-            
-            # Calculate position - this is the original grid layout from your code
-            x = 30 + level * LAYOUT_HORIZONTAL_SPACING
-            y = 30 + i * LAYOUT_VERTICAL_SPACING
-            
+
+            x = base_x + level * h_spacing
+            y = base_y + i    * v_spacing
+
             node_name = graph.nodes[node_id].get('name', node_id[:4])
-            if debug: print(f"[AUTO_LAYOUT] Positioning {node_name} at ({x}, {y})")
-            
+            if debug:
+                print(f"[AUTO_LAYOUT] Positioning {node_name} at ({x}, {y})")
+
             dpg.set_item_pos(dpg_id, [x, y])
             positioned_nodes += 1
-    
-    if debug: print(f"[AUTO_LAYOUT] Layout complete. Positioned {positioned_nodes} nodes")
+
+    if debug:
+        print(f"[AUTO_LAYOUT] Layout complete. Positioned {positioned_nodes} nodes")
+        

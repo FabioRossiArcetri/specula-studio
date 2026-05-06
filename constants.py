@@ -6,18 +6,21 @@ MONITOR_QUEUE_SIZE = 100
 MAX_PLOT_HISTORY = 200
 DEFAULT_PLOT_WIDTH = 780
 DEFAULT_PLOT_HEIGHT = 400
-LAYOUT_HORIZONTAL_SPACING = 330
-LAYOUT_VERTICAL_SPACING = 220
 MAX_QUEUE_ITEMS_PER_FRAME = 5
-FONT_SIZE = 18
+
+# Note: FONT_SIZE, LAYOUT_HORIZONTAL_SPACING and LAYOUT_VERTICAL_SPACING have
+# been moved to render_scale.py so they can be varied at runtime via the
+# Preferences → Render Size option (SMALL / MEDIUM / LARGE).
 
 # Pin shapes for data inputs
-DATA_SHAPE_EMPTY = dpg.mvNode_PinShape_Triangle  # Empty triangle for single inputs with no connection
-DATA_SHAPE_FILLED = dpg.mvNode_PinShape_TriangleFilled  # Filled triangle for single inputs with connection
-DATA_MULTIPLE_SHAPE_EMPTY = dpg.mvNode_PinShape_Circle  # Empty circle for multiple inputs with no connection
-DATA_MULTIPLE_SHAPE_FILLED = dpg.mvNode_PinShape_CircleFilled  # Filled circle for multiple inputs with connection
+DATA_SHAPE_EMPTY         = dpg.mvNode_PinShape_Triangle        # empty  triangle – unconnected single input
+DATA_SHAPE_FILLED        = dpg.mvNode_PinShape_TriangleFilled  # filled triangle – connected   single input
+DATA_MULTIPLE_SHAPE_EMPTY  = dpg.mvNode_PinShape_Circle        # empty  circle   – unconnected variadic input
+DATA_MULTIPLE_SHAPE_FILLED = dpg.mvNode_PinShape_CircleFilled  # filled circle   – connected   variadic input
+
 # Pin shapes for references
-REF_SHAPE_EMPTY = dpg.mvNode_PinShape_Quad  # Empty quad for reference inputs with no connection
-REF_SHAPE_FILLED = dpg.mvNode_PinShape_QuadFilled  # Filled quad for reference inputs with connection
+REF_SHAPE_EMPTY  = dpg.mvNode_PinShape_Quad        # empty  quad – unconnected reference
+REF_SHAPE_FILLED = dpg.mvNode_PinShape_QuadFilled  # filled quad – connected   reference
 
 DEFAULT_AUTO_SIMUL_PARAMS = True
+DEFAULT_RENDER_SIZE = "MEDIUM"

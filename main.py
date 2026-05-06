@@ -1,21 +1,27 @@
 import dearpygui.dearpygui as dpg
+import json
 import os
+import pathlib
 import yaml
 from collections import OrderedDict
-from constants import FONT_SIZE
+
+import render_scale
+from constants import DEFAULT_AUTO_SIMUL_PARAMS, DEFAULT_RENDER_SIZE
 from node_manager import NodeManager
 from file_handler import FileHandler, auto_layout_nodes
 from graph_manager import GraphManager
 import dpg_utils
-import pathlib
 
-# Constants
+# Font path via matplotlib
 import matplotlib
-FONT_PATH = matplotlib.get_data_path() + '/fonts/ttf/'
-FONT_PATH += "DejaVuSerif.ttf"
-from constants import FONT_SIZE, DEFAULT_AUTO_SIMUL_PARAMS
+FONT_PATH = matplotlib.get_data_path() + '/fonts/ttf/DejaVuSerif.ttf'
 
-# Define a loader that preserves order
+# Persistent settings file (lives in the user's home directory)
+_SETTINGS_PATH = pathlib.Path.home() / ".specula_studio_settings.json"
+
+
+# ── YAML helpers ──────────────────────────────────────────────────────────────
+
 def ordered_load(stream, Loader=yaml.SafeLoader, object_pairs_hook=OrderedDict):
     class OrderedLoader(Loader):
         pass
@@ -26,6 +32,9 @@ def ordered_load(stream, Loader=yaml.SafeLoader, object_pairs_hook=OrderedDict):
         yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
         construct_mapping)
     return yaml.load(stream, OrderedLoader)
+
+
+# ── Main editor class ─────────────────────────────────────────────────────────
 
 class SpeculaEditor:
     def __init__(self, yaml_folder):
@@ -43,45 +52,76 @@ class SpeculaEditor:
         from simulation_control import SimulationControl
         self.sim_control = SimulationControl(self)
 
-        
         # Track current simulation name and path
         self.current_simulation_name = None
         self.current_simulation_path = None
         
         # Track items pending deletion
-        self.pending_deletion_type = None  # 'node', 'link'
+        self.pending_deletion_type = None
         self.pending_deletion_items = []
-        # Preferences
+
+        # 4. Preferences (defaults)
         self.preferences = {
             'auto_simul_params': DEFAULT_AUTO_SIMUL_PARAMS,
             'include_defaults': False,
+            'render_size': DEFAULT_RENDER_SIZE,
         }
-        
-        # 3. Setup UI
+
+        # 5. Load persisted settings (overrides defaults)
+        self._load_settings()
+
+        # 6. Apply render scale before any UI is built
+        render_scale.set_size(self.preferences['render_size'])
+
+        # 7. Setup UI
         self.create_ui()
-        # IMPORTANT: Do NOT call self.nm.setup_handlers() - it has an automatic Delete handler
-        # Instead, register handlers manually without the Delete key handler
         self._setup_custom_handlers()
 
+    # ── Settings persistence ──────────────────────────────────────────────────
+
+    def _load_settings(self):
+        """Load preferences from the JSON settings file (if it exists)."""
+        try:
+            if _SETTINGS_PATH.exists():
+                with open(_SETTINGS_PATH, "r", encoding="utf-8") as f:
+                    saved = json.load(f)
+                for key in self.preferences:
+                    if key in saved:
+                        self.preferences[key] = saved[key]
+                print(f"[SETTINGS] Loaded from {_SETTINGS_PATH}")
+        except Exception as e:
+            print(f"[SETTINGS] Could not load settings: {e}")
+
+    def _save_settings(self):
+        """Persist current preferences to the JSON settings file."""
+        try:
+            _SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with open(_SETTINGS_PATH, "w", encoding="utf-8") as f:
+                json.dump(self.preferences, f, indent=2)
+            print(f"[SETTINGS] Saved to {_SETTINGS_PATH}")
+        except Exception as e:
+            print(f"[SETTINGS] Could not save settings: {e}")
+
+    # ── Template loading ──────────────────────────────────────────────────────
 
     def load_templates(self, folder):
-        templates = OrderedDict() # Use OrderedDict
+        templates = OrderedDict()
         if os.path.exists(folder):
             for file in os.listdir(folder):
                 if file.endswith(".yml"):
                     with open(os.path.join(folder, file), 'r') as f:
-                        # Use the ordered loader
                         data = ordered_load(f)
                         if data:
                             templates.update(data)
         return templates
 
+    # ── Input handlers ────────────────────────────────────────────────────────
+
     def _setup_custom_handlers(self):
-        """Register handlers without the automatic Delete key handler from nm.setup_handlers()."""
+        """Register handlers without the automatic Delete key handler."""
         with dpg.handler_registry():
             dpg.add_mouse_click_handler(callback=self.nm.on_click_editor)
             dpg.add_key_press_handler(key=dpg.mvKey_D, callback=self.nm.delete_selected_link)
-            # DO NOT register Delete key here - we handle it in our own _on_key_press
             dpg.add_mouse_double_click_handler(callback=self.nm._on_canvas_double_click)
             dpg.add_mouse_move_handler(callback=self.nm._on_mouse_move)
     
@@ -89,186 +129,126 @@ class SpeculaEditor:
         """Center a dialog window on the viewport."""
         if dpg.does_item_exist(dialog_tag):
             try:
-                viewport_width = dpg.get_viewport_width()
+                viewport_width  = dpg.get_viewport_width()
                 viewport_height = dpg.get_viewport_height()
-                
-                dialog_width = dpg.get_item_width(dialog_tag)
-                dialog_height = dpg.get_item_height(dialog_tag)
-                
-                center_x = (viewport_width - dialog_width) // 2
+                dialog_width    = dpg.get_item_width(dialog_tag)
+                dialog_height   = dpg.get_item_height(dialog_tag)
+                center_x = (viewport_width  - dialog_width)  // 2
                 center_y = (viewport_height - dialog_height) // 2
-                
                 dpg.set_item_pos(dialog_tag, [center_x, center_y])
             except SystemError:
-                # File dialogs don't support set_item_pos, skip silently
                 pass
   
-    # ------------------------------------------------------------------
-    # Status Bar Management
-    # ------------------------------------------------------------------
+    # ── Status Bar ────────────────────────────────────────────────────────────
 
     def _update_status_bar(self):
-        """Update the status bar to show the current simulation name."""
         if self.current_simulation_name:
             status_text = f"Simulation: {self.current_simulation_name}"
         else:
             status_text = "Simulation: (Unsaved)"
-        
         if dpg.does_item_exist("status_bar_text"):
             dpg.set_value("status_bar_text", status_text)
 
-    # ------------------------------------------------------------------
-    # New Simulation Handling
-    # ------------------------------------------------------------------
+    # ── New Simulation ────────────────────────────────────────────────────────
 
     def _on_new_simulation_clicked(self):
-        """Handle 'New Simulation' menu click. Offer to save current simulation."""
         if self.current_simulation_name is None:
-            # No simulation loaded, just show startup dialog
             self._show_startup_dialog()
         else:
-            # Simulation exists, ask if user wants to save
             self._center_dialog("new_simulation_confirmation_dialog")
             dpg.show_item("new_simulation_confirmation_dialog")
 
     def _on_new_simulation_save_and_proceed(self):
-        """User chose to save before creating new simulation."""
         if self.current_simulation_path:
-            # Save to existing path
             self.fh.save_simulation(self.current_simulation_path)
         else:
-            # No path set, show save dialog
             dpg.hide_item("new_simulation_confirmation_dialog")
             self._center_dialog("save_before_new_dialog")
             dpg.show_item("save_before_new_dialog")
             return
-        
-        # Proceed with new simulation
         dpg.hide_item("new_simulation_confirmation_dialog")
         self._show_startup_dialog()
 
     def _on_save_before_new_cb(self, sender, app_data):
-        """Callback from save dialog before creating new simulation."""
         path = app_data['file_path_name']
         self.fh.save_simulation(path)
         self.current_simulation_path = path
         self.current_simulation_name = pathlib.Path(path).stem
         self._update_status_bar()
-        
-        # Proceed with new simulation
         self._show_startup_dialog()
 
     def _on_new_simulation_discard(self):
-        """User chose not to save, just proceed with new simulation."""
         dpg.hide_item("new_simulation_confirmation_dialog")
         self._show_startup_dialog()
 
     def _on_new_simulation_cancel(self):
-        """User cancelled creating new simulation."""
         dpg.hide_item("new_simulation_confirmation_dialog")
 
-    # ------------------------------------------------------------------
-    # Delete Confirmation Dialog
-    # ------------------------------------------------------------------
+    # ── Delete Confirmation ───────────────────────────────────────────────────
 
     def _on_delete_requested(self):
-        """Called when user presses Delete key."""
-        # Check if a link is selected first
         if self.nm._selected_link_id:
             self.pending_deletion_items = [self.nm._selected_link_id]
-            self.pending_deletion_type = "link"
+            self.pending_deletion_type  = "link"
             self._show_delete_confirmation_dialog("Delete 1 connection?")
             return
-        
-        # Get selected nodes
         selected_nodes = self.nm.get_selected_nodes()
-        
         if not selected_nodes:
-            # Nothing selected
             return
-        
-        # Store pending deletion items
         self.pending_deletion_items = selected_nodes
-        self.pending_deletion_type = "nodes"
+        self.pending_deletion_type  = "nodes"
         self._show_delete_confirmation_dialog(f"Delete {len(selected_nodes)} node(s)?")
 
     def _show_delete_confirmation_dialog(self, message):
-        """Show the delete confirmation dialog."""
         if dpg.does_item_exist("delete_confirmation_dialog"):
             dpg.delete_item("delete_confirmation_dialog")
-        
         with dpg.window(
-            label="Confirm Deletion",
-            tag="delete_confirmation_dialog",
-            modal=True,
-            show=True,
-            width=400,
-            height=150,
-            no_resize=True
+            label="Confirm Deletion", tag="delete_confirmation_dialog",
+            modal=True, show=True, width=400, height=150, no_resize=True
         ):
             dpg.add_text(message)
             dpg.add_spacing(count=2)
-            
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Delete", width=100, callback=self._on_delete_confirm)
                 dpg.add_button(label="Cancel", width=100, callback=self._on_delete_cancel)
-        
-        # Center the dialog after creation
         self._center_dialog("delete_confirmation_dialog")
 
     def _on_delete_confirm(self):
-        """User confirmed deletion."""
         dpg.hide_item("delete_confirmation_dialog")
-        
         if self.pending_deletion_type == "nodes":
-            # Delete nodes using the original node_manager method
             for node_uuid in self.pending_deletion_items:
                 self.nm.delete_node(node_uuid)
         elif self.pending_deletion_type == "link":
-            # Delete links using the original delink_callback
             for link_id in self.pending_deletion_items:
                 self.nm.delink_callback(None, link_id)
-        
-        # Clear pending deletion
         self.pending_deletion_items = []
-        self.pending_deletion_type = None
+        self.pending_deletion_type  = None
 
     def _on_delete_cancel(self):
-        """User cancelled deletion."""
         dpg.hide_item("delete_confirmation_dialog")
-        # Clear pending deletion
         self.pending_deletion_items = []
-        self.pending_deletion_type = None
+        self.pending_deletion_type  = None
 
-    # ------------------------------------------------------------------
-    # Exit and Close Window Handling
-    # ------------------------------------------------------------------
+    # ── Exit ──────────────────────────────────────────────────────────────────
     
     def _on_exit_requested(self):
-        """Called when user clicks Exit menu or closes the main window."""
-        # Show confirmation dialog
         self._center_dialog("exit_confirmation_dialog")
         dpg.show_item("exit_confirmation_dialog")
     
     def _on_exit_confirm(self):
-        """User confirmed exit without saving."""
         dpg.hide_item("exit_confirmation_dialog")
         dpg.stop_dearpygui()
     
     def _on_exit_save_and_confirm(self):
-        """User confirmed exit and wants to save first."""
-        # If we have a current simulation path, save to that path directly
         if self.current_simulation_path:
             self.fh.save_simulation(self.current_simulation_path)
             dpg.stop_dearpygui()
         else:
-            # Show save dialog
             dpg.hide_item("exit_confirmation_dialog")
             self._center_dialog("save_and_exit_dialog")
             dpg.show_item("save_and_exit_dialog")
     
     def _on_save_and_exit_cb(self, sender, app_data):
-        """Callback from save dialog when saving before exit."""
         path = app_data['file_path_name']
         self.fh.save_simulation(path)
         self.current_simulation_path = path
@@ -277,416 +257,349 @@ class SpeculaEditor:
         dpg.stop_dearpygui()
     
     def _on_exit_cancel(self):
-        """User cancelled the exit."""
         dpg.hide_item("exit_confirmation_dialog")
 
-    # ------------------------------------------------------------------
-    # Add Multiple Objects dialog
-    # ------------------------------------------------------------------
+    # ── Add Multiple Objects dialog ───────────────────────────────────────────
 
     def _mo_on_double_click(self, sender, app_data):
-        # app_data[1] is the item that was double-clicked
-        clicked_id = app_data[1]
-        
-        # 1. Check if the clicked item itself is the listbox
-        # 2. Or check if the parent of the clicked item is the listbox
-        # (DPG sometimes reports the internal selectable item)
-        parent_id = dpg.get_item_info(clicked_id)["parent"]
-        
-        # Resolve IDs to Tags/Aliases for comparison
-        alias = dpg.get_item_alias(clicked_id)
+        clicked_id   = app_data[1]
+        parent_id    = dpg.get_item_info(clicked_id)["parent"]
+        alias        = dpg.get_item_alias(clicked_id)
         parent_alias = dpg.get_item_alias(parent_id)
-
         if alias == "_mo_proc_listbox" or parent_alias == "_mo_proc_listbox":
             self._mo_add_proc()
         elif alias == "_mo_data_listbox" or parent_alias == "_mo_data_listbox":
             self._mo_add_data()
 
     def _setup_add_multiple_dialog(self):
-        """Build the 'Add Multiple Objects' modal window (created once)."""
-        self._multi_add_queue = []   # list of node_type strings staged for creation
-
+        self._multi_add_queue = []
         proc_types = sorted(self.proc_obj_templates.keys())
         data_types = sorted(self.data_obj_templates.keys())
+        COL_W = 260
 
-        LISTBOX_H = 320   # pixel height of each listbox
-        COL_W     = 260   # width of each column
-        
-        # Use a unique tag and check existence
         if not dpg.does_item_exist("mo_double_click_handler"):
             with dpg.item_handler_registry(tag="mo_double_click_handler"):
                 dpg.add_item_double_clicked_handler(callback=self._mo_on_double_click)
                         
         with dpg.window(
-            label="Add Multiple Objects",
-            tag="add_multiple_dialog",
-            modal=True,
-            show=False,
-            width=1000,
-            height=550,
-            no_resize=True,
-            on_close=self._on_add_multiple_close,
+            label="Add Multiple Objects", tag="add_multiple_dialog",
+            modal=True, show=False, width=1000, height=550,
+            no_resize=True, on_close=self._on_add_multiple_close,
         ):
-            # ── header hint ──────────────────────────────────────────
             dpg.add_text(
-                "Select items from the lists, use the arrows to stage them, "
-                "then click Confirm.",
+                "Select items from the lists, use the arrows to stage them, then click Confirm.",
                 color=[180, 180, 180],
             )
             dpg.add_separator()
             dpg.add_spacer(height=4)
-
-            # ── three-column layout ──────────────────────────────────
             with dpg.group(horizontal=True):
-
-                # Processing Objects Column
                 with dpg.group(width=COL_W):
                     dpg.add_text("Processing Objects")
-                    dpg.add_listbox(
-                        items=proc_types,
-                        tag="_mo_proc_listbox",
-                        num_items=16,
-                        width=COL_W,
-                    )
-                    # Bind the handler
+                    dpg.add_listbox(items=proc_types, tag="_mo_proc_listbox", num_items=16, width=COL_W)
                     dpg.bind_item_handler_registry("_mo_proc_listbox", "mo_double_click_handler")
-
                 dpg.add_spacer(width=8)
-
-                # Data Objects Column
                 with dpg.group(width=COL_W):
                     dpg.add_text("Data Objects")
-                    dpg.add_listbox(
-                        items=data_types,
-                        tag="_mo_data_listbox",
-                        num_items=16,
-                        width=COL_W,
-                    )
-                    # Bind the handler
-                    dpg.bind_item_handler_registry("_mo_data_listbox", "mo_double_click_handler")                    
-                
+                    dpg.add_listbox(items=data_types, tag="_mo_data_listbox", num_items=16, width=COL_W)
+                    dpg.bind_item_handler_registry("_mo_data_listbox", "mo_double_click_handler")
                 dpg.add_spacer(width=8)
-
-                # ── center arrow buttons ─────────────────────────────
                 with dpg.group(width=70):
                     dpg.add_spacer(height=90)
-                    dpg.add_button(
-                        label="Add Proc →",
-                        width=70,
-                        callback=self._mo_add_proc,
-                    )
+                    dpg.add_button(label="Add Proc →", width=70, callback=self._mo_add_proc)
                     dpg.add_spacer(height=12)
-                    dpg.add_button(
-                        label="Add Data →",
-                        width=70,
-                        callback=self._mo_add_data,
-                    )
+                    dpg.add_button(label="Add Data →", width=70, callback=self._mo_add_data)
                     dpg.add_spacer(height=12)
-                    dpg.add_button(
-                        label="← Remove",
-                        width=70,
-                        callback=self._mo_remove,
-                    )
-
+                    dpg.add_button(label="← Remove",  width=70, callback=self._mo_remove)
                 dpg.add_spacer(width=8)
-
-                # ── col 3 : Staged / Selected ────────────────────────
                 with dpg.group(width=COL_W):
                     dpg.add_text("Staged to Add", color=[150, 255, 150])
-                    dpg.add_listbox(
-                        items=[],
-                        tag="_mo_staged_listbox",
-                        num_items=16,
-                        width=COL_W,
-                    )
-
-            # ── footer ───────────────────────────────────────────────
+                    dpg.add_listbox(items=[], tag="_mo_staged_listbox", num_items=16, width=COL_W)
             dpg.add_spacer(height=8)
             dpg.add_separator()
             dpg.add_spacer(height=6)
             with dpg.group(horizontal=True):
-                dpg.add_button(
-                    label="Confirm",
-                    tag="_mo_confirm_btn",
-                    width=160,
-                    callback=self._mo_confirm,
-                )
+                dpg.add_button(label="Confirm", tag="_mo_confirm_btn", width=160, callback=self._mo_confirm)
                 dpg.add_spacer(width=8)
-                dpg.add_button(
-                    label="Cancel",
-                    width=100,
-                    callback=self._mo_cancel,
-                )
+                dpg.add_button(label="Cancel", width=100, callback=self._mo_cancel)
                 dpg.add_spacer(width=20)
                 dpg.add_text("", tag="_mo_status_text", color=[200, 200, 100])
 
     def _show_add_multiple_dialog(self):
-        """Open the dialog and reset staged list."""
         self._multi_add_queue.clear()
         self._mo_refresh_staged()
         self._center_dialog("add_multiple_dialog")
         dpg.show_item("add_multiple_dialog")
 
     def _on_add_multiple_close(self):
-        """Called when the window X button is pressed."""
         self._multi_add_queue.clear()
 
-    # ── helpers ──────────��───────────────────────────────────────────
-
     def _mo_refresh_staged(self):
-        """Rebuild the staged listbox from the internal queue."""
         dpg.configure_item("_mo_staged_listbox", items=list(self._multi_add_queue))
         count = len(self._multi_add_queue)
-        label = f"Confirm  ({count} node{'s' if count != 1 else ''})"
-        dpg.configure_item("_mo_confirm_btn", label=label)
+        dpg.configure_item("_mo_confirm_btn", label=f"Confirm  ({count} node{'s' if count != 1 else ''})")
         dpg.set_value("_mo_status_text", "")
 
     def _mo_add_from_listbox(self, listbox_tag: str):
-        """Stage whichever item is currently selected in *listbox_tag*."""
         selected = dpg.get_value(listbox_tag)
         if selected and selected.strip():
             self._multi_add_queue.append(selected)
             self._mo_refresh_staged()
 
-    def _mo_add_proc(self):
-        self._mo_add_from_listbox("_mo_proc_listbox")
-
-    def _mo_add_data(self):
-        self._mo_add_from_listbox("_mo_data_listbox")
+    def _mo_add_proc(self):  self._mo_add_from_listbox("_mo_proc_listbox")
+    def _mo_add_data(self):  self._mo_add_from_listbox("_mo_data_listbox")
 
     def _mo_remove(self):
-        """Remove the currently selected item from the staged list."""
         selected = dpg.get_value("_mo_staged_listbox")
         if selected and selected in self._multi_add_queue:
-            # Remove the last occurrence so duplicates are handled gracefully
             idx = len(self._multi_add_queue) - 1 - self._multi_add_queue[::-1].index(selected)
             self._multi_add_queue.pop(idx)
             self._mo_refresh_staged()
 
     def _mo_confirm(self):
-        """Create all staged nodes and close the dialog."""
         if not self._multi_add_queue:
             dpg.set_value("_mo_status_text", "Nothing staged.")
             return
-        
-        # If AutoSimulParams is enabled, sort the queue so SimulParams is created first
         nodes_to_create = list(self._multi_add_queue)
         if self.preferences['auto_simul_params']:
-            # Separate SimulParams nodes from others
             simul_params_nodes = [n for n in nodes_to_create if n == "SimulParams"]
-            other_nodes = [n for n in nodes_to_create if n != "SimulParams"]
-            # Create SimulParams first
-            nodes_to_create = simul_params_nodes + other_nodes
-        
-        # Create nodes and collect UUIDs for AutoSimulParams processing
+            other_nodes        = [n for n in nodes_to_create if n != "SimulParams"]
+            nodes_to_create    = simul_params_nodes + other_nodes
         created_uuids = []
         for node_type in nodes_to_create:
             node_uuid = self.nm.create_node(node_type=node_type)
             created_uuids.append((node_uuid, node_type))
-        
-        # Allow DPG to process node creation before attempting connections
         dpg.split_frame()
         dpg.split_frame()
-        
-        # Apply AutoSimulParams connection if enabled
         if self.preferences['auto_simul_params']:
             self._apply_auto_simul_params(created_uuids)
-        
-        count = len(self._multi_add_queue)
-        print(f"[ADD_MULTIPLE] Created {count} node(s): {self._multi_add_queue}")
+        print(f"[ADD_MULTIPLE] Created {len(self._multi_add_queue)} node(s): {self._multi_add_queue}")
         self._multi_add_queue.clear()
         dpg.hide_item("add_multiple_dialog")
 
     def _apply_auto_simul_params(self, created_uuids):
-        """Apply AutoSimulParams connection to newly created nodes.
-        
-        For each new node that has a SimulParams reference parameter,
-        automatically connect it to the existing SimulParams node (if any).
-        """
-        # Find the SimulParams node (prefer newly created, then existing)
         simul_params_uuid = None
-        
-        # First, check if a SimulParams was just created
         for uuid, node_type in created_uuids:
             if node_type == "SimulParams":
                 simul_params_uuid = uuid
                 break
-        
-        # If not, look for existing SimulParams in the graph
         if not simul_params_uuid:
             for uuid, node_data in self.nm.graph.nodes.items():
                 if node_data.get("type") == "SimulParams":
                     simul_params_uuid = uuid
                     break
-        
-        # If no SimulParams exists, nothing to connect
         if not simul_params_uuid:
             print("[AUTOSIMULPARAMS] No SimulParams node found, skipping auto-connection")
             return
-        
         simul_params_name = self.nm.graph.nodes[simul_params_uuid].get("name", simul_params_uuid)
-        
-        # Now connect all nodes that have simul_params reference parameter
         for node_uuid, node_type in created_uuids:
             if node_type == "SimulParams":
-                continue  # Don't connect SimulParams to itself
-            
-            node_data = self.nm.graph.nodes.get(node_uuid, {})
-            template = self.nm.all_templates.get(node_type, {})
+                continue
+            node_data     = self.nm.graph.nodes.get(node_uuid, {})
+            template      = self.nm.all_templates.get(node_type, {})
             template_params = template.get("parameters", {})
-            
-            # Check if this node has simul_params parameter (note: lowercase!)
             if "simul_params" in template_params:
                 param_meta = template_params.get("simul_params", {})
                 if param_meta.get("kind") == "reference":
-                    # Automatically connect simul_param_ref to the SimulParams node
-                    ref_key = "simul_params_ref"  # This is the input pin name in the UI
-                    
-                    # Check if already connected (shouldn't be at creation, but be safe)
+                    ref_key = "simul_params_ref"
                     if not node_data.get("values", {}).get(ref_key):
-                        # Create the link
-                        success = self.nm.manual_link(
-                            simul_params_uuid, "ref",
-                            node_uuid, ref_key
-                        )
+                        success   = self.nm.manual_link(simul_params_uuid, "ref", node_uuid, ref_key)
                         node_name = node_data.get("name", node_uuid)
                         if success:
-                            print(f"[AUTOSIMULPARAMS] Connected '{node_name}' ({node_type}) "
-                                  f"to SimulParams '{simul_params_name}'")
+                            print(f"[AUTOSIMULPARAMS] Connected '{node_name}' ({node_type}) to SimulParams '{simul_params_name}'")
                         else:
                             print(f"[AUTOSIMULPARAMS] Failed to connect {node_uuid} ({node_type}) to SimulParams")
                     else:
                         print(f"[AUTOSIMULPARAMS] Node {node_uuid} already has simul_param_ref connected")
 
     def _mo_cancel(self):
-        """Close without creating anything."""
         self._multi_add_queue.clear()
         dpg.hide_item("add_multiple_dialog")
 
-
     def _on_key_press(self, sender, app_data):
-        """Handle global key presses."""
-        # Delete key to delete selected nodes or links with confirmation
         if app_data == dpg.mvKey_Delete:
             self._on_delete_requested()
 
-    # ------------------------------------------------------------------
-    # Preferences Dialog
-    # ------------------------------------------------------------------
+    # ── Preferences Dialog ────────────────────────────────────────────────────
 
     def _show_preferences_dialog(self):
-        """Open the Preferences dialog."""
         if not dpg.does_item_exist("preferences_dialog"):
             self._create_preferences_dialog()
         else:
-            # Update checkbox states to match current preferences
-            dpg.set_value("pref_auto_simul_params_checkbox", 
-                         self.preferences['auto_simul_params'])
-            dpg.set_value("pref_include_defaults_checkbox",
-                         self.preferences['include_defaults'])
-        
+            dpg.set_value("pref_auto_simul_params_checkbox", self.preferences['auto_simul_params'])
+            dpg.set_value("pref_include_defaults_checkbox",  self.preferences['include_defaults'])
+            dpg.set_value("pref_render_size_radio",          self.preferences['render_size'])
         self._center_dialog("preferences_dialog")
         dpg.show_item("preferences_dialog")
 
     def _create_preferences_dialog(self):
-        """Create the Preferences modal dialog."""
         with dpg.window(
-            label="Preferences",
-            tag="preferences_dialog",
-            modal=True,
-            show=False,
-            width=500,
-            height=300,
-            no_resize=True
+            label="Preferences", tag="preferences_dialog",
+            modal=True, show=False, width=540, height=500, no_resize=True
         ):
             dpg.add_text("Preferences", color=[200, 200, 100])
             dpg.add_separator()
             dpg.add_spacer(height=12)
-            
-            # AutoSimulParams preference
+
+            # ── Render Size ───────────────────────────────────────────────────
+            dpg.add_text("Render Size", color=[100, 200, 255])
+            dpg.add_radio_button(
+                items=render_scale.RENDER_SIZES,
+                tag="pref_render_size_radio",
+                default_value=self.preferences['render_size'],
+                horizontal=True,
+                callback=self._on_render_size_changed,
+            )
+            dpg.add_text(
+                "Controls font size and node dimensions.\n"
+                "SMALL = 50 %,  MEDIUM = 100 %,  LARGE = 180 %.\n"
+                "All existing nodes are rebuilt immediately when this changes.",
+                color=[150, 150, 150],
+                wrap=490,
+            )
+
+            dpg.add_spacer(height=16)
+            dpg.add_separator()
+            dpg.add_spacer(height=12)
+
+            # ── AutoSimulParams ───────────────────��───────────────────────────
             with dpg.group(horizontal=False):
                 dpg.add_checkbox(
                     label="Auto Connect SimulParams (AutoSimulParams)",
                     tag="pref_auto_simul_params_checkbox",
                     default_value=self.preferences['auto_simul_params'],
-                    callback=self._on_auto_simul_params_changed
+                    callback=self._on_auto_simul_params_changed,
                 )
                 dpg.add_text(
                     "When enabled, newly added nodes with SimulParams reference\n"
                     "will automatically connect to the existing SimulParams node.",
-                    color=[150, 150, 150],
-                    wrap=450
+                    color=[150, 150, 150], wrap=490,
                 )
             
             dpg.add_spacer(height=16)
             dpg.add_separator()
             dpg.add_spacer(height=12)
             
-            # Include Defaults preference
+            # ── Include Defaults ──────────────────────────────────────────────
             with dpg.group(horizontal=False):
                 dpg.add_checkbox(
                     label="Include Default Values in Saved Simulations",
                     tag="pref_include_defaults_checkbox",
                     default_value=self.preferences['include_defaults'],
-                    callback=self._on_include_defaults_changed
+                    callback=self._on_include_defaults_changed,
                 )
                 dpg.add_text(
                     "When enabled, default parameter values will be included\n"
                     "when saving simulations.",
-                    color=[150, 150, 150],
-                    wrap=450
+                    color=[150, 150, 150], wrap=490,
                 )
             
             dpg.add_spacer(height=20)
             dpg.add_separator()
             dpg.add_spacer(height=8)
-            
             with dpg.group(horizontal=True):
-                dpg.add_button(label="Close", width=100, 
-                              callback=lambda: dpg.hide_item("preferences_dialog"))
+                dpg.add_button(label="Close", width=100,
+                               callback=lambda: dpg.hide_item("preferences_dialog"))
+
+    # ── Preference callbacks ──────────────────────────────────────────────────
+
+    def _on_render_size_changed(self, sender, app_data):
+        """
+        Called when the Render Size radio button changes.
+
+        Order of operations
+        -------------------
+        1.  Update the render_scale module (so node creation uses new values).
+        2.  Switch the active font via dpg.bind_font().
+        3.  Rebuild all existing nodes so spacers match the new scale.
+        4.  Persist the new preference.
+        """
+        new_size = app_data
+        if new_size == self.preferences['render_size']:
+            return
+
+        self.preferences['render_size'] = new_size
+        render_scale.set_size(new_size)
+
+        # ── Font switch ────────────────────────────────────────────────────────
+        # bind_font() sets the global default font for all DPG widgets.
+        # All three fonts were pre-loaded into the atlas before setup_dearpygui(),
+        # so the switch is instantaneous and requires no atlas rebuild.
+        if hasattr(self, '_font_handles') and new_size in self._font_handles:
+            dpg.bind_font(self._font_handles[new_size])
+            print(f"[RENDER] Font switched to {new_size} "
+                  f"({render_scale.SCALE_DEFS[new_size]['font_size']} px)")
+
+        # ── Node rebuild ───────────────────────────────────────────────────────
+        # Spacer widths are baked into DPG items at creation time; we must
+        # destroy and recreate every node widget to apply the new values.
+        # All graph data (positions captured first, then values/connections)
+        # is preserved — only the DPG items change.
+        if self.nm.graph.nodes:
+            self.nm.rebuild_all_nodes_ui()
+            # Also clear the property panel — the previously selected item no
+            # longer exists as a DPG widget.
+            dpg.delete_item("property_panel", children_only=True)
+
+        self._save_settings()
+        print(f"[PREFERENCES] Render size set to: {new_size}")
 
     def _on_auto_simul_params_changed(self, sender, app_data):
-        """Callback when AutoSimulParams checkbox is toggled."""
         self.preferences['auto_simul_params'] = app_data
+        self._save_settings()
         print(f"[PREFERENCES] AutoSimulParams set to: {app_data}")
 
     def _on_include_defaults_changed(self, sender, app_data):
-        """Callback when Include Defaults checkbox is toggled."""
         self.preferences['include_defaults'] = app_data
+        self._save_settings()
         print(f"[PREFERENCES] Include Defaults set to: {app_data}")
 
-    def create_ui(self):
+    # ── UI creation ───────────────────────────────────────────────────────────
 
+    def create_ui(self):
         self.export_include_defaults = False
         dpg.create_context()
-        # --- Themes & Fonts ---
-        dpg_utils.set_zebra_theme() # Applied from the utility file
-        self.nm.init_themes() 
-        
-        with dpg.font_registry():
-            if os.path.exists(FONT_PATH):
-                dpg.bind_font(dpg.add_font(FONT_PATH, FONT_SIZE))
 
-        # --- Main Window ---
-        
+        # ── Themes ────────────────────────────────────────────────────────────
+        dpg_utils.set_zebra_theme()
+        self.nm.init_themes()
+
+        # ── Fonts ─────────────────────────────────────────────────────────────
+        # All three scale variants must be loaded into the font atlas BEFORE
+        # dpg.setup_dearpygui() is called.  After that point the atlas is fixed
+        # and no new fonts can be added.  Runtime switching is done purely via
+        # dpg.bind_font() which is cheap (just a pointer swap inside DPG).
+        self._font_handles: dict = {}
+        if os.path.exists(FONT_PATH):
+            with dpg.font_registry():
+                for size_name in render_scale.RENDER_SIZES:
+                    fs = render_scale.SCALE_DEFS[size_name]["font_size"]
+                    handle = dpg.add_font(FONT_PATH, fs)
+                    self._font_handles[size_name] = handle
+                    print(f"[FONT] Loaded '{size_name}' font at {fs} px  (handle={handle})")
+
+            # Bind the font that matches the current (possibly loaded) preference.
+            active = self.preferences['render_size']
+            if active in self._font_handles:
+                dpg.bind_font(self._font_handles[active])
+                print(f"[FONT] Active font: {active} ({render_scale.SCALE_DEFS[active]['font_size']} px)")
+
+        # ── Main Window ───────────────────────────────────────────────────────
         with dpg.window(label="SPECULA Editor", tag='main_window', on_close=self._on_exit_requested):
-            
-            # 1. Menu Bar
             with dpg.menu_bar():
                 with dpg.menu(label="File"):
-                    dpg.add_menu_item(label="New Simulation", callback=self._on_new_simulation_clicked)                    
-                    dpg.add_menu_item(label="Load Simulation", callback=lambda: dpg.show_item("load_simulation_dialog"))
+                    dpg.add_menu_item(label="New Simulation",    callback=self._on_new_simulation_clicked)
+                    dpg.add_menu_item(label="Load Simulation",   callback=lambda: dpg.show_item("load_simulation_dialog"))
                     dpg.add_separator()
-                    dpg.add_menu_item(label="Save Simulation", callback=self._on_save_simulation_clicked)
-                    dpg.add_menu_item(label="Save Simulation As", callback=lambda: dpg.show_item("save_simulation_dialog"))                    
+                    dpg.add_menu_item(label="Save Simulation",   callback=self._on_save_simulation_clicked)
+                    dpg.add_menu_item(label="Save Simulation As",callback=lambda: dpg.show_item("save_simulation_dialog"))
                     dpg.add_separator()
-                    dpg.add_menu_item(label="Preferences", callback=self._show_preferences_dialog)
-                    dpg.add_menu_item(label="Exit", callback=self._on_exit_requested)
+                    dpg.add_menu_item(label="Preferences",       callback=self._show_preferences_dialog)
+                    dpg.add_menu_item(label="Exit",              callback=self._on_exit_requested)
 
                 with dpg.menu(label="Processing Objects"):
                     for node_type in sorted(self.proc_obj_templates.keys()):
                         dpg.add_menu_item(label=node_type, callback=self._on_menu_create, user_data=node_type)
-                
+
                 with dpg.menu(label="Data Objects"):
                     for node_type in sorted(self.data_obj_templates.keys()):
                         dpg.add_menu_item(label=node_type, callback=self._on_menu_create, user_data=node_type)
@@ -697,128 +610,91 @@ class SpeculaEditor:
                     dpg.add_menu_item(label="Control Panel", callback=lambda: self.sim_control.show_control_window())
 
                 with dpg.menu(label="Layout"):
-                    dpg.add_menu_item(label="Auto Layout", callback=lambda: auto_layout_nodes(self.nm.graph, self.nm.uuid_to_dpg))
-                    dpg.add_menu_item(label="Debug Info", callback=lambda: print(f"Nodes: {len(self.nm.graph.nodes)}, Connections: {len(self.nm.graph.connections)}"))
-   
-            # 2. Main content area (horizontal: editor + properties)
+                    dpg.add_menu_item(label="Auto Layout",
+                                      callback=lambda: auto_layout_nodes(self.nm.graph, self.nm.uuid_to_dpg))
+                    dpg.add_menu_item(label="Debug Info",
+                                      callback=lambda: print(f"Nodes: {len(self.nm.graph.nodes)}, "
+                                                             f"Connections: {len(self.nm.graph.connections)}"))
+
             with dpg.group(horizontal=False):
                 with dpg.group(horizontal=True):
-                    # Left Side: The Editor
                     with dpg.child_window(width=-450, tag="specula_editor_parent", border=False):
                         with dpg.node_editor(
-                            tag="specula_editor", 
-                            callback=self.nm.link_callback, 
+                            tag="specula_editor",
+                            callback=self.nm.link_callback,
                             delink_callback=self.nm.delink_callback,
                             minimap=True
                         ):
                             pass
-
-                    # Right Side: Properties Panel
                     with dpg.child_window(width=430, tag="property_panel", border=True):
                         pass
-
-                # 3. Status Bar at the bottom
-                with dpg.child_window(height=30, tag="status_bar",border=False):
+                with dpg.child_window(height=30, tag="status_bar", border=False):
                     dpg.add_text("Simulation: (Unsaved)", tag="status_bar_text", color=(180, 180, 180))
 
-        # --- Global Handlers ---
         with dpg.handler_registry():
             dpg.add_key_press_handler(callback=self._on_key_press)
 
         dpg.create_viewport(title="SPECULA Node Editor", width=1600, height=900)
-
         dpg.set_viewport_resize_callback(self._resize_callback)
 
-        # --- Setup File Dialogs ---
         self.setup_dialogs()
-
-        # --- Show Startup Dialog ---
         self._show_startup_dialog()
 
         dpg.setup_dearpygui()
         dpg.show_viewport()
 
         self.nm.after_dpg_init()
-
         dpg.set_primary_window('main_window', True)
 
-
     def _resize_callback(self):
-        # Get current viewport height
         h = dpg.get_viewport_height()
-        # Subtract roughly 80px (for menu bar + status bar + margins)
-        new_height = h - 80 
+        new_height = h - 80
         dpg.set_item_height("specula_editor_parent", new_height)
         dpg.set_item_height("property_panel", new_height)
 
-
     def setup_dialogs(self):
-        # We point these to FileHandler's logic via thin wrappers
-        
-        with dpg.file_dialog(label="Save Simulation", show=False, callback=self._save_simulation_cb, id="save_simulation_dialog", width=700, height=400):
+        with dpg.file_dialog(label="Save Simulation", show=False, callback=self._save_simulation_cb,
+                             id="save_simulation_dialog", width=700, height=400):
             dpg.add_file_extension(".yml")
-
-        with dpg.file_dialog(label="Load Simulation", show=False, callback=self._load_simulation_cb, id="load_simulation_dialog", width=700, height=400):
+        with dpg.file_dialog(label="Load Simulation", show=False, callback=self._load_simulation_cb,
+                             id="load_simulation_dialog", width=700, height=400):
             dpg.add_file_extension(".yml")
-
-        with dpg.file_dialog(label="Save Simulation Before Exit", show=False, callback=self._on_save_and_exit_cb, id="save_and_exit_dialog", width=700, height=400):
+        with dpg.file_dialog(label="Save Simulation Before Exit", show=False, callback=self._on_save_and_exit_cb,
+                             id="save_and_exit_dialog", width=700, height=400):
             dpg.add_file_extension(".yml")
-
-        with dpg.file_dialog(label="Save Simulation Before New", show=False, callback=self._on_save_before_new_cb, id="save_before_new_dialog", width=700, height=400):
+        with dpg.file_dialog(label="Save Simulation Before New", show=False, callback=self._on_save_before_new_cb,
+                             id="save_before_new_dialog", width=700, height=400):
             dpg.add_file_extension(".yml")
-
-        # Exit Confirmation Dialog
         self._create_exit_confirmation_dialog()
-
-        # New Simulation Confirmation Dialog
         self._create_new_simulation_confirmation_dialog()
-
-        # Add Multiple Objects modal
         self._setup_add_multiple_dialog()
 
     def _create_exit_confirmation_dialog(self):
-        """Create the exit confirmation modal dialog."""
-        with dpg.window(
-            label="Confirm Exit",
-            tag="exit_confirmation_dialog",
-            modal=True,
-            show=False,
-            width=450,
-            height=180,
-            no_resize=True
-        ):
+        with dpg.window(label="Confirm Exit", tag="exit_confirmation_dialog",
+                        modal=True, show=False, width=450, height=180, no_resize=True):
             dpg.add_text("Are you sure you want to exit?")
             dpg.add_text("Would you like to save your current simulation before exiting?", color=[180, 180, 180])
             dpg.add_spacing(count=2)
-            
             with dpg.group(horizontal=True):
-                dpg.add_button(label="Save and Exit", width=140, callback=self._on_exit_save_and_confirm)
-                dpg.add_button(label="Exit without Saving", width=140, callback=self._on_exit_confirm)
-                dpg.add_button(label="Cancel", width=100, callback=self._on_exit_cancel)
+                dpg.add_button(label="Save and Exit",      width=140, callback=self._on_exit_save_and_confirm)
+                dpg.add_button(label="Exit without Saving",width=140, callback=self._on_exit_confirm)
+                dpg.add_button(label="Cancel",             width=100, callback=self._on_exit_cancel)
 
     def _create_new_simulation_confirmation_dialog(self):
-        """Create the new simulation confirmation modal dialog."""
-        with dpg.window(
-            label="Create New Simulation?",
-            tag="new_simulation_confirmation_dialog",
-            modal=True,
-            show=False,
-            width=450,
-            height=180,
-            no_resize=True
-        ):
+        with dpg.window(label="Create New Simulation?", tag="new_simulation_confirmation_dialog",
+                        modal=True, show=False, width=450, height=180, no_resize=True):
             dpg.add_text("Create a new simulation?")
-            dpg.add_text("Your current simulation will be cleared. Would you like to save it first?", color=[180, 180, 180])
+            dpg.add_text("Your current simulation will be cleared. Would you like to save it first?",
+                         color=[180, 180, 180])
             dpg.add_spacing(count=2)
-            
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Save and Continue", width=140, callback=self._on_new_simulation_save_and_proceed)
-                dpg.add_button(label="Discard", width=100, callback=self._on_new_simulation_discard)
-                dpg.add_button(label="Cancel", width=100, callback=self._on_new_simulation_cancel)
+                dpg.add_button(label="Discard",           width=100, callback=self._on_new_simulation_discard)
+                dpg.add_button(label="Cancel",            width=100, callback=self._on_new_simulation_cancel)
 
-    # --- Startup dialog helpers ---
+    # ── Startup dialog ────────────────────────────────────────────────────────
+
     def _show_startup_dialog(self):
-        """Show the startup dialog (reused for new simulations)."""
         if dpg.does_item_exist("startup_dialog"):
             dpg.set_value("startup_simulation_name", "")
             self._center_dialog("startup_dialog")
@@ -827,31 +703,27 @@ class SpeculaEditor:
             self._create_startup_dialog()
 
     def _on_startup_open_existing(self, sender, app_data):
-        """Open the load simulation dialog from startup dialog and close startup dialog."""
         if dpg.does_item_exist("startup_dialog"):
             dpg.hide_item("startup_dialog")
         dpg.show_item("load_simulation_dialog")
 
     def _create_startup_dialog(self):
-        """Create a modal startup dialog shown at application launch."""
         if dpg.does_item_exist("startup_dialog"):
             self._center_dialog("startup_dialog")
             dpg.show_item("startup_dialog")
             return
-
         with dpg.window(label="Welcome", tag="startup_dialog", modal=True, show=True, width=640, height=160):
-            dpg.add_text("Create a new simulation, open an existing simulation, or import a Specula config into a new simulation.")
+            dpg.add_text("Create a new simulation, open an existing simulation, or import a Specula config.")
             dpg.add_spacing(count=1)
             with dpg.group(horizontal=True):
                 dpg.add_text("Simulation name:")
-                dpg.add_input_text(tag="startup_simulation_name", width=420, hint="Enter simulation name for new/import")
+                dpg.add_input_text(tag="startup_simulation_name", width=420,
+                                   hint="Enter simulation name for new/import")
             dpg.add_spacing(count=1)
             with dpg.group(horizontal=True):
-                dpg.add_button(label="Create New Simulation", callback=self._startup_create_new)
-                dpg.add_button(label="Open Existing Simulation", callback=self._on_startup_open_existing)                
+                dpg.add_button(label="Create New Simulation",  callback=self._startup_create_new)
+                dpg.add_button(label="Open Existing Simulation", callback=self._on_startup_open_existing)
                 dpg.add_button(label="Cancel", callback=lambda s, a: dpg.hide_item("startup_dialog"))
-        
-        # Center the startup dialog after creation
         self._center_dialog("startup_dialog")
 
     def _startup_create_new(self, sender, app_data):
@@ -862,8 +734,6 @@ class SpeculaEditor:
                 dpg.focus_item("startup_simulation_name")
             print("Please enter a simulation name before creating a new simulation.")
             return
-
-        # Clear existing graph and set simulation name
         self.nm.clear_all()
         self.nm.graph.nodes.clear()
         self.nm.graph.connections.clear()
@@ -872,32 +742,24 @@ class SpeculaEditor:
         self.current_simulation_path = None
         print(f"[SIMULATION] Created new simulation: {name}")
         self._update_status_bar()
-
         if dpg.does_item_exist("startup_dialog"):
             dpg.hide_item("startup_dialog")
 
+    # ── Menu callbacks ────────────────────────────────────────────────────────
 
-    # --- Callbacks ---
     def _on_menu_create(self, sender, app_data, user_data):
         node_uuid = self.nm.create_node(node_type=user_data)
-        
-        # Allow DPG to process node creation
         dpg.split_frame()
         dpg.split_frame()
-        
-        # Apply AutoSimulParams if enabled
         if self.preferences['auto_simul_params'] and user_data != "SimulParams":
             self._apply_auto_simul_params([(node_uuid, user_data)])
 
     def _on_save_simulation_clicked(self):
-        """Handle 'Save Simulation' menu click."""
         if self.current_simulation_path:
             self.fh.save_simulation(self.current_simulation_path, self.preferences['include_defaults'])
         else:
-            dpg.show_item("save_simulation_dialog")                              
+            dpg.show_item("save_simulation_dialog")
 
-    # --- File Bridge Callbacks ---
-     
     def _save_simulation_cb(self, s, a):
         path = a['file_path_name']
         self.fh.save_simulation(path, self.preferences['include_defaults'])
@@ -914,9 +776,10 @@ class SpeculaEditor:
         except Exception:
             pass
         self._update_status_bar()
-
         if dpg.does_item_exist("startup_dialog"):
             dpg.hide_item("startup_dialog")
+
+    # ── Run loop ──────────────────────────────────────────────────────────────
 
     def run(self):
         try:
@@ -924,6 +787,7 @@ class SpeculaEditor:
             dpg.start_dearpygui()
         finally:
             dpg.destroy_context()
+
 
 if __name__ == "__main__":
     editor = SpeculaEditor(yaml_folder="specula_yaml_docs") 
