@@ -13,6 +13,7 @@ import pathlib
 import matplotlib
 FONT_PATH = matplotlib.get_data_path() + '/fonts/ttf/'
 FONT_PATH += "DejaVuSerif.ttf"
+from constants import FONT_SIZE, DEFAULT_AUTO_SIMUL_PARAMS
 
 # Define a loader that preserves order
 def ordered_load(stream, Loader=yaml.SafeLoader, object_pairs_hook=OrderedDict):
@@ -50,6 +51,11 @@ class SpeculaEditor:
         # Track items pending deletion
         self.pending_deletion_type = None  # 'node', 'link'
         self.pending_deletion_items = []
+        # Preferences
+        self.preferences = {
+            'auto_simul_params': DEFAULT_AUTO_SIMUL_PARAMS,
+            'include_defaults': False,
+        }
         
         # 3. Setup UI
         self.create_ui()
@@ -96,12 +102,7 @@ class SpeculaEditor:
             except SystemError:
                 # File dialogs don't support set_item_pos, skip silently
                 pass
-    
-    # Callback in SpeculaEditor class
-    def _toggle_export_defaults(self, sender, app_data):
-        print('_toggle_export_defaults', app_data)
-        self.export_include_defaults = app_data
-
+  
     # ------------------------------------------------------------------
     # Status Bar Management
     # ------------------------------------------------------------------
@@ -467,12 +468,95 @@ class SpeculaEditor:
         if not self._multi_add_queue:
             dpg.set_value("_mo_status_text", "Nothing staged.")
             return
-        for node_type in self._multi_add_queue:
-            self.nm.create_node(node_type=node_type)
+        
+        # If AutoSimulParams is enabled, sort the queue so SimulParams is created first
+        nodes_to_create = list(self._multi_add_queue)
+        if self.preferences['auto_simul_params']:
+            # Separate SimulParams nodes from others
+            simul_params_nodes = [n for n in nodes_to_create if n == "SimulParams"]
+            other_nodes = [n for n in nodes_to_create if n != "SimulParams"]
+            # Create SimulParams first
+            nodes_to_create = simul_params_nodes + other_nodes
+        
+        # Create nodes and collect UUIDs for AutoSimulParams processing
+        created_uuids = []
+        for node_type in nodes_to_create:
+            node_uuid = self.nm.create_node(node_type=node_type)
+            created_uuids.append((node_uuid, node_type))
+        
+        # Allow DPG to process node creation before attempting connections
+        dpg.split_frame()
+        dpg.split_frame()
+        
+        # Apply AutoSimulParams connection if enabled
+        if self.preferences['auto_simul_params']:
+            self._apply_auto_simul_params(created_uuids)
+        
         count = len(self._multi_add_queue)
         print(f"[ADD_MULTIPLE] Created {count} node(s): {self._multi_add_queue}")
         self._multi_add_queue.clear()
         dpg.hide_item("add_multiple_dialog")
+
+    def _apply_auto_simul_params(self, created_uuids):
+        """Apply AutoSimulParams connection to newly created nodes.
+        
+        For each new node that has a SimulParams reference parameter,
+        automatically connect it to the existing SimulParams node (if any).
+        """
+        # Find the SimulParams node (prefer newly created, then existing)
+        simul_params_uuid = None
+        
+        # First, check if a SimulParams was just created
+        for uuid, node_type in created_uuids:
+            if node_type == "SimulParams":
+                simul_params_uuid = uuid
+                break
+        
+        # If not, look for existing SimulParams in the graph
+        if not simul_params_uuid:
+            for uuid, node_data in self.nm.graph.nodes.items():
+                if node_data.get("type") == "SimulParams":
+                    simul_params_uuid = uuid
+                    break
+        
+        # If no SimulParams exists, nothing to connect
+        if not simul_params_uuid:
+            print("[AUTOSIMULPARAMS] No SimulParams node found, skipping auto-connection")
+            return
+        
+        simul_params_name = self.nm.graph.nodes[simul_params_uuid].get("name", simul_params_uuid)
+        
+        # Now connect all nodes that have simul_params reference parameter
+        for node_uuid, node_type in created_uuids:
+            if node_type == "SimulParams":
+                continue  # Don't connect SimulParams to itself
+            
+            node_data = self.nm.graph.nodes.get(node_uuid, {})
+            template = self.nm.all_templates.get(node_type, {})
+            template_params = template.get("parameters", {})
+            
+            # Check if this node has simul_params parameter (note: lowercase!)
+            if "simul_params" in template_params:
+                param_meta = template_params.get("simul_params", {})
+                if param_meta.get("kind") == "reference":
+                    # Automatically connect simul_param_ref to the SimulParams node
+                    ref_key = "simul_params_ref"  # This is the input pin name in the UI
+                    
+                    # Check if already connected (shouldn't be at creation, but be safe)
+                    if not node_data.get("values", {}).get(ref_key):
+                        # Create the link
+                        success = self.nm.manual_link(
+                            simul_params_uuid, "ref",
+                            node_uuid, ref_key
+                        )
+                        node_name = node_data.get("name", node_uuid)
+                        if success:
+                            print(f"[AUTOSIMULPARAMS] Connected '{node_name}' ({node_type}) "
+                                  f"to SimulParams '{simul_params_name}'")
+                        else:
+                            print(f"[AUTOSIMULPARAMS] Failed to connect {node_uuid} ({node_type}) to SimulParams")
+                    else:
+                        print(f"[AUTOSIMULPARAMS] Node {node_uuid} already has simul_param_ref connected")
 
     def _mo_cancel(self):
         """Close without creating anything."""
@@ -486,6 +570,90 @@ class SpeculaEditor:
         if app_data == dpg.mvKey_Delete:
             self._on_delete_requested()
 
+    # ------------------------------------------------------------------
+    # Preferences Dialog
+    # ------------------------------------------------------------------
+
+    def _show_preferences_dialog(self):
+        """Open the Preferences dialog."""
+        if not dpg.does_item_exist("preferences_dialog"):
+            self._create_preferences_dialog()
+        else:
+            # Update checkbox states to match current preferences
+            dpg.set_value("pref_auto_simul_params_checkbox", 
+                         self.preferences['auto_simul_params'])
+            dpg.set_value("pref_include_defaults_checkbox",
+                         self.preferences['include_defaults'])
+        
+        self._center_dialog("preferences_dialog")
+        dpg.show_item("preferences_dialog")
+
+    def _create_preferences_dialog(self):
+        """Create the Preferences modal dialog."""
+        with dpg.window(
+            label="Preferences",
+            tag="preferences_dialog",
+            modal=True,
+            show=False,
+            width=500,
+            height=300,
+            no_resize=True
+        ):
+            dpg.add_text("Preferences", color=[200, 200, 100])
+            dpg.add_separator()
+            dpg.add_spacer(height=12)
+            
+            # AutoSimulParams preference
+            with dpg.group(horizontal=False):
+                dpg.add_checkbox(
+                    label="Auto Connect SimulParams (AutoSimulParams)",
+                    tag="pref_auto_simul_params_checkbox",
+                    default_value=self.preferences['auto_simul_params'],
+                    callback=self._on_auto_simul_params_changed
+                )
+                dpg.add_text(
+                    "When enabled, newly added nodes with SimulParams reference\n"
+                    "will automatically connect to the existing SimulParams node.",
+                    color=[150, 150, 150],
+                    wrap=450
+                )
+            
+            dpg.add_spacer(height=16)
+            dpg.add_separator()
+            dpg.add_spacer(height=12)
+            
+            # Include Defaults preference
+            with dpg.group(horizontal=False):
+                dpg.add_checkbox(
+                    label="Include Default Values in Saved Simulations",
+                    tag="pref_include_defaults_checkbox",
+                    default_value=self.preferences['include_defaults'],
+                    callback=self._on_include_defaults_changed
+                )
+                dpg.add_text(
+                    "When enabled, default parameter values will be included\n"
+                    "when saving simulations.",
+                    color=[150, 150, 150],
+                    wrap=450
+                )
+            
+            dpg.add_spacer(height=20)
+            dpg.add_separator()
+            dpg.add_spacer(height=8)
+            
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Close", width=100, 
+                              callback=lambda: dpg.hide_item("preferences_dialog"))
+
+    def _on_auto_simul_params_changed(self, sender, app_data):
+        """Callback when AutoSimulParams checkbox is toggled."""
+        self.preferences['auto_simul_params'] = app_data
+        print(f"[PREFERENCES] AutoSimulParams set to: {app_data}")
+
+    def _on_include_defaults_changed(self, sender, app_data):
+        """Callback when Include Defaults checkbox is toggled."""
+        self.preferences['include_defaults'] = app_data
+        print(f"[PREFERENCES] Include Defaults set to: {app_data}")
 
     def create_ui(self):
 
@@ -511,9 +679,8 @@ class SpeculaEditor:
                     dpg.add_separator()
                     dpg.add_menu_item(label="Save Simulation", callback=self._on_save_simulation_clicked)
                     dpg.add_menu_item(label="Save Simulation As", callback=lambda: dpg.show_item("save_simulation_dialog"))                    
-                    dpg.add_separator()                    
-                    dpg.add_menu_item(label="Include Defaults in saved simulations", check=True, callback=self._toggle_export_defaults)                    
                     dpg.add_separator()
+                    dpg.add_menu_item(label="Preferences", callback=self._show_preferences_dialog)
                     dpg.add_menu_item(label="Exit", callback=self._on_exit_requested)
 
                 with dpg.menu(label="Processing Objects"):
@@ -712,24 +879,32 @@ class SpeculaEditor:
 
     # --- Callbacks ---
     def _on_menu_create(self, sender, app_data, user_data):
-        self.nm.create_node(node_type=user_data)
+        node_uuid = self.nm.create_node(node_type=user_data)
+        
+        # Allow DPG to process node creation
+        dpg.split_frame()
+        dpg.split_frame()
+        
+        # Apply AutoSimulParams if enabled
+        if self.preferences['auto_simul_params'] and user_data != "SimulParams":
+            self._apply_auto_simul_params([(node_uuid, user_data)])
 
     def _on_save_simulation_clicked(self):
         """Handle 'Save Simulation' menu click."""
         if self.current_simulation_path:
-            self.fh.save_simulation(self.current_simulation_path, self.export_include_defaults)
+            self.fh.save_simulation(self.current_simulation_path, self.preferences['include_defaults'])
         else:
-            dpg.show_item("save_simulation_dialog")
+            dpg.show_item("save_simulation_dialog")                              
 
     # --- File Bridge Callbacks ---
-    
+     
     def _save_simulation_cb(self, s, a):
         path = a['file_path_name']
-        self.fh.save_simulation(path)
+        self.fh.save_simulation(path, self.preferences['include_defaults'])
         self.current_simulation_path = path
         self.current_simulation_name = pathlib.Path(path).stem
         self._update_status_bar()
-    
+        
     def _load_simulation_cb(self, s, a):
         path = pathlib.Path(a['file_path_name']).resolve()
         self.fh.load_simulation(str(path))

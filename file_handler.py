@@ -309,7 +309,7 @@ class FileHandler:
         
         print(f"[LOAD] Simulation loaded from {file_path}")
 
-    def save_simulation(self, file_path):
+    def save_simulation(self, file_path, include_defaults=False):
         """
         Save the current simulation layout to YAML.
         
@@ -329,7 +329,7 @@ class FileHandler:
                     node_data['gui_pos'] = current_pos
         
         # Export the simulation (which now includes positions)
-        self.export_simulation(file_path, include_defaults=False)
+        self.export_simulation(file_path, include_defaults=include_defaults)
         print(f"[SAVE] Simulation saved to {file_path}")
 
     def export_simulation(self, file_path, include_defaults=False):

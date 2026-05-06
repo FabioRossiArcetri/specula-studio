@@ -411,7 +411,7 @@ class NodeManager:
             self._apply_node_theme(dpg_id, node_type, node_uuid)
 
         return node_uuid
-
+    
     def _create_node_outputs(self, dpg_id, node_uuid, node_type, node_data):
         """Create output pins for a node.
         

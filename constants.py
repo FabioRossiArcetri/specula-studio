@@ -19,3 +19,5 @@ DATA_MULTIPLE_SHAPE_FILLED = dpg.mvNode_PinShape_CircleFilled  # Filled circle f
 # Pin shapes for references
 REF_SHAPE_EMPTY = dpg.mvNode_PinShape_Quad  # Empty quad for reference inputs with no connection
 REF_SHAPE_FILLED = dpg.mvNode_PinShape_QuadFilled  # Filled quad for reference inputs with connection
+
+DEFAULT_AUTO_SIMUL_PARAMS = True
