@@ -12,6 +12,7 @@ Responsibilities
 """
 
 import ast
+import os
 
 import numpy as np
 import dearpygui.dearpygui as dpg
@@ -581,11 +582,28 @@ class PropertyPanel:
             print(f"Updated data object parameter {param_name} = {app_data}")
             self._refresh_node_theme(node_uuid)
 
+    def _find_simul_params_node(self) -> str:
+        """
+        Find and return the root_dir from any SimulParams node in the graph.
+        
+        Returns the root_dir value, or None if no SimulParams node exists.
+        """
+        for node_uuid, node_data in self.graph.nodes.items():
+            if node_data.get("type") == "SimulParams":
+                root_dir = node_data.get("values", {}).get("root_dir")
+                if root_dir:
+                    return str(root_dir)
+        return None
+
     def _browse_data_object_file(self, sender, app_data, user_data):
         """Open file browser for a data-object parameter and write selection back to the input + node."""
         node_uuid, param_name, input_tag = user_data
-
-        dialog_tag = f"file_dialog_{node_uuid}_{param_name}"
+        param_folder = param_name
+        # special case...
+        if param_folder=='recmat': 
+            param_folder = 'rec'
+        
+        dialog_tag = f"file_dialog_{node_uuid}_{param_folder}"
         # If a dialog is already open, bring it to front
         if dpg.does_item_exist(dialog_tag):
             dpg.show_item(dialog_tag)
@@ -596,7 +614,7 @@ class PropertyPanel:
         def _file_selected(dialog_sender, dialog_app_data, dialog_user_data):
             # dialog_app_data can vary by DPG version. Try multiple ways to extract a path.
             file_path = None
-
+            
             if isinstance(dialog_app_data, dict):
                 # Common keys across versions:
                 file_path = dialog_app_data.get("file_path_name") or dialog_app_data.get("file_path")
@@ -615,7 +633,6 @@ class PropertyPanel:
                     dirpart = file_path[:-2] if file_path.endswith("/.*") else file_path
                     if fname:
                         # if fname is a bare filename, join with dirpart
-                        import os
                         if not os.path.isabs(fname) and os.path.isdir(dirpart):
                             file_path = os.path.join(dirpart, fname)
                         else:
@@ -630,18 +647,21 @@ class PropertyPanel:
                 file_path = file_path[:-2]
 
             if file_path:
-                # Write into the input widget if it exists
+                # Extract only the filename (basename) to store in the parameter
+                filename_only = os.path.basename(file_path)
+                
+                # Write the full path into the input widget for display
                 try:
                     if dpg.does_item_exist(input_tag):
-                        dpg.set_value(input_tag, file_path)
+                        dpg.set_value(input_tag, filename_only)
                 except Exception as e:
                     print(f"[BROWSE] Could not set input tag {input_tag}: {e}")
 
-                # Call the updater to persist into the node values
+                # Store only the filename (without path) in the node values
                 try:
-                    self._update_data_object_param(None, file_path, (node_uuid, param_name))
+                    self._update_data_object_param(None, filename_only, (node_uuid, param_folder))
                 except Exception as e:
-                    print(f"[BROWSE] Error updating node value for {param_name}: {e}")
+                    print(f"[BROWSE] Error updating node value for {param_folder}: {e}")
 
             # Close the dialog
             try:
@@ -650,9 +670,38 @@ class PropertyPanel:
             except Exception:
                 pass
 
+        # === DETERMINE INITIAL DIRECTORY ===
+        initial_dir = None
+        
+        # Search for any SimulParams node in the graph
+        for node_uuid_check, node_data_check in self.graph.nodes.items():
+            node_type_check = node_data_check.get("type", "")
+            if node_type_check == "SimulParams":
+                values = node_data_check.get("values", {})
+                root_dir = values.get("root_dir")
+                if root_dir:
+                    initial_dir = os.path.join(str(root_dir), str(param_folder))
+                    print(f"[BROWSE] Found SimulParams with root_dir='{root_dir}', "
+                          f"setting initial_dir for param '{param_folder}' to: {initial_dir}")
+                    break
+        
+        if not initial_dir:
+            print(f"[BROWSE] No SimulParams with root_dir found, opening file dialog without default_path")
+
         # Create the dialog (modal style) and set the selection callback
-        # Use explicit filters - FITS first, then All files.
-        with dpg.file_dialog(directory_selector=False, show=True, callback=_file_selected, tag=dialog_tag, width=700, height=400):
+        dialog_kwargs = {
+            "directory_selector": False,
+            "show": True,
+            "callback": _file_selected,
+            "tag": dialog_tag,
+            "width": 700,
+            "height": 400,
+        }
+        
+        if initial_dir:
+            dialog_kwargs["default_path"] = initial_dir
+        
+        with dpg.file_dialog(**dialog_kwargs):
             # FITS filter(s)
             dpg.add_file_extension(".fits", color=(150, 150, 150), custom_text="FITS")
             dpg.add_file_extension(".fit", color=(4150, 150, 150), custom_text="FIT")
