@@ -20,7 +20,7 @@ FONT_PATH = matplotlib.get_data_path() + '/fonts/ttf/DejaVuSerif.ttf'
 _SETTINGS_PATH = pathlib.Path.home() / ".specula_studio_settings.json"
 
 
-# ── YAML helpers ──────────────────────────────────────────────────────────────
+# ── YAML helpers ──────────────────────────────────────────────────────────[...]
 
 def ordered_load(stream, Loader=yaml.SafeLoader, object_pairs_hook=OrderedDict):
     class OrderedLoader(Loader):
@@ -34,7 +34,7 @@ def ordered_load(stream, Loader=yaml.SafeLoader, object_pairs_hook=OrderedDict):
     return yaml.load(stream, OrderedLoader)
 
 
-# ── Main editor class ─────────────────────────────────────────────────────────
+# ── Main editor class ────────────────────────────────────────────────────────…[...]
 
 class SpeculaEditor:
     def __init__(self, yaml_folder):
@@ -115,7 +115,7 @@ class SpeculaEditor:
                             templates.update(data)
         return templates
 
-    # ── Input handlers ────────────────────────────────────────────────────────
+    # ── Input handlers ───────────────────────────────────────────────────────……[...]
 
     def _setup_custom_handlers(self):
         """Register handlers without the automatic Delete key handler."""
@@ -139,7 +139,7 @@ class SpeculaEditor:
             except SystemError:
                 pass
   
-    # ── Status Bar ────────────────────────────────────────────────────────────
+    # ── Status Bar ─────────────────────────────────────────────────────────[...]
 
     def _update_status_bar(self):
         if self.current_simulation_name:
@@ -149,7 +149,7 @@ class SpeculaEditor:
         if dpg.does_item_exist("status_bar_text"):
             dpg.set_value("status_bar_text", status_text)
 
-    # ── New Simulation ────────────────────────────────────────────────────────
+    # ── New Simulation ───────────────────────────────────────────────────────……[...]
 
     def _on_new_simulation_clicked(self):
         if self.current_simulation_name is None:
@@ -229,7 +229,7 @@ class SpeculaEditor:
         self.pending_deletion_items = []
         self.pending_deletion_type  = None
 
-    # ── Exit ──────────────────────────────────────────────────────────────────
+    # ── Exit ───────────────────────────────────────────────────────────[...]
     
     def _on_exit_requested(self):
         self._center_dialog("exit_confirmation_dialog")
@@ -553,17 +553,17 @@ class SpeculaEditor:
         self._save_settings()
         print(f"[PREFERENCES] Include Defaults set to: {app_data}")
 
-    # ── UI creation ───────────────────────────────────────────────────────────
+    # ── UI creation ────────────────────────────────────────────────────────……[...]
 
     def create_ui(self):
         self.export_include_defaults = False
         dpg.create_context()
 
-        # ── Themes ───────────────────────────────────────────��────────────────
+        # ── Themes ───────────────────────────────────────────────────────……[...]
         dpg_utils.set_zebra_theme()
         self.nm.init_themes()
 
-        # ── Font ──────────────────────────────────────────────────────────────
+        # ── Font ─────────────────────────────────────────────────────────……[...]
         # A SINGLE font is loaded at MEDIUM size (18 px).  Runtime font-size
         # changes are handled exclusively via dpg.set_global_font_scale(), which
         # is an ImGui render-time scalar and works correctly in BOTH directions
@@ -602,18 +602,21 @@ class SpeculaEditor:
                     dpg.add_menu_item(label="Preferences",       callback=self._show_preferences_dialog)
                     dpg.add_menu_item(label="Exit",              callback=self._on_exit_requested)
 
-                with dpg.menu(label="Processing Objects"):
-                    for node_type in sorted(self.proc_obj_templates.keys()):
-                        dpg.add_menu_item(label=node_type, callback=self._on_menu_create, user_data=node_type)
+                with dpg.menu(label="Add Objects"):
+                    dpg.add_menu_item(label="Add Multiple Objects", callback=self._show_add_multiple_dialog)
+                    with dpg.menu(label="Processing Objects"):
+                        for node_type in sorted(self.proc_obj_templates.keys()):
+                            dpg.add_menu_item(label=node_type, callback=self._on_menu_create, user_data=node_type)
 
-                with dpg.menu(label="Data Objects"):
-                    for node_type in sorted(self.data_obj_templates.keys()):
-                        dpg.add_menu_item(label=node_type, callback=self._on_menu_create, user_data=node_type)
+                    with dpg.menu(label="Data Objects"):
+                        for node_type in sorted(self.data_obj_templates.keys()):
+                            dpg.add_menu_item(label=node_type, callback=self._on_menu_create, user_data=node_type)
 
-                dpg.add_menu_item(label="Add Multiple Objects", callback=self._show_add_multiple_dialog)
+                    
 
                 with dpg.menu(label="Simulation"):
                     dpg.add_menu_item(label="Control Panel", callback=lambda: self.sim_control.show_control_window())
+                    dpg.add_menu_item(label="Display Yaml", callback=lambda: self.sim_control.show_yaml_window())
 
                 with dpg.menu(label="Layout"):
                     dpg.add_menu_item(label="Auto Layout",
@@ -640,7 +643,8 @@ class SpeculaEditor:
         with dpg.handler_registry():
             dpg.add_key_press_handler(callback=self._on_key_press)
 
-        dpg.create_viewport(title="SPECULA Node Editor", width=1600, height=900)
+        viewport_id = dpg.create_viewport(title="SPECULA Node Editor", width=1600, height=900)
+        # dpg.configure_viewport(viewport_id, vsync=False)
         dpg.set_viewport_resize_callback(self._resize_callback)
 
         self.setup_dialogs()
@@ -657,6 +661,11 @@ class SpeculaEditor:
         new_height = h - 80
         dpg.set_item_height("specula_editor_parent", new_height)
         dpg.set_item_height("property_panel", new_height)
+        
+        if dpg.does_item_exist("property_panel"):
+            dpg.show_item("property_panel")
+            # Force recalculation of layout
+            dpg.split_frame()
 
     def setup_dialogs(self):
         with dpg.file_dialog(label="Save Simulation", show=False, callback=self._save_simulation_cb,
@@ -698,7 +707,7 @@ class SpeculaEditor:
                 dpg.add_button(label="Discard",           width=100, callback=self._on_new_simulation_discard)
                 dpg.add_button(label="Cancel",            width=100, callback=self._on_new_simulation_cancel)
 
-    # ── Startup dialog ────────────────────────────────────────────────────────
+    # ── Startup dialog ───────────────────────────────────────────────────────……[...]
 
     def _show_startup_dialog(self):
         if dpg.does_item_exist("startup_dialog"):
@@ -751,7 +760,7 @@ class SpeculaEditor:
         if dpg.does_item_exist("startup_dialog"):
             dpg.hide_item("startup_dialog")
 
-    # ── Menu callbacks ────────────────────────────────────────────────────────
+    # ── Menu callbacks ───────────────────────────────────────────────────────……[...]
 
     def _on_menu_create(self, sender, app_data, user_data):
         node_uuid = self.nm.create_node(node_type=user_data)
@@ -785,7 +794,7 @@ class SpeculaEditor:
         if dpg.does_item_exist("startup_dialog"):
             dpg.hide_item("startup_dialog")
 
-    # ── Run loop ──────────────────────────────────────────────────────────────
+    # ── Run loop ─────────────────────────────────────────────────────────……[...]
 
     def run(self):
         try:
@@ -798,3 +807,4 @@ class SpeculaEditor:
 if __name__ == "__main__":
     editor = SpeculaEditor(yaml_folder="specula_yaml_docs") 
     editor.run()
+

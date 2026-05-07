@@ -66,6 +66,91 @@ class SimulationControl:
             print(f"[SIMULATION] Could not write server URL file: {e}")
 
     # ------------------------------------------------------------------
+    # YAML Display Window
+    # ------------------------------------------------------------------
+
+    def _get_current_yaml_content(self):
+        """Generate the current simulation YAML as a string."""
+        try:
+            # Create a temporary export to get the YAML content
+            temp_path = "_temp_yaml_display.yml"
+            self.editor.fh.export_simulation(temp_path, include_defaults=False)
+            
+            with open(temp_path, "r", encoding="utf-8") as f:
+                yaml_content = f.read()
+            
+            # Clean up temporary file
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+            
+            return yaml_content
+        except Exception as e:
+            print(f"[SIMULATION] Error generating YAML: {e}")
+            return f"Error generating YAML:\n{str(e)}"
+
+    def show_yaml_window(self):
+        """Display current simulation YAML in a detached window."""
+        yaml_content = self._get_current_yaml_content()
+        
+        # Use a tag that includes a timestamp to allow multiple instances
+        import time
+        window_tag = f"yaml_display_window_{int(time.time() * 1000)}"
+        
+        with dpg.window(
+            label="Simulation YAML",
+            tag=window_tag,
+            width=800,
+            height=600,
+            no_close=False,
+        ):
+            # Toolbar
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Copy to Clipboard", width=120,
+                              callback=lambda: self._copy_yaml_to_clipboard(yaml_content))
+                dpg.add_button(label="Close", width=80,
+                              callback=lambda: dpg.delete_item(window_tag))
+                dpg.add_spacer()
+            
+            dpg.add_separator()
+            
+            # Content display
+            dpg.add_input_text(
+                tag=f"yaml_content_{window_tag}",
+                default_value=yaml_content,
+                multiline=True,
+                readonly=True,
+                width=-1,
+                height=-1,
+            )
+
+    def _copy_yaml_to_clipboard(self, content):
+        """Copy YAML content to system clipboard."""
+        try:
+            import subprocess
+            # Use system clipboard
+            if os.name == 'nt':  # Windows
+                process = subprocess.Popen(['clip'], stdin=subprocess.PIPE)
+                process.communicate(content.encode('utf-8'))
+            elif os.uname().sysname == 'Darwin':  # macOS
+                process = subprocess.Popen(['pbcopy'], stdin=subprocess.PIPE)
+                process.communicate(content.encode('utf-8'))
+            else:  # Linux
+                try:
+                    process = subprocess.Popen(['xclip', '-selection', 'clipboard'],
+                                             stdin=subprocess.PIPE)
+                    process.communicate(content.encode('utf-8'))
+                except FileNotFoundError:
+                    print("[SIMULATION] xclip not found, trying xsel...")
+                    process = subprocess.Popen(['xsel', '-b', '-i'],
+                                             stdin=subprocess.PIPE)
+                    process.communicate(content.encode('utf-8'))
+            print("[SIMULATION] YAML copied to clipboard")
+        except Exception as e:
+            print(f"[SIMULATION] Failed to copy to clipboard: {e}")
+
+    # ------------------------------------------------------------------
     # Control window
     # ------------------------------------------------------------------
 
@@ -363,3 +448,4 @@ class SimulationControl:
         if self.process:
             self.process.terminate()
         self._clear_server_url_file()
+
