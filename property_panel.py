@@ -95,27 +95,17 @@ class PropertyPanel:
             dpg.add_separator(parent=panel_tag)
 
             for param_name, meta in template_params.items():
-                print(f"\n[PARAM_DEBUG] Processing parameter: {param_name}")
-                print(f"[PARAM_DEBUG] Meta type: {type(meta)}, Meta: {meta}")
-
                 is_ref_param = False
                 if isinstance(meta, dict):
                     if meta.get("kind") == "reference":
                         is_ref_param = True
-                        print(f"[PARAM_DEBUG] Found reference by kind: {param_name}")
                     elif "type" in meta and self.is_data_class_type(meta["type"]):
                         is_ref_param = True
-                        print(
-                            f"[PARAM_DEBUG] Found reference by type: "
-                            f"{param_name}, type: {meta['type']}"
-                        )
                 elif isinstance(meta, str):
                     if self.is_data_class_type(meta):
                         is_ref_param = True
                     elif "ref" in meta.lower() or "reference" in meta.lower():
                         is_ref_param = True
-
-                print(f"[PARAM_DEBUG] Is reference parameter: {is_ref_param}")
 
                 if is_ref_param:
                     possible_keys = [

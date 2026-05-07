@@ -8,24 +8,20 @@ RandomGenerator:
       default: NORMAL
       kind: value
     amp:
-      type: Any
+      type: list[float]
       default: null
       kind: value
     constant:
-      type: float
-      default: 0.0
+      type: list[float]
+      default: null
       kind: value
     seed:
       type: int
       default: null
       kind: value
-    vsize:
-      type: int
-      default: 1
-      kind: value
     output_size:
       type: int
-      default: 1
+      default: 0
       kind: value
     modal_rms:
       type: float

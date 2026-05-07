@@ -5488,11 +5488,11 @@ RandomGenerator:
     amp:
       default: null
       kind: value
-      type: Any
+      type: list[float]
     constant:
-      default: 0.0
+      default: null
       kind: value
-      type: float
+      type: list[float]
     distribution:
       default: NORMAL
       kind: value
@@ -5506,7 +5506,7 @@ RandomGenerator:
       kind: value
       type: float
     output_size:
-      default: 1
+      default: 0
       kind: value
       type: int
     precision:
@@ -5523,10 +5523,6 @@ RandomGenerator:
       type: int
     target_device_idx:
       default: null
-      kind: value
-      type: int
-    vsize:
-      default: 1
       kind: value
       type: int
 RecCalibrator:
@@ -6678,19 +6674,23 @@ WaveGenerator:
     type: BaseValue
   parameters:
     amp:
-      default: 0.0
+      default:
+      - 0.0
       kind: value
       type: list[float]
     constant:
-      default: 0.0
+      default:
+      - 0.0
       kind: value
       type: list[float]
     freq:
-      default: 0.0
+      default:
+      - 0.0
       kind: value
       type: list[float]
     offset:
-      default: 0.0
+      default:
+      - 0.0
       kind: value
       type: list[float]
     output_size:
@@ -6702,17 +6702,14 @@ WaveGenerator:
       kind: value
       type: int
     slope:
-      default: 0.0
+      default:
+      - 0.0
       kind: value
       type: list[float]
     target_device_idx:
       default: null
       kind: value
       type: int
-    vsize:
-      default: 1
-      kind: value
-      type: list[int]
     wave_type:
       default: SIN
       kind: value

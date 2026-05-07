@@ -16,6 +16,7 @@ that this class has *no* dependency on DearPyGui, the graph model, or monitors.
 """
 
 import os
+import threading
 import traceback
 
 import socketio as sio_module
@@ -82,6 +83,7 @@ class SocketIOClient:
             self.sio = sio_module.Client(logger=True, engineio_logger=False)
 
         self._setup_handlers()
+        # Connect in a background thread so the GUI thread is never blocked.
         self._connect()
 
     # ------------------------------------------------------------------
@@ -170,20 +172,28 @@ class SocketIOClient:
             if self.subscribed_outputs:
                 self.request_next_frame()
 
-    def _connect(self):
-        """Attempt to connect to the Socket.IO server."""
-        if not self.enabled:
-            return
+    def _connect_worker(self):
+        """Worker that runs in a background thread to avoid blocking the GUI."""
         try:
-            print(f"[SOCKET.IO] Connecting to {self.server_url}...")
+            print(f"[SOCKET.IO] Connecting to {self.server_url} (background thread)...")
             self.connected = False
             self.sio.connect(self.server_url, namespaces=["/"])
             print(f"[SOCKET.IO] Connected! SID: {self.sio.sid}")
             self.sio.emit("test_connection", {"client": "node_editor"})
         except Exception as e:
             print(f"[SOCKET.IO] Connection failed: {e}")
-            traceback.print_exc()
             self.connected = False
+
+    def _connect(self):
+        """Start a non-blocking connection attempt in a daemon thread.
+
+        The GUI thread is never blocked: the socketio handshake and any
+        reconnection retries happen entirely in the background.
+        """
+        if not self.enabled:
+            return
+        thread = threading.Thread(target=self._connect_worker, daemon=True)
+        thread.start()
 
     # ------------------------------------------------------------------
     # Public interface

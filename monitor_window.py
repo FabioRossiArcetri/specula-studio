@@ -41,11 +41,11 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 from dpg_plotting import DPGPlotter
-from constants import (
-    FONT_SIZE,
+from constants import (    
     MAX_QUEUE_ITEMS_PER_FRAME,
     MONITOR_QUEUE_SIZE,
 )
+FONT_SIZE =18
 
 try:
     import matplotlib

@@ -14,6 +14,7 @@ Three sub-components handle specialized responsibilities:
   - PropertyPanel    (property_panel.py)   – property inspector UI
 """
 
+import time
 import uuid
 import dearpygui.dearpygui as dpg
 
@@ -112,6 +113,14 @@ class NodeManager:
         self.proc_theme = None
         self.data_theme_incomplete = None
         self.proc_theme_incomplete = None
+
+        # ===== 7. MOUSE-MOVE THROTTLE =====
+        # Timestamp of the last processed mouse-move event.
+        # Only process hover checks at most once every 50 ms to avoid saturating
+        # the DPG dispatch queue with O(n_links) dpg.is_item_hovered() calls.
+        self._last_mouse_move_time: float = 0.0
+        _MOUSE_MOVE_INTERVAL: float = 0.05   # seconds (50 ms → ≤20 checks/s)
+        self._MOUSE_MOVE_INTERVAL = _MOUSE_MOVE_INTERVAL
 
     # ==========================================================================
     # LOGGING
@@ -582,7 +591,7 @@ class NodeManager:
                 name_override = node_name,
             )
 
-        # ── 5. Re-create DPG links ──────────────────────────────���──────────────
+        # ── 5. Re-create DPG links ─────────────────────────────────────────────
         # DPG needs a frame to register the freshly created node attributes before
         # we can add links between them.
         dpg.split_frame()
@@ -935,7 +944,11 @@ class NodeManager:
             dpg.add_mouse_move_handler(callback=self._on_mouse_move)
 
     def on_click_editor(self, sender, app_data):
-        """Handle editor click - select node or link."""
+        """Handle editor click - select node or link.
+
+        Link hover detection is O(n_links): keep it out of the mouse-move
+        handler (which fires at frame rate) and only run it on actual clicks.
+        """
         for link_id in self.link_registry:
             if dpg.is_item_hovered(link_id):
                 self._on_link_click(sender, app_data, link_id)
@@ -950,7 +963,10 @@ class NodeManager:
         if len(selected) == 1:
             node_uuid = selected[0]
             self._log(f"Node clicked: {node_uuid}")
-            self.debug_node_completeness(node_uuid)
+            # debug_node_completeness is an expensive print-heavy call;
+            # invoke it only when the debug flag is explicitly set.
+            if self.debug:
+                self.debug_node_completeness(node_uuid)
 
             if node_uuid != self._last_selected_uuid:
                 self._last_selected_uuid = node_uuid
@@ -1017,7 +1033,17 @@ class NodeManager:
         self._selected_link_id = None
 
     def _on_mouse_move(self, sender, app_data):
-        """Handle mouse movement for link hover effects."""
+        """Handle mouse movement for link hover effects.
+
+        Throttled to at most once every ``_MOUSE_MOVE_INTERVAL`` seconds
+        (default 50 ms) to avoid saturating the DPG dispatch queue with
+        O(n_links) ``dpg.is_item_hovered()`` calls at every rendered frame.
+        """
+        now = time.monotonic()
+        if now - self._last_mouse_move_time < self._MOUSE_MOVE_INTERVAL:
+            return
+        self._last_mouse_move_time = now
+
         if not dpg.is_item_hovered("specula_editor"):
             return
 

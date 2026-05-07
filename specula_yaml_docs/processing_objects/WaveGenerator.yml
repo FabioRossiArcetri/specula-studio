@@ -9,27 +9,28 @@ WaveGenerator:
       kind: value
     amp:
       type: list[float]
-      default: 0.0
+      default:
+      - 0.0
       kind: value
     freq:
       type: list[float]
-      default: 0.0
+      default:
+      - 0.0
       kind: value
     offset:
       type: list[float]
-      default: 0.0
+      default:
+      - 0.0
       kind: value
     constant:
       type: list[float]
-      default: 0.0
+      default:
+      - 0.0
       kind: value
     slope:
       type: list[float]
-      default: 0.0
-      kind: value
-    vsize:
-      type: list[int]
-      default: 1
+      default:
+      - 0.0
       kind: value
     output_size:
       type: int

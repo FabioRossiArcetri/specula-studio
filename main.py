@@ -719,7 +719,7 @@ class SpeculaEditor:
             dpg.show_item("startup_dialog")
             return
         with dpg.window(label="Welcome", tag="startup_dialog", modal=True, show=True, width=640, height=160):
-            dpg.add_text("Create a new simulation, open an existing simulation, or import a Specula config.")
+            dpg.add_text("Create a new simulation or open an existing one.")
             dpg.add_spacing(count=1)
             with dpg.group(horizontal=True):
                 dpg.add_text("Simulation name:")
