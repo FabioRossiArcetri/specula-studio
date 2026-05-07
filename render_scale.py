@@ -7,23 +7,35 @@ Provides size constants for SMALL, MEDIUM, and LARGE rendering modes.
 
   MEDIUM  –  the current production baseline values.
   LARGE   –  approximately 180 % of MEDIUM (rounded to integers).
-  SMALL   –  approximately  50 % of MEDIUM (rounded to integers).
+  SMALL   –  approximately  70 % of MEDIUM (rounded to integers).
 
-All call-sites should use the accessor functions (font_size(), etc.) so
-that a preference change propagates immediately without re-importing.
+Font sizing strategy
+--------------------
+A single font is loaded at MEDIUM size (18 px).  The ImGui global font
+scale (dpg.set_global_font_scale) is then used to scale ALL rendered text
+uniformly.  This approach is guaranteed to work in both directions (up and
+down) because it operates on the rasterised glyph atlas at render time,
+whereas dpg.bind_font() can silently fail when switching to a larger handle
+than the one that was active when setup_dearpygui() was called.
+
+Scale factors
+~~~~~~~~~~~~~
+  SMALL  → 0.70  (effective ~13 px)
+  MEDIUM → 1.00  (effective ~18 px)
+  LARGE  → 1.80  (effective ~32 px)
 """
 
 RENDER_SIZES = ["SMALL", "MEDIUM", "LARGE"]
 DEFAULT_RENDER_SIZE = "MEDIUM"
 
 # ── Scale tables ──────────────────────────────────────────────────────────────
-# Each entry describes one complete set of graphical properties.
-# MEDIUM contains the original hard-coded values; LARGE / SMALL are derived
-# as ~180 % / ~50 % of those baseline values.
+# MEDIUM contains the original hard-coded values.
+# LARGE / SMALL are derived as ~180 % / ~70 % of those baseline values.
 
 SCALE_DEFS: dict = {
     "MEDIUM": {
-        # Font
+        # Font (base size loaded into the atlas; actual display size is
+        # controlled by the global_font_scale factor below)
         "font_size":                   18,
 
         # Node-editor spacers (set at node-creation time)
@@ -38,7 +50,7 @@ SCALE_DEFS: dict = {
     },
     "LARGE": {
         # ~180 % of MEDIUM
-        "font_size":                   30,   # 18 × 1.8 = 32.4  → 32
+        "font_size":                   18,   # same base; display scaled by 1.8
         "node_header_spacer_width":   360,   # 200 × 1.8
         "node_output_spacer_width":   180,   # 100 × 1.8
         "layout_horizontal_spacing":  594,   # 330 × 1.8
@@ -47,15 +59,25 @@ SCALE_DEFS: dict = {
         "auto_layout_base_y":          54,
     },
     "SMALL": {
-        # ~50 % of MEDIUM
-        "font_size":                   10,   # 18 × 0.5
-        "node_header_spacer_width":   100,   # 200 × 0.5
-        "node_output_spacer_width":    50,   # 100 × 0.5
-        "layout_horizontal_spacing":  200,   # 330 × 0.5
-        "layout_vertical_spacing":    150,   # 220 × 0.5
-        "auto_layout_base_x":          15,   #  30 × 0.5
-        "auto_layout_base_y":          15,
+        # ~70 % of MEDIUM
+        "font_size":                   18,   # same base; display scaled by 0.7
+        "node_header_spacer_width":   140,   # 200 × 0.7
+        "node_output_spacer_width":    70,   # 100 × 0.7
+        "layout_horizontal_spacing":  231,   # 330 × 0.7
+        "layout_vertical_spacing":    154,   # 220 × 0.7
+        "auto_layout_base_x":          21,   #  30 × 0.7
+        "auto_layout_base_y":          21,
     },
+}
+
+# ── Global font scale factors ─────────────────────────────────────────────────
+# Applied via dpg.set_global_font_scale().  The base font is always loaded at
+# MEDIUM size (18 px); these factors scale it up or down at render time.
+
+_GLOBAL_FONT_SCALES: dict = {
+    "SMALL":  0.7,
+    "MEDIUM": 1.0,
+    "LARGE":  1.8,
 }
 
 # ── Active scale state ────────────────────────────────────────────────────────
@@ -82,10 +104,16 @@ def get(key: str):
     return SCALE_DEFS[_current_size][key]
 
 
-# ── Convenience accessors (avoid typos at call-sites) ─────────────────────────
+# ── Convenience accessors ─────────────────────────────────────────────────────
 
 def font_size() -> int:
-    return SCALE_DEFS[_current_size]["font_size"]
+    """Base font size (always MEDIUM; actual display controlled by global scale)."""
+    return SCALE_DEFS["MEDIUM"]["font_size"]
+
+
+def global_font_scale() -> float:
+    """ImGui global font scale factor for the current render size."""
+    return _GLOBAL_FONT_SCALES[_current_size]
 
 
 def node_header_spacer_width() -> int:

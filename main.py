@@ -394,8 +394,8 @@ class SpeculaEditor:
         for node_uuid, node_type in created_uuids:
             if node_type == "SimulParams":
                 continue
-            node_data     = self.nm.graph.nodes.get(node_uuid, {})
-            template      = self.nm.all_templates.get(node_type, {})
+            node_data       = self.nm.graph.nodes.get(node_uuid, {})
+            template        = self.nm.all_templates.get(node_type, {})
             template_params = template.get("parameters", {})
             if "simul_params" in template_params:
                 param_meta = template_params.get("simul_params", {})
@@ -405,7 +405,8 @@ class SpeculaEditor:
                         success   = self.nm.manual_link(simul_params_uuid, "ref", node_uuid, ref_key)
                         node_name = node_data.get("name", node_uuid)
                         if success:
-                            print(f"[AUTOSIMULPARAMS] Connected '{node_name}' ({node_type}) to SimulParams '{simul_params_name}'")
+                            print(f"[AUTOSIMULPARAMS] Connected '{node_name}' ({node_type}) "
+                                  f"to SimulParams '{simul_params_name}'")
                         else:
                             print(f"[AUTOSIMULPARAMS] Failed to connect {node_uuid} ({node_type}) to SimulParams")
                     else:
@@ -452,7 +453,7 @@ class SpeculaEditor:
             dpg.add_text(
                 "Controls font size and node dimensions.\n"
                 "SMALL = 50 %,  MEDIUM = 100 %,  LARGE = 180 %.\n"
-                "All existing nodes are rebuilt immediately when this changes.",
+                "All text and nodes are updated immediately.",
                 color=[150, 150, 150],
                 wrap=490,
             )
@@ -461,7 +462,7 @@ class SpeculaEditor:
             dpg.add_separator()
             dpg.add_spacer(height=12)
 
-            # ── AutoSimulParams ───────────────────��───────────────────────────
+            # ── AutoSimulParams ───────────────────────────────────────────────
             with dpg.group(horizontal=False):
                 dpg.add_checkbox(
                     label="Auto Connect SimulParams (AutoSimulParams)",
@@ -506,11 +507,20 @@ class SpeculaEditor:
         """
         Called when the Render Size radio button changes.
 
+        Font switching strategy
+        -----------------------
+        dpg.bind_font() has a known DearPyGui/ImGui limitation: switching to a
+        *larger* font handle than the one active at setup_dearpygui() time can
+        silently fail because the atlas glyph metrics were pre-computed for the
+        smaller size.  The reliable cross-platform alternative is to load a
+        single font at MEDIUM size and use dpg.set_global_font_scale() — an
+        ImGui render-time scalar that works identically in both directions.
+
         Order of operations
         -------------------
-        1.  Update the render_scale module (so node creation uses new values).
-        2.  Switch the active font via dpg.bind_font().
-        3.  Rebuild all existing nodes so spacers match the new scale.
+        1.  Update the render_scale module (spacer widths etc.).
+        2.  Apply the new global font scale immediately — affects ALL text.
+        3.  Rebuild existing nodes so spacer widths match the new scale.
         4.  Persist the new preference.
         """
         new_size = app_data
@@ -520,24 +530,14 @@ class SpeculaEditor:
         self.preferences['render_size'] = new_size
         render_scale.set_size(new_size)
 
-        # ── Font switch ────────────────────────────────────────────────────────
-        # bind_font() sets the global default font for all DPG widgets.
-        # All three fonts were pre-loaded into the atlas before setup_dearpygui(),
-        # so the switch is instantaneous and requires no atlas rebuild.
-        if hasattr(self, '_font_handles') and new_size in self._font_handles:
-            dpg.bind_font(self._font_handles[new_size])
-            print(f"[RENDER] Font switched to {new_size} "
-                  f"({render_scale.SCALE_DEFS[new_size]['font_size']} px)")
+        # ── Font scale (works reliably in both directions) ─────────────────
+        scale = render_scale.global_font_scale()
+        dpg.set_global_font_scale(scale)
+        print(f"[RENDER] Global font scale → {scale}  (size: {new_size})")
 
-        # ── Node rebuild ───────────────────────────────────────────────────────
-        # Spacer widths are baked into DPG items at creation time; we must
-        # destroy and recreate every node widget to apply the new values.
-        # All graph data (positions captured first, then values/connections)
-        # is preserved — only the DPG items change.
+        # ── Node rebuild (spacer widths are baked in at creation time) ─────
         if self.nm.graph.nodes:
             self.nm.rebuild_all_nodes_ui()
-            # Also clear the property panel — the previously selected item no
-            # longer exists as a DPG widget.
             dpg.delete_item("property_panel", children_only=True)
 
         self._save_settings()
@@ -559,29 +559,35 @@ class SpeculaEditor:
         self.export_include_defaults = False
         dpg.create_context()
 
-        # ── Themes ────────────────────────────────────────────────────────────
+        # ── Themes ───────────────────────────────────────────��────────────────
         dpg_utils.set_zebra_theme()
         self.nm.init_themes()
 
-        # ── Fonts ─────────────────────────────────────────────────────────────
-        # All three scale variants must be loaded into the font atlas BEFORE
-        # dpg.setup_dearpygui() is called.  After that point the atlas is fixed
-        # and no new fonts can be added.  Runtime switching is done purely via
-        # dpg.bind_font() which is cheap (just a pointer swap inside DPG).
-        self._font_handles: dict = {}
+        # ── Font ──────────────────────────────────────────────────────────────
+        # A SINGLE font is loaded at MEDIUM size (18 px).  Runtime font-size
+        # changes are handled exclusively via dpg.set_global_font_scale(), which
+        # is an ImGui render-time scalar and works correctly in BOTH directions
+        # (scale-up and scale-down).
+        #
+        # Why not load three fonts and use bind_font()?
+        # dpg.bind_font() has a known issue where switching to a font handle
+        # that is LARGER than the font active when setup_dearpygui() was called
+        # silently has no effect.  set_global_font_scale() has no such
+        # restriction.
+        self._font_handle = None
         if os.path.exists(FONT_PATH):
             with dpg.font_registry():
-                for size_name in render_scale.RENDER_SIZES:
-                    fs = render_scale.SCALE_DEFS[size_name]["font_size"]
-                    handle = dpg.add_font(FONT_PATH, fs)
-                    self._font_handles[size_name] = handle
-                    print(f"[FONT] Loaded '{size_name}' font at {fs} px  (handle={handle})")
+                medium_fs = render_scale.SCALE_DEFS["MEDIUM"]["font_size"]  # 18
+                self._font_handle = dpg.add_font(FONT_PATH, medium_fs)
+                print(f"[FONT] Loaded DejaVuSerif at {medium_fs} px (handle={self._font_handle})")
+            dpg.bind_font(self._font_handle)
 
-            # Bind the font that matches the current (possibly loaded) preference.
-            active = self.preferences['render_size']
-            if active in self._font_handles:
-                dpg.bind_font(self._font_handles[active])
-                print(f"[FONT] Active font: {active} ({render_scale.SCALE_DEFS[active]['font_size']} px)")
+        # Apply the scale matching the saved/default preference BEFORE any
+        # widgets are rendered (setup_dearpygui has not been called yet here,
+        # but the scale is stored in ImGui's IO and takes effect immediately).
+        initial_scale = render_scale.global_font_scale()
+        dpg.set_global_font_scale(initial_scale)
+        print(f"[FONT] Initial global font scale: {initial_scale} ({self.preferences['render_size']})")
 
         # ── Main Window ───────────────────────────────────────────────────────
         with dpg.window(label="SPECULA Editor", tag='main_window', on_close=self._on_exit_requested):
@@ -721,7 +727,7 @@ class SpeculaEditor:
                                    hint="Enter simulation name for new/import")
             dpg.add_spacing(count=1)
             with dpg.group(horizontal=True):
-                dpg.add_button(label="Create New Simulation",  callback=self._startup_create_new)
+                dpg.add_button(label="Create New Simulation",    callback=self._startup_create_new)
                 dpg.add_button(label="Open Existing Simulation", callback=self._on_startup_open_existing)
                 dpg.add_button(label="Cancel", callback=lambda s, a: dpg.hide_item("startup_dialog"))
         self._center_dialog("startup_dialog")
