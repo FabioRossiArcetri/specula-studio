@@ -35,6 +35,8 @@ import dearpygui.dearpygui as dpg
 
 from inprocess_monitor import InProcessMonitor
 
+# Prefix used by SocketIOClient.get_server_output_name() fallback paths
+# before server params/mapping are available (e.g. "auto_<node>.out_x").
 _SYNTHETIC_SERVER_OUTPUT_PREFIX = "auto_"
 
 
@@ -466,9 +468,9 @@ class MonitorManager:
 
     def _refresh_inprocess_monitor_bindings(self) -> None:
         """Retarget in-process monitors after UUID->server mapping updates."""
-        by_old_output: dict[str, list[str]] = {}
+        output_to_monitor_ids: dict[str, list[str]] = {}
         for mid, monitor in self._inprocess_monitors.items():
-            by_old_output.setdefault(monitor.server_output_name, []).append(mid)
+            output_to_monitor_ids.setdefault(monitor.server_output_name, []).append(mid)
 
         for mid, monitor in list(self._inprocess_monitors.items()):
             try:
@@ -496,7 +498,7 @@ class MonitorManager:
                     f"for monitor {mid}: {e}"
                 )
 
-            old_watchers = by_old_output.get(old_output, [])
+            old_watchers = output_to_monitor_ids.get(old_output, [])
             if mid in old_watchers:
                 old_watchers.remove(mid)
             if not old_watchers:

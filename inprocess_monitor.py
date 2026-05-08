@@ -166,9 +166,16 @@ class InProcessMonitor:
         if not new_server_output_name or new_server_output_name == self.server_output_name:
             return False
         old = self.server_output_name
-        self._bus.unsubscribe(old, self._on_data)
+        try:
+            self._bus.unsubscribe(old, self._on_data)
+        except Exception as exc:
+            print(f"[IPMonitor] unsubscribe failed for '{old}': {exc}")
         self.server_output_name = new_server_output_name
-        self._bus.subscribe(self.server_output_name, self._on_data)
+        try:
+            self._bus.subscribe(self.server_output_name, self._on_data)
+        except Exception as exc:
+            print(f"[IPMonitor] subscribe failed for '{self.server_output_name}': {exc}")
+            return False
         if dpg.does_item_exist(self._output_tag):
             dpg.set_value(self._output_tag, f"Output:  {self.server_output_name}")
         self._set_status("subscribed")
