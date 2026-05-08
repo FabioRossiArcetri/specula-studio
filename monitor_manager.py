@@ -279,20 +279,7 @@ class MonitorManager:
     # =========================================================================
     # Open / close
     # =========================================================================
-
     def open_monitor(self, sender, app_data, user_data):
-        """
-        Open a monitor window for a node output.
-        ``user_data`` must be ``(node_uuid, output_name)``.
-
-        Routes to in-process only when ``_use_inprocess`` is True
-        (set via ``set_inprocess_mode()``), not merely because a MonitorBus
-        exists.  This ensures Display-Server mode always spawns subprocesses.
-
-        If the display-server URL is not yet known (and a subprocess monitor is
-        required), the request is queued and fulfilled as soon as
-        ``on_display_server_ready`` is called.
-        """
         node_uuid, output_name = user_data
 
         node_data = self.graph.nodes.get(node_uuid)
@@ -302,7 +289,42 @@ class MonitorManager:
 
         node_name = node_data.get("name", "Unknown")
 
-        # Resolve the fully-qualified server output name
+        # ── In-process path ──────────────────────────────────────────────────
+        if self._use_inprocess and self._monitor_bus is not None:
+
+            if _is_direct_backend(self._backend):
+                # In direct probe mode there is no Socket.IO server and no
+                # server_params event will ever arrive.  The topic is simply
+                # "{node_name}.{output_name}" — use it directly, no deferral.
+                server_output_name = f"{node_name}.{output_name}"
+            else:
+                # Legacy Socket.IO in-process mode: resolve via sio_client and
+                # defer if the mapping is not ready yet.
+                try:
+                    server_output_name = self.sio_client.get_server_output_name(
+                        node_uuid, output_name, self.graph.nodes
+                    )
+                except Exception as e:
+                    self._log(f"Could not resolve server output name: {e}")
+                    server_output_name = f"{node_name}.{output_name}"
+
+                if (
+                    server_output_name.startswith(_SYNTHETIC_SERVER_OUTPUT_PREFIX)
+                    and not self.sio_client.server_nodes
+                ):
+                    self._log(
+                        f"Server mapping not ready; queueing in-process monitor for "
+                        f"{node_name}.{output_name}"
+                    )
+                    self._pending_monitors.append((sender, app_data, user_data))
+                    return
+
+            self._open_inprocess_monitor(
+                node_uuid, node_name, output_name, server_output_name
+            )
+            return
+
+        # ── Subprocess path (original behaviour) ─────────────────────────────
         try:
             server_output_name = self.sio_client.get_server_output_name(
                 node_uuid, output_name, self.graph.nodes
@@ -311,26 +333,6 @@ class MonitorManager:
             self._log(f"Could not resolve server output name: {e}")
             server_output_name = f"{node_name}.{output_name}"
 
-        # ── In-process path ──────────────────────────────────────────────────
-        if self._use_inprocess and self._monitor_bus is not None:
-            # If mapping is not ready yet, defer opening so we avoid subscribing
-            # to fallback synthetic topics (e.g. auto_<node>.out_x).
-            if (
-                server_output_name.startswith(_SYNTHETIC_SERVER_OUTPUT_PREFIX)
-                and not self.sio_client.server_nodes
-            ):
-                self._log(
-                    f"Server mapping not ready; queueing in-process monitor for "
-                    f"{node_name}.{output_name}"
-                )
-                self._pending_monitors.append((sender, app_data, user_data))
-                return
-            self._open_inprocess_monitor(
-                node_uuid, node_name, output_name, server_output_name
-            )
-            return
-
-        # ── Subprocess path (original behaviour) ─────────────────────────────
         node_type = node_data.get("type", "Unknown")
 
         if self._server_url:
@@ -359,7 +361,6 @@ class MonitorManager:
                     )
                     return
 
-        # Build subprocess command
         script = os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "monitor_window.py"
         )
@@ -401,6 +402,7 @@ class MonitorManager:
             f"Monitor {monitor_id} started (pid {process.pid}) for "
             f"{server_output_name}"
         )
+
 
     # =========================================================================
     # In-process monitor helpers
