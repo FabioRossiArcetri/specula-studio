@@ -8,19 +8,23 @@ Unlike the subprocess-based ``StandaloneMonitor`` (monitor_window.py),
 editor viewport.  This avoids the overhead of spawning an OS subprocess per
 monitored output while keeping the same ``DPGPlotter``-based visualisation.
 
-Data flow
----------
-1. ``MonitorBus.push(output_name, raw_data)`` is called by
-   ``NodeManager._on_data_update()`` on the Socket.IO background thread.
-2. The registered callback enqueues *raw_data* into a thread-safe
+Data flow (probe-based in-process mode)
+----------------------------------------
+1. A ``MonitorProbeObj`` (injected into the specula ``LoopControl`` by
+   ``InProcessBackend._run_direct``) runs on the simulation thread after
+   every step in which the watched output is updated.
+2. ``MonitorProbeObj.trigger()`` extracts a CPU float32 numpy array and
+   calls ``MonitorBus.push(topic, payload)``.
+3. ``MonitorBus`` calls ``InProcessMonitor._on_data(payload)`` on the
+   simulation thread; ``_on_data`` enqueues the payload in a thread-safe
    ``Queue``.
-3. ``MonitorManager`` calls ``render_frame()`` on every DPG frame (main
-   thread) through a recurring frame-callback.  ``render_frame()`` drains
-   the queue and updates the ``DPGPlotter``.
+4. ``MonitorManager`` calls ``render_frame()`` on every DPG frame (main
+   thread) via a recurring frame-callback.  ``render_frame()`` drains the
+   queue and updates the ``DPGPlotter``.
 
 Thread safety
 -------------
-Only ``_on_data`` (enqueue) is called from a background thread.
+Only ``_on_data`` (enqueue) is called from the simulation thread.
 All DPG operations happen exclusively in ``render_frame()`` (main thread).
 """
 
@@ -29,12 +33,16 @@ from __future__ import annotations
 import time
 import traceback
 from queue import Empty, Queue
+from typing import TYPE_CHECKING
 
 import dearpygui.dearpygui as dpg
 import numpy as np
 
 from constants import MAX_QUEUE_ITEMS_PER_FRAME, MONITOR_QUEUE_SIZE
 from dpg_plotting import DPGPlotter
+
+if TYPE_CHECKING:
+    from simulation_backend import MonitorProbeObj
 
 
 class InProcessMonitor:
@@ -68,6 +76,12 @@ class InProcessMonitor:
         self._bus = monitor_bus
         self._data_queue: Queue = Queue(maxsize=MONITOR_QUEUE_SIZE)
 
+        # Reference to the MonitorProbeObj that feeds this monitor.
+        # Set by MonitorManager after probe injection; may be None if the
+        # probe has not been created yet (simulation not started) or in
+        # legacy socket.io mode.
+        self._probe: MonitorProbeObj | None = None
+
         # DPG tag namespace — unique per monitor instance
         self._win_tag      = f"ipm_win_{monitor_id}"
         self._plot_grp_tag = f"ipm_plot_{monitor_id}"
@@ -84,15 +98,17 @@ class InProcessMonitor:
         self.last_update    = 0.0
         self.min_update_interval = 0.05
 
-        # Subscribe to the bus
+        # Subscribe to the MonitorBus so we receive payloads from any
+        # MonitorProbeObj (or, in legacy mode, from the Socket.IO path)
+        # that pushes to this topic.
         monitor_bus.subscribe(server_output_name, self._on_data)
 
     # ------------------------------------------------------------------
-    # Bus callback (background thread)
+    # Bus callback (simulation / socket.io background thread)
     # ------------------------------------------------------------------
 
     def _on_data(self, raw_data) -> None:
-        """Enqueue *raw_data* from the Socket.IO thread."""
+        """Enqueue *raw_data* from the producer thread."""
         if self._data_queue.full():
             try:
                 self._data_queue.get_nowait()   # drop oldest
@@ -160,9 +176,15 @@ class InProcessMonitor:
         if dpg.does_item_exist(self._win_tag):
             dpg.delete_item(self._win_tag)
         self.is_open = False
+        self._probe = None
 
     def retarget_server_output(self, new_server_output_name: str) -> bool:
-        """Rebind this monitor to a different fully-qualified server output."""
+        """Rebind this monitor to a different fully-qualified server output.
+
+        Updates the bus subscription and the displayed output label.
+        The ``_probe`` reference is cleared here; the caller (MonitorManager)
+        is responsible for detaching the old probe and attaching a new one.
+        """
         if not new_server_output_name or new_server_output_name == self.server_output_name:
             return False
         old = self.server_output_name
@@ -171,6 +193,8 @@ class InProcessMonitor:
         except Exception as exc:
             print(f"[IPMonitor] unsubscribe failed for '{old}': {exc}")
         self.server_output_name = new_server_output_name
+        # Clear the probe reference — caller must attach a new probe
+        self._probe = None
         try:
             self._bus.subscribe(self.server_output_name, self._on_data)
         except Exception as exc:
@@ -220,11 +244,16 @@ class InProcessMonitor:
         return True
 
     # ------------------------------------------------------------------
-    # Data conversion (mirrors StandaloneMonitor._raw_to_numpy)
+    # Data conversion
     # ------------------------------------------------------------------
 
     def _raw_to_numpy(self, inner_payload: dict) -> np.ndarray | None:
-        """Convert the inner payload dict to a float32 numpy array."""
+        """Convert the inner payload dict to a float32 numpy array.
+
+        In probe-based mode the ``data`` field is already a CPU numpy array,
+        so conversion is a cheap astype call.  In legacy (socket.io) mode
+        ``data`` may be a list, which is handled identically to before.
+        """
         data_type  = inner_payload.get("type")
         data_value = inner_payload.get("data")
         shape      = inner_payload.get("shape")
@@ -234,10 +263,11 @@ class InProcessMonitor:
 
         try:
             if data_type in ("1d_array", "2d_array", "scalar", "nd_array") or data_type is None:
-                if isinstance(data_value, list):
+                if isinstance(data_value, np.ndarray):
+                    # Probe-based path — already a CPU array, cheap cast
+                    arr = data_value.astype(np.float32, copy=False)
+                elif isinstance(data_value, list):
                     arr = np.array(data_value, dtype=np.float32)
-                elif isinstance(data_value, np.ndarray):
-                    arr = data_value.astype(np.float32)
                 else:
                     arr = np.array([float(data_value)], dtype=np.float32)
 
@@ -270,7 +300,7 @@ class InProcessMonitor:
         return None
 
     # ------------------------------------------------------------------
-    # Plotting (mirrors StandaloneMonitor._plot)
+    # Plotting
     # ------------------------------------------------------------------
 
     def _plot(self, arr: np.ndarray) -> bool:

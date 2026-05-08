@@ -14,16 +14,36 @@ InProcessBackend
     Calls specula's Python API directly inside a daemon thread.
     No child process is created for the simulation itself.
 
-    When a ``MonitorBus`` is supplied (the normal case from the GUI), the
-    backend uses *direct monitoring*:
-      - No ``DisplayServer`` node is injected in the YAML.
-      - ``LoopControl.iter`` is monkey-patched to push live output arrays
-        directly to the ``MonitorBus`` after every simulation step.
-      - No Socket.IO connection is required; latency is minimal.
+    Direct monitoring via MonitorProbeObj
+    --------------------------------------
+    Each active InProcessMonitor is backed by a ``MonitorProbeObj`` — a
+    lightweight duck-typed object that implements the minimal LoopControl
+    interface without inheriting from BaseProcessingObj.
 
-    When ``monitor_bus`` is None (legacy / testing), the backend falls back
-    to the original ``specula.main_simul()`` call which still requires a
-    ``DisplayServer`` in the YAML and a Socket.IO client connection.
+    The probe holds a direct reference to the source BaseDataObj.
+    On every simulation step where that object has been refreshed
+    (``source.generation_time >= current_time``), the probe extracts a CPU
+    float32 numpy array and pushes a payload dict to the MonitorBus.
+
+    Injection mechanism
+    -------------------
+    ``LoopControl.run`` is monkey-patched to inject probe objects into
+    ``LoopControl.trigger_lists`` after ``Simul.run()`` has built the
+    simulation graph but before ``LoopControl.start()`` (which calls
+    ``setup()`` on all elements).  The probes are therefore set up normally
+    and participate in every subsequent ``iter()`` call without any further
+    patching of the hot-path iteration logic.
+
+    For monitors opened *after* the simulation has started, a lightweight
+    ``LoopControl.iter`` patch drains a thread-safe deque of pending probes
+    and injects them at the start of each iteration.
+
+    No DisplayServer, no Socket.IO, no subprocess.
+
+    Legacy mode (monitor_bus is None)
+    ----------------------------------
+    Falls back to ``specula.main_simul()``.  The YAML must contain a
+    ``DisplayServer`` node and the SocketIOClient must connect to it.
 
     Stepping
     --------
@@ -41,6 +61,7 @@ InProcessBackend
 
 from __future__ import annotations
 
+import collections
 import io
 import os
 import re
@@ -311,24 +332,180 @@ class DisplayServerBackend(SimulationBackend):
 
 
 # ---------------------------------------------------------------------------
-# InProcessBackend — threaded specula with optional direct monitoring
+# MonitorProbeObj — lightweight duck-typed processing node for monitoring
+# ---------------------------------------------------------------------------
+
+
+class MonitorProbeObj:
+    """
+    Lightweight SPECULA-compatible processing object for monitoring one output.
+
+    This class is *not* a ``BaseProcessingObj`` subclass.  It deliberately
+    avoids the full SPECULA I/O wiring machinery (InputValue / InputList,
+    declared input/output names, CUDA-graph capture, …) so that the
+    simulation management (``Simul`` / YAML) never needs to know about it.
+
+    Instead it implements the minimal duck-typed interface that
+    ``LoopControl`` requires and is injected directly into
+    ``LoopControl.trigger_lists`` after the simulation graph has been built.
+
+    Data flow
+    ---------
+    * ``check_ready(t)`` returns True when
+      ``source_data_obj.generation_time >= t``, i.e. when the source was
+      actually computed in this iteration.
+    * ``trigger()`` extracts a CPU float32 array from the source via
+      ``_extract_cpu_array()`` and pushes a standard payload dict to the
+      ``MonitorBus``.  The bus delivers it to every ``InProcessMonitor``
+      that subscribed for this topic.
+    * ``post_trigger()`` resets ``inputs_changed``.
+    * All other LoopControl interface methods are harmless no-ops.
+
+    Thread safety
+    -------------
+    ``trigger()`` is called exclusively from the simulation thread.  The
+    ``MonitorBus.push()`` call fans out to ``InProcessMonitor._on_data()``
+    callbacks which enqueue the payload for the DPG main thread.
+
+    Parameters
+    ----------
+    name            : Unique name string (used in log messages).
+    source_data_obj : The ``BaseDataObj`` whose data is to be monitored.
+    topic           : Fully-qualified topic, e.g. ``"wfs.out_slopes"``.
+    monitor_bus     : ``MonitorBus`` instance that receives the payload.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        source_data_obj,
+        topic: str,
+        monitor_bus,
+    ) -> None:
+        self.name            = name
+        self._source         = source_data_obj
+        self._topic          = topic
+        self._bus            = monitor_bus
+        self.inputs_changed  = False
+        self._current_time   = 0
+        self._enabled        = True
+
+    # ------------------------------------------------------------------
+    # LoopControl interface — hot path
+    # ------------------------------------------------------------------
+
+    def check_ready(self, t) -> bool:
+        """Return True (and set ``inputs_changed``) if the source was updated.
+
+        The source is considered updated when its ``generation_time`` is
+        greater than or equal to the current simulation time *t*.  If the
+        source does not expose ``generation_time`` (unusual), the probe
+        triggers on every step as a best-effort fallback.
+        """
+        self._current_time = t
+        if not self._enabled:
+            self.inputs_changed = False
+            return False
+        gen_time = getattr(self._source, "generation_time", None)
+        if gen_time is None or gen_time < 0:
+            # No timing info — always trigger (best-effort)
+            self.inputs_changed = True
+        else:
+            self.inputs_changed = (gen_time >= t)
+        return self.inputs_changed
+
+    def trigger(self) -> None:
+        """Extract array from source and push to the MonitorBus."""
+        if not self.inputs_changed or not self._enabled:
+            return
+        try:
+            arr = _extract_cpu_array(self._source)
+            if arr is None:
+                return
+            ndim = arr.ndim
+            if ndim == 0 or (ndim == 1 and arr.size == 1):
+                dtype_str = "scalar"
+            elif ndim == 1:
+                dtype_str = "1d_array"
+            elif ndim == 2:
+                dtype_str = "2d_array"
+            else:
+                dtype_str = "nd_array"
+            payload = {
+                "type":  dtype_str,
+                "data":  arr,           # CPU numpy array — no serialisation
+                "shape": list(arr.shape),
+            }
+            self._bus.push(self._topic, payload)
+        except Exception:
+            pass  # never crash the simulation loop
+
+    def post_trigger(self) -> None:
+        self.inputs_changed = False
+
+    # ------------------------------------------------------------------
+    # LoopControl interface — setup / teardown (all no-ops)
+    # ------------------------------------------------------------------
+
+    def send_outputs(self, **kwargs) -> None:
+        pass   # no SPECULA outputs to send
+
+    def setup(self) -> None:
+        pass
+
+    def sanity_check(self) -> None:
+        pass
+
+    def finalize(self) -> None:
+        pass
+
+    def startMemUsageCount(self) -> None:
+        pass
+
+    def stopMemUsageCount(self) -> None:
+        pass
+
+    def printMemUsage(self) -> None:
+        pass
+
+    # ------------------------------------------------------------------
+    # Control helpers
+    # ------------------------------------------------------------------
+
+    def disable(self) -> None:
+        """Disable probe — it stays in trigger_lists but does nothing."""
+        self._enabled = False
+
+    def enable(self) -> None:
+        """Re-enable a previously disabled probe."""
+        self._enabled = True
+
+
+# ---------------------------------------------------------------------------
+# InProcessBackend — threaded specula with direct probe-based monitoring
 # ---------------------------------------------------------------------------
 
 
 class InProcessBackend(SimulationBackend):
     """Runs specula inside a daemon thread using its Python API.
 
-    Direct monitoring (``monitor_bus`` is not None)
-    -----------------------------------------------
-    ``LoopControl.iter`` is monkey-patched before the simulation runs and
-    restored in a ``finally`` block.  After every simulation step the patch
-    reads the outputs of all SPECULA objects whose fully-qualified topic
-    (``"{obj.name}.{output_key}"``) is subscribed in the ``MonitorBus`` and
-    pushes a payload dict directly to the bus.
+    Direct monitoring via MonitorProbeObj (``monitor_bus`` is not None)
+    -------------------------------------------------------------------
+    A ``LoopControl.run`` patch injects ``MonitorProbeObj`` instances into
+    ``LoopControl.trigger_lists`` **after** ``Simul.run()`` has built the
+    simulation graph (so probes are injected with the correct priority) and
+    **before** ``LoopControl.start()`` calls ``setup()`` on all elements
+    (so probes are properly initialised).
 
-    The ``MonitorBus`` delivers each payload to every ``InProcessMonitor``
-    that subscribed for that topic.  The monitor enqueues the payload and
-    visualises it on the next DPG render frame.
+    The probes participate in every ``iter()`` call via the normal trigger
+    mechanism: ``check_ready`` compares ``generation_time`` of the source
+    data object against the current simulation time and returns True only
+    when the source was actually computed that step.
+
+    For monitors opened *after* the simulation has started, a minimal
+    ``LoopControl.iter`` patch drains a ``collections.deque`` of pending
+    probes at the beginning of each iteration and injects them with manual
+    ``setup()`` calls.
 
     No Socket.IO, no HTTP, no ``DisplayServer``, no subprocess.
 
@@ -341,10 +518,13 @@ class InProcessBackend(SimulationBackend):
     def __init__(self, monitor_bus=None) -> None:
         self._running = False
         self._thread: threading.Thread | None = None
-        self._step_read_file: io.TextIOWrapper | None = None
+        self._step_read_file:  io.TextIOWrapper | None = None
         self._step_write_file: io.TextIOWrapper | None = None
-        # MonitorBus reference — enables the direct monitoring path
+        # MonitorBus reference — enables the direct probe monitoring path
         self._monitor_bus = monitor_bus
+        # Set by _run_direct; used by attach_probe / detach_probe
+        self._probe_queue: collections.deque | None = None   # pending probes
+        self._probe_state: dict | None = None                # runtime state
 
     # ------------------------------------------------------------------
     # Pipe helpers (stepping mode)
@@ -396,21 +576,19 @@ class InProcessBackend(SimulationBackend):
 
         if self._monitor_bus is not None:
             append_terminal(
-                f"[In-Process] Direct monitoring mode — no DisplayServer needed.\n"
+                f"[In-Process] Direct probe-monitoring mode — no DisplayServer.\n"
                 f"[In-Process] specula.Simul({yaml_path!r}, "
                 f"nsimul={nsimul}, cpu={cpu}, target={target}, "
                 f"precision={precision}, stepping={stepping})\n"
             )
             # In direct mode there is no DisplayServer, so on_port_found is
-            # never called and the Socket.IO client is left alone.
+            # never called and the Socket.IO client is left disconnected.
         else:
             append_terminal(
                 f"[In-Process] Legacy mode — specula.main_simul({yaml_path!r}, "
                 f"nsimul={nsimul}, cpu={cpu}, target={target}, "
                 f"precision={precision}, stepping={stepping})\n"
             )
-            # Resolve DisplayServer port from YAML so SimulationControl can
-            # update the server URL / reconnection state.
             try:
                 ds_port = _extract_display_server_port_from_yaml(yaml_path)
                 if ds_port:
@@ -445,13 +623,13 @@ class InProcessBackend(SimulationBackend):
             import specula
 
             if self._monitor_bus is not None:
-                # ── Direct monitoring: bypass Socket.IO ──────────────────────
+                # ── Direct probe monitoring: bypass Socket.IO ─────────────
                 self._run_direct(
                     yaml_path, nsimul, cpu, target, precision, stepping,
                     append_terminal,
                 )
             else:
-                # ── Legacy: DisplayServer + Socket.IO ────────────────────────
+                # ── Legacy: DisplayServer + Socket.IO ─────────────────────
                 specula.main_simul(
                     yml_files=[yaml_path],
                     nsimul=nsimul,
@@ -469,12 +647,14 @@ class InProcessBackend(SimulationBackend):
         finally:
             sys.stdin = old_stdin
             self._running = False
+            self._probe_queue = None
+            self._probe_state = None
             self._close_step_pipe()
             on_finished()
             append_terminal("\n--- Finished (in-process) ---\n")
 
     # ------------------------------------------------------------------
-    # Direct monitoring path
+    # Direct probe-monitoring path
     # ------------------------------------------------------------------
 
     def _run_direct(
@@ -488,30 +668,31 @@ class InProcessBackend(SimulationBackend):
         append_terminal,
     ) -> None:
         """
-        Run the simulation using SPECULA's lower-level API and push output
-        arrays directly to the ``MonitorBus`` after every simulation step.
+        Run specula using its lower-level API and inject MonitorProbeObj
+        instances into the LoopControl trigger lists for direct monitoring.
 
         Algorithm
         ---------
         1. ``specula.init()`` initialises compute device / precision.
-        2. For each simulation repetition, a ``Simul`` object is created and
-           ``run()`` is called.  ``Simul.run()`` builds all processing objects
-           and starts the ``LoopControl`` loop.
-        3. Before each ``Simul.run()``, ``LoopControl.iter`` is replaced with
-           a wrapper that (a) calls the original ``iter``, then (b) walks the
-           trigger lists to build an object-registry on the first call, then
-           (c) for every subscribed topic reads the corresponding output
-           object, converts it to a CPU float32 array, and pushes a payload
-           dict to the ``MonitorBus``.
-        4. The original ``LoopControl.iter`` is restored in a ``finally``
-           block so that no other code is affected.
+        2. ``LoopControl.run`` is replaced with ``_patched_run`` which:
+           a. Scans the already-populated ``trigger_lists`` to build an
+              ``{topic: BaseDataObj}`` registry.
+           b. Creates a ``MonitorProbeObj`` for every subscribed topic that
+              appears in the registry and appends it to ``trigger_lists`` at
+              ``max_priority + 1`` (i.e. after all simulation objects).
+           c. Calls the original ``LoopControl.run``, which calls ``start()``
+              (so probes are properly set up) then enters the iteration loop.
+        3. ``LoopControl.iter`` is replaced with ``_patched_iter`` which
+           drains a ``collections.deque`` of dynamically added probes at the
+           beginning of each step.
+        4. Both patches are restored in a ``finally`` block.
 
         Topic naming
         ------------
-        SPECULA sets ``obj.name`` from the YAML node name, so the topic
-        ``"{obj.name}.{output_key}"`` matches the ``server_output_name`` that
-        ``MonitorManager`` computes via ``get_server_output_name()``.  No
-        special mapping is needed.
+        SPECULA sets ``obj.name`` from the YAML key, so
+        ``"{obj.name}.{output_key}"`` matches the ``server_output_name``
+        that ``MonitorManager`` derives from ``"{node_name}.{output_name}"``.
+        No special mapping is needed in this mode.
         """
         import specula
         from specula.loop_control import LoopControl
@@ -525,74 +706,92 @@ class InProcessBackend(SimulationBackend):
 
         monitor_bus = self._monitor_bus
 
-        # Mutable state shared with the closure (avoids 'nonlocal' for Python 3.8 compat)
-        _state = {
-            "registry_built": False,
-            "obj_registry": {},   # topic -> (obj, output_key)
+        # ── Shared mutable state (accessed from patched methods and from
+        #    attach_probe / detach_probe which run on the GUI thread) ──────────
+        _pending_probes: collections.deque = collections.deque()
+        _active_probes:  dict              = {}          # topic -> MonitorProbeObj
+        _state: dict = {
+            "registry":      {},     # topic -> BaseDataObj (source)
+            "loop_control":  None,   # LoopControl instance while running
+            "probe_priority": 99999, # trigger_lists key used for probes
+            "active_probes": _active_probes,
         }
+        self._probe_queue = _pending_probes
+        self._probe_state = _state
 
+        original_run  = LoopControl.run
         original_iter = LoopControl.iter
 
-        def _patched_iter(loop_self):
-            # ── Step the simulation ──────────────────────────────────────────
-            original_iter(loop_self)
+        def _patched_run(lc_self, run_time, dt, t0=0, speed_report=False):
+            # ── 1. Build {topic: source_data_obj} registry ───────────────────
+            registry: dict = {}
+            for idx in sorted(lc_self.trigger_lists.keys()):
+                for obj in lc_self.trigger_lists[idx]:
+                    obj_name = getattr(obj, "name", None)
+                    if not obj_name:
+                        continue
+                    for out_key, out_data_obj in getattr(obj, "outputs", {}).items():
+                        topic = f"{obj_name}.{out_key}"
+                        registry[topic] = out_data_obj
 
-            # ── Build output registry on first call ──────────────────────────
-            if not _state["registry_built"]:
-                registry = _state["obj_registry"]
-                for idx in loop_self.trigger_lists:
-                    for obj in loop_self.trigger_lists[idx]:
-                        obj_name = getattr(obj, "name", None)
-                        if not obj_name:
-                            continue
-                        for out_key in obj.outputs:
-                            topic = f"{obj_name}.{out_key}"
-                            registry[topic] = (obj, out_key)
-                _state["registry_built"] = True
+            _state["registry"]     = registry
+            _state["loop_control"] = lc_self
 
-            # ── Push subscribed outputs to the bus ───────────────────────────
-            subscribed = monitor_bus.all_subscribed_outputs()
-            if not subscribed:
-                return
+            # ── 2. Determine probe trigger priority ──────────────────────────
+            probe_priority = (
+                max(lc_self.trigger_lists.keys()) + 1
+                if lc_self.trigger_lists else 0
+            )
+            _state["probe_priority"] = probe_priority
 
-            registry = _state["obj_registry"]
-            for topic in subscribed:
-                entry = registry.get(topic)
-                if entry is None:
-                    continue
-                obj, out_key = entry
+            # ── 3. Inject probes for all currently subscribed bus topics ─────
+            for topic in monitor_bus.all_subscribed_outputs():
+                source = registry.get(topic)
+                if source is not None and topic not in _active_probes:
+                    probe = MonitorProbeObj(
+                        name=f"_studio_probe_{topic}",
+                        source_data_obj=source,
+                        topic=topic,
+                        monitor_bus=monitor_bus,
+                    )
+                    lc_self.trigger_lists[probe_priority].append(probe)
+                    _active_probes[topic] = probe
+                    append_terminal(
+                        f"[In-Process] Probe injected for '{topic}'\n"
+                    )
+                elif source is None:
+                    append_terminal(
+                        f"[In-Process] Warning: topic '{topic}' not found "
+                        f"in registry — no probe created.\n"
+                    )
+
+            # ── 4. Hand off to the original LoopControl.run ──────────────────
+            original_run(lc_self, run_time, dt, t0=t0, speed_report=speed_report)
+
+        def _patched_iter(lc_self) -> None:
+            # Drain pending probes added dynamically (monitors opened while
+            # the simulation is running).  Runs on the simulation thread.
+            while _pending_probes:
                 try:
-                    out_obj = obj.outputs.get(out_key)
-                    if out_obj is None:
-                        continue
-                    arr = _extract_cpu_array(out_obj)
-                    if arr is None:
-                        continue
-                    ndim = arr.ndim
-                    if ndim == 0 or (ndim == 1 and arr.size == 1):
-                        dtype_str = "scalar"
-                    elif ndim == 1:
-                        dtype_str = "1d_array"
-                    elif ndim == 2:
-                        dtype_str = "2d_array"
-                    else:
-                        dtype_str = "nd_array"
-                    payload = {
-                        "type":  dtype_str,
-                        "data":  arr,           # numpy array — no serialisation needed
-                        "shape": list(arr.shape),
-                    }
-                    monitor_bus.push(topic, payload)
-                except Exception:
-                    pass  # never crash the simulation loop
+                    topic, probe = _pending_probes.popleft()
+                    probe.setup()
+                    priority = _state.get("probe_priority", 99999)
+                    lc_self.trigger_lists[priority].append(probe)
+                    _active_probes[topic] = probe
+                except Exception as exc:
+                    print(f"[In-Process] Dynamic probe injection error: {exc}")
+            original_iter(lc_self)
 
+        LoopControl.run  = _patched_run
         LoopControl.iter = _patched_iter
+
         try:
             for simul_idx in range(nsimul):
-                # Reset the per-run state so the registry is rebuilt for each
+                # Reset per-run state so the registry is rebuilt for each
                 # Simul instance (objects may differ between repetitions).
-                _state["registry_built"] = False
-                _state["obj_registry"].clear()
+                _active_probes.clear()
+                _state["registry"].clear()
+                _state["loop_control"] = None
 
                 append_terminal(
                     f"[In-Process] Starting run {simul_idx + 1}/{nsimul} …\n"
@@ -603,7 +802,79 @@ class InProcessBackend(SimulationBackend):
                     stepping=stepping,
                 ).run()
         finally:
+            LoopControl.run  = original_run
             LoopControl.iter = original_iter
+
+    # ------------------------------------------------------------------
+    # Dynamic probe management (called from the GUI thread)
+    # ------------------------------------------------------------------
+
+    def attach_probe(self, topic: str, monitor_bus) -> "MonitorProbeObj | None":
+        """Create and inject a MonitorProbeObj for *topic* at runtime.
+
+        This is called by ``MonitorManager`` when a monitor window is opened
+        *after* the simulation has already started.  If the simulation has
+        not started yet (or the registry is not yet available), ``None`` is
+        returned; in that case the probe will be created automatically by
+        ``_patched_run`` when the simulation starts, because the monitor has
+        already subscribed to the bus.
+
+        Parameters
+        ----------
+        topic       : Fully-qualified topic, e.g. ``"wfs.out_slopes"``.
+        monitor_bus : ``MonitorBus`` that the new probe should push to.
+
+        Returns
+        -------
+        MonitorProbeObj or None
+        """
+        if not self._running or self._probe_state is None:
+            return None
+
+        state = self._probe_state
+        active = state.get("active_probes", {})
+
+        # Return existing probe if one is already live for this topic
+        existing = active.get(topic)
+        if existing is not None and existing._enabled:
+            return existing
+
+        source = state.get("registry", {}).get(topic)
+        if source is None:
+            return None   # topic not (yet) in registry
+
+        probe = MonitorProbeObj(
+            name=f"_studio_probe_{topic}",
+            source_data_obj=source,
+            topic=topic,
+            monitor_bus=monitor_bus,
+        )
+
+        # Queue for injection at the start of the next simulation iteration.
+        if self._probe_queue is not None:
+            self._probe_queue.append((topic, probe))
+
+        return probe
+
+    def detach_probe(self, probe: "MonitorProbeObj") -> None:
+        """Disable *probe* so it no longer pushes data.
+
+        The probe object remains in ``LoopControl.trigger_lists`` (removing
+        it safely while the simulation thread is running would require extra
+        locking); disabling it causes ``check_ready`` to return False
+        immediately, making every subsequent call a no-op.
+
+        Parameters
+        ----------
+        probe : The probe to disable, as returned by ``attach_probe``.
+        """
+        if probe is None:
+            return
+        probe.disable()
+        if self._probe_state is not None:
+            active = self._probe_state.get("active_probes", {})
+            if active.get(probe._topic) is probe:
+                del active[probe._topic]
 
     # ------------------------------------------------------------------
 
