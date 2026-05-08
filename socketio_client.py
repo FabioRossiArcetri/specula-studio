@@ -113,6 +113,12 @@ class SocketIOClient:
                 print("[SOCKET.IO] Requested params via 'get_params'")
             except Exception as e:
                 print(f"[SOCKET.IO] Server should auto-send params on connect: {e}")
+            # Re-request data for any outputs that were subscribed before the
+            # connection was established (e.g. in-process monitors opened while
+            # specula's DisplayServer was still booting up), and to restart the
+            # streaming cycle after any reconnect.
+            if self.subscribed_outputs:
+                self.request_next_frame()
             if self._on_connect_cb:
                 self._on_connect_cb()
 

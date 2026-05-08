@@ -9,9 +9,10 @@ Subprocess monitors (original behaviour)
     own DearPyGui viewport and its own Socket.IO connection.
 
 In-process monitors (new)
-    When a ``MonitorBus`` is provided, ``open_monitor()`` creates an
-    ``InProcessMonitor`` (a DPG window inside the main editor viewport) that
-    receives data via the bus instead of a dedicated Socket.IO connection.
+    When a ``MonitorBus`` is provided AND ``set_inprocess_mode(True)`` has been
+    called, ``open_monitor()`` creates an ``InProcessMonitor`` (a DPG window
+    inside the main editor viewport) that receives data via the bus instead of
+    a dedicated Socket.IO connection.
     In-process monitors are updated on the DPG main thread through a recurring
     frame callback set up by ``start_periodic_tasks()``.
 
@@ -45,8 +46,9 @@ class MonitorManager:
         sio_client  : SocketIOClient
         graph       : GraphManager
         monitor_bus : MonitorBus or None
-            When provided, ``open_monitor()`` creates in-process DPG monitor
-            windows that subscribe to the bus instead of spawning subprocesses.
+            When provided and ``set_inprocess_mode(True)`` is called,
+            ``open_monitor()`` creates in-process DPG monitor windows that
+            subscribe to the bus instead of spawning subprocesses.
             Supply ``None`` (default) to keep the original subprocess behaviour.
         debug       : bool
         """
@@ -54,6 +56,11 @@ class MonitorManager:
         self.graph = graph
         self.debug = debug
         self._monitor_bus = monitor_bus
+
+        # FIX 1: Separate flag controls whether in-process mode is active.
+        # Having a MonitorBus does NOT automatically activate in-process mode;
+        # start_sim must explicitly call set_inprocess_mode(True/False).
+        self._use_inprocess: bool = False
 
         # subprocess monitors: monitor_id -> info dict
         self.active_monitors: dict = {}
@@ -78,6 +85,24 @@ class MonitorManager:
             target=self._reaper_loop, daemon=True
         )
         self._reaper_thread.start()
+
+    # =========================================================================
+    # Mode control
+    # =========================================================================
+
+    def set_inprocess_mode(self, enabled: bool) -> None:
+        """
+        Switch between in-process (DPG-native) and subprocess monitor mode.
+
+        Must be called by SimulationControl *before* any monitor is opened for
+        a new simulation run:
+          - ``True``  → open_monitor() creates InProcessMonitor windows
+          - ``False`` → open_monitor() spawns monitor_window.py subprocesses
+        """
+        self._use_inprocess = enabled
+        self._log(
+            f"Monitor mode set to: {'in-process' if enabled else 'subprocess (display-server)'}"
+        )
 
     # =========================================================================
     # Logging
@@ -209,8 +234,9 @@ class MonitorManager:
         Open a monitor window for a node output.
         ``user_data`` must be ``(node_uuid, output_name)``.
 
-        When a ``MonitorBus`` is available, an in-process DPG window is
-        opened instead of a subprocess.
+        FIX 1: Routes to in-process only when ``_use_inprocess`` is True
+        (set via ``set_inprocess_mode()``), not merely because a MonitorBus
+        exists.  This ensures Display-Server mode always spawns subprocesses.
 
         If the display-server URL is not yet known (and a subprocess monitor is
         required), the request is queued and fulfilled as soon as
@@ -234,8 +260,9 @@ class MonitorManager:
             self._log(f"Could not resolve server output name: {e}")
             server_output_name = f"{node_name}.{output_name}"
 
-        # ── In-process path ──────────────────────────────────────────────────
-        if self._monitor_bus is not None:
+        # ��─ In-process path ──────────────────────────────────────────────────
+        # FIX 1: Only use in-process path when explicitly enabled AND bus is ready.
+        if self._use_inprocess and self._monitor_bus is not None:
             self._open_inprocess_monitor(
                 node_uuid, node_name, output_name, server_output_name
             )
@@ -347,6 +374,21 @@ class MonitorManager:
         )
         monitor.open()
         self._inprocess_monitors[monitor_id] = monitor
+
+        # FIX 2: Subscribe to the Socket.IO server so specula's DisplayServer
+        # actually sends data_update events for this output.  Without this call,
+        # MonitorBus.push() is never triggered and the monitor stays blank.
+        try:
+            self.sio_client.subscribe(server_output_name)
+            self._log(
+                f"Subscribed Socket.IO client to '{server_output_name}' "
+                f"for in-process monitor {monitor_id}"
+            )
+        except Exception as e:
+            self._log(
+                f"Warning: could not subscribe to '{server_output_name}': {e}"
+            )
+
         self._log(f"In-process monitor {monitor_id} opened for {server_output_name}")
 
     def close_monitor(self, monitor_id: str, from_window_close: bool = False):
@@ -371,6 +413,23 @@ class MonitorManager:
         monitor = self._inprocess_monitors.pop(monitor_id, None)
         if monitor is not None:
             self._log(f"Closing in-process monitor {monitor_id}")
+
+            # FIX 2: Unsubscribe from the Socket.IO server when the last
+            # in-process monitor watching this output is closed.
+            still_watching = any(
+                m.server_output_name == monitor.server_output_name
+                for m in self._inprocess_monitors.values()
+            )
+            if not still_watching:
+                try:
+                    self.sio_client.unsubscribe(monitor.server_output_name)
+                    self._log(
+                        f"Unsubscribed Socket.IO client from "
+                        f"'{monitor.server_output_name}'"
+                    )
+                except Exception as e:
+                    self._log(f"Warning: could not unsubscribe: {e}")
+
             monitor.close()
 
     @staticmethod

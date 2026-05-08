@@ -411,8 +411,12 @@ class SimulationControl:
         )
         if backend_mode == "In-Process":
             self._backend = InProcessBackend()
+            # FIX 1: Tell MonitorManager to open in-process DPG windows
+            self.editor.nm.monitors.set_inprocess_mode(True)
         else:
             self._backend = DisplayServerBackend()
+            # FIX 1: Tell MonitorManager to spawn subprocess monitor windows
+            self.editor.nm.monitors.set_inprocess_mode(False)
 
         cmd_args = {
             "run_all_mode": run_all_mode,
