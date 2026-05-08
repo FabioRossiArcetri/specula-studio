@@ -16,6 +16,15 @@ In-process monitors (new)
     In-process monitors are updated on the DPG main thread through a recurring
     frame callback set up by ``start_periodic_tasks()``.
 
+    In direct probe mode (InProcessBackend with monitor_bus), MonitorManager
+    also manages MonitorProbeObj lifecycle:
+      - ``_open_inprocess_monitor`` calls ``backend.attach_probe()`` after
+        creating the window so data starts flowing immediately if the simulation
+        is already running.
+      - ``close_monitor`` calls ``backend.detach_probe()`` to disable the probe.
+      - ``_refresh_inprocess_monitor_bindings`` detaches the old probe and
+        attaches a new one when the server-output name is remapped.
+
 Key additions over the first subprocess-based version:
   - The display-server URL / port is discovered at simulation start time by
     scanning specula's stdout.  Monitors opened before the port is known are
@@ -40,6 +49,15 @@ from inprocess_monitor import InProcessMonitor
 _SYNTHETIC_SERVER_OUTPUT_PREFIX = "auto_"
 
 
+def _is_direct_backend(backend) -> bool:
+    """Return True if *backend* is an InProcessBackend in direct-probe mode."""
+    try:
+        from simulation_backend import InProcessBackend
+        return isinstance(backend, InProcessBackend) and backend._monitor_bus is not None
+    except Exception:
+        return False
+
+
 class MonitorManager:
     """Manages monitor windows (subprocess and in-process)."""
 
@@ -61,10 +79,15 @@ class MonitorManager:
         self.debug = debug
         self._monitor_bus = monitor_bus
 
-        # FIX 1: Separate flag controls whether in-process mode is active.
+        # Separate flag controls whether in-process mode is active.
         # Having a MonitorBus does NOT automatically activate in-process mode;
         # start_sim must explicitly call set_inprocess_mode(True/False).
         self._use_inprocess: bool = False
+
+        # Reference to the active simulation backend.
+        # Set by SimulationControl.start_sim() via set_backend(); cleared when
+        # the simulation finishes.  Used for probe attach / detach.
+        self._backend = None
 
         # subprocess monitors: monitor_id -> info dict
         self.active_monitors: dict = {}
@@ -91,7 +114,7 @@ class MonitorManager:
         self._reaper_thread.start()
 
     # =========================================================================
-    # Mode control
+    # Mode / backend control
     # =========================================================================
 
     def set_inprocess_mode(self, enabled: bool) -> None:
@@ -106,6 +129,20 @@ class MonitorManager:
         self._use_inprocess = enabled
         self._log(
             f"Monitor mode set to: {'in-process' if enabled else 'subprocess (display-server)'}"
+        )
+
+    def set_backend(self, backend) -> None:
+        """Store a reference to the active simulation backend.
+
+        Called by ``SimulationControl.start_sim()`` after the backend is
+        created and again (with ``None``) in ``_on_backend_finished``.
+        The reference is used by ``_open_inprocess_monitor`` and
+        ``close_monitor`` to attach / detach ``MonitorProbeObj`` instances.
+        """
+        self._backend = backend
+        self._log(
+            f"Backend reference {'set' if backend is not None else 'cleared'}: "
+            f"{type(backend).__name__ if backend is not None else 'None'}"
         )
 
     # =========================================================================
@@ -199,11 +236,7 @@ class MonitorManager:
     def on_display_server_ready(self, url: str):
         """
         Called by SimulationControl when the display-server port is detected.
-
-        1. Updates the stored URL so new monitors use it immediately.
-        2. Restarts monitors that were spawned with a wrong URL (port 5000
-           fallback) and are still running (they'll have failed to connect).
-        3. Flushes pending monitors that were queued before the URL was known.
+        Not relevant in direct in-process mode but harmless.
         """
         self._log(f"Display server ready at {url}")
         old_url = self._server_url
@@ -222,17 +255,14 @@ class MonitorManager:
                     f"Restarting monitor {mid} with new URL {url} "
                     f"(was {info.get('server_url')})"
                 )
-                # Terminate the stale process
                 try:
                     info["process"].terminate()
                 except Exception:
                     pass
-                # Re-open with the same node/output
                 self.open_monitor(
                     None, None,
                     (info["node_uuid"], info["output_name"]),
                 )
-                # Remove old entry (open_monitor will add a new one)
                 with self._lock:
                     self.active_monitors.pop(mid, None)
 
@@ -255,7 +285,7 @@ class MonitorManager:
         Open a monitor window for a node output.
         ``user_data`` must be ``(node_uuid, output_name)``.
 
-        FIX 1: Routes to in-process only when ``_use_inprocess`` is True
+        Routes to in-process only when ``_use_inprocess`` is True
         (set via ``set_inprocess_mode()``), not merely because a MonitorBus
         exists.  This ensures Display-Server mode always spawns subprocesses.
 
@@ -281,14 +311,12 @@ class MonitorManager:
             self._log(f"Could not resolve server output name: {e}")
             server_output_name = f"{node_name}.{output_name}"
 
-        # ��─ In-process path ──────────────────────────────────────────────────
-        # FIX 1: Only use in-process path when explicitly enabled AND bus is ready.
+        # ── In-process path ──────────────────────────────────────────────────
         if self._use_inprocess and self._monitor_bus is not None:
             # If mapping is not ready yet, defer opening so we avoid subscribing
             # to fallback synthetic topics (e.g. auto_<node>.out_x).
             if (
                 server_output_name.startswith(_SYNTHETIC_SERVER_OUTPUT_PREFIX)
-                # Empty dict means params/mapping not populated yet.
                 and not self.sio_client.server_nodes
             ):
                 self._log(
@@ -385,7 +413,13 @@ class MonitorManager:
         output_name: str,
         server_output_name: str,
     ) -> None:
-        """Create an in-process DPG monitor window subscribed to the bus."""
+        """Create an in-process DPG monitor window subscribed to the bus.
+
+        In direct probe mode (InProcessBackend with monitor_bus) a
+        ``MonitorProbeObj`` is attached via ``backend.attach_probe()`` so that
+        data starts flowing immediately if the simulation is already running.
+        In legacy Socket.IO mode the sio_client is subscribed instead.
+        """
         # Prevent duplicates
         for monitor in self._inprocess_monitors.values():
             if (
@@ -409,19 +443,36 @@ class MonitorManager:
         monitor.open()
         self._inprocess_monitors[monitor_id] = monitor
 
-        # FIX 2: Subscribe to the Socket.IO server so specula's DisplayServer
-        # actually sends data_update events for this output.  Without this call,
-        # MonitorBus.push() is never triggered and the monitor stays blank.
-        try:
-            self.sio_client.subscribe(server_output_name)
-            self._log(
-                f"Subscribed Socket.IO client to '{server_output_name}' "
-                f"for in-process monitor {monitor_id}"
-            )
-        except Exception as e:
-            self._log(
-                f"Warning: could not subscribe to '{server_output_name}': {e}"
-            )
+        if _is_direct_backend(self._backend):
+            # ── Direct probe mode ─────────────────────────────────────────────
+            # attach_probe returns None if the simulation hasn't built its
+            # registry yet; the probe will be created automatically by
+            # _patched_run when the simulation starts (the monitor has already
+            # subscribed to the bus above via InProcessMonitor.__init__).
+            probe = self._backend.attach_probe(server_output_name, self._monitor_bus)
+            if probe is not None:
+                monitor._probe = probe
+                self._log(
+                    f"Probe attached for '{server_output_name}' "
+                    f"(monitor {monitor_id})"
+                )
+            else:
+                self._log(
+                    f"No probe attached yet for '{server_output_name}' "
+                    f"— will be injected by _patched_run when simulation starts"
+                )
+        else:
+            # ── Legacy Socket.IO mode ─────────────────────────────────────────
+            try:
+                self.sio_client.subscribe(server_output_name)
+                self._log(
+                    f"Subscribed Socket.IO client to '{server_output_name}' "
+                    f"for in-process monitor {monitor_id}"
+                )
+            except Exception as e:
+                self._log(
+                    f"Warning: could not subscribe to '{server_output_name}': {e}"
+                )
 
         self._log(f"In-process monitor {monitor_id} opened for {server_output_name}")
 
@@ -448,26 +499,39 @@ class MonitorManager:
         if monitor is not None:
             self._log(f"Closing in-process monitor {monitor_id}")
 
-            # FIX 2: Unsubscribe from the Socket.IO server when the last
-            # in-process monitor watching this output is closed.
-            still_watching = any(
-                m.server_output_name == monitor.server_output_name
-                for m in self._inprocess_monitors.values()
-            )
-            if not still_watching:
-                try:
-                    self.sio_client.unsubscribe(monitor.server_output_name)
+            if _is_direct_backend(self._backend):
+                # ── Direct probe mode: disable the probe ──────────────────────
+                if monitor._probe is not None:
+                    self._backend.detach_probe(monitor._probe)
                     self._log(
-                        f"Unsubscribed Socket.IO client from "
-                        f"'{monitor.server_output_name}'"
+                        f"Probe detached for '{monitor.server_output_name}' "
+                        f"(monitor {monitor_id})"
                     )
-                except Exception as e:
-                    self._log(f"Warning: could not unsubscribe: {e}")
+            else:
+                # ── Legacy Socket.IO mode: unsubscribe when last watcher ──────
+                still_watching = any(
+                    m.server_output_name == monitor.server_output_name
+                    for m in self._inprocess_monitors.values()
+                )
+                if not still_watching:
+                    try:
+                        self.sio_client.unsubscribe(monitor.server_output_name)
+                        self._log(
+                            f"Unsubscribed Socket.IO client from "
+                            f"'{monitor.server_output_name}'"
+                        )
+                    except Exception as e:
+                        self._log(f"Warning: could not unsubscribe: {e}")
 
             monitor.close()
 
     def _refresh_inprocess_monitor_bindings(self) -> None:
-        """Retarget in-process monitors after UUID->server mapping updates."""
+        """Retarget in-process monitors after UUID->server mapping updates.
+
+        In direct probe mode the old probe is detached and a new one is
+        attached for the remapped output name.  In Socket.IO mode the
+        subscription is updated as before.
+        """
         output_to_monitor_ids: dict[str, list[str]] = {}
         for mid, monitor in self._inprocess_monitors.items():
             output_to_monitor_ids.setdefault(monitor.server_output_name, []).append(mid)
@@ -485,30 +549,49 @@ class MonitorManager:
                 continue
 
             old_output = monitor.server_output_name
+            # retarget_server_output clears monitor._probe internally
             changed = monitor.retarget_server_output(new_output)
             if not changed:
                 continue
 
-            # Keep Socket.IO subscriptions aligned with the rebinding.
-            try:
-                self.sio_client.subscribe(new_output)
-            except Exception as e:
-                self._log(
-                    f"Warning: could not subscribe to retargeted output '{new_output}' "
-                    f"for monitor {mid}: {e}"
-                )
-
-            old_watchers = output_to_monitor_ids.get(old_output, [])
-            if mid in old_watchers:
-                old_watchers.remove(mid)
-            if not old_watchers:
+            if _is_direct_backend(self._backend):
+                # ── Direct probe mode ─────────────────────────────────────────
+                # Detach old probe (already cleared on the monitor by retarget)
+                # and attach a new one for the new output name.
+                # (old probe was cleared by retarget_server_output)
+                probe = self._backend.attach_probe(new_output, self._monitor_bus)
+                if probe is not None:
+                    monitor._probe = probe
+                    self._log(
+                        f"Re-attached probe for retargeted monitor {mid}: "
+                        f"{old_output} -> {new_output}"
+                    )
+                else:
+                    self._log(
+                        f"No probe attached yet for retargeted output '{new_output}' "
+                        f"(monitor {mid}) — will be injected on next run"
+                    )
+            else:
+                # ── Legacy Socket.IO mode ─────────────────────────────────────
                 try:
-                    self.sio_client.unsubscribe(old_output)
+                    self.sio_client.subscribe(new_output)
                 except Exception as e:
                     self._log(
-                        f"Warning: could not unsubscribe old output '{old_output}' "
+                        f"Warning: could not subscribe to retargeted output '{new_output}' "
                         f"for monitor {mid}: {e}"
                     )
+
+                old_watchers = output_to_monitor_ids.get(old_output, [])
+                if mid in old_watchers:
+                    old_watchers.remove(mid)
+                if not old_watchers:
+                    try:
+                        self.sio_client.unsubscribe(old_output)
+                    except Exception as e:
+                        self._log(
+                            f"Warning: could not unsubscribe old output '{old_output}' "
+                            f"for monitor {mid}: {e}"
+                        )
 
             self._log(f"Retargeted in-process monitor {mid}: {old_output} -> {new_output}")
 

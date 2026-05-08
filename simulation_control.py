@@ -75,14 +75,12 @@ class SimulationControl:
     def _get_current_yaml_content(self):
         """Generate the current simulation YAML as a string."""
         try:
-            # Create a temporary export to get the YAML content
             temp_path = "_temp_yaml_display.yml"
             self.editor.fh.export_simulation(temp_path, include_defaults=False)
 
             with open(temp_path, encoding="utf-8") as f:
                 yaml_content = f.read()
 
-            # Clean up temporary file
             try:
                 os.remove(temp_path)
             except Exception:
@@ -97,7 +95,6 @@ class SimulationControl:
         """Display current simulation YAML in a detached window."""
         yaml_content = self._get_current_yaml_content()
 
-        # Use a tag that includes a timestamp to allow multiple instances
         import time
         window_tag = f"yaml_display_window_{int(time.time() * 1000)}"
 
@@ -108,7 +105,6 @@ class SimulationControl:
             height=600,
             no_close=False,
         ):
-            # Toolbar
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Copy to Clipboard", width=120,
                               callback=lambda: self._copy_yaml_to_clipboard(yaml_content))
@@ -118,7 +114,6 @@ class SimulationControl:
 
             dpg.add_separator()
 
-            # Content display
             dpg.add_input_text(
                 tag=f"yaml_content_{window_tag}",
                 default_value=yaml_content,
@@ -132,7 +127,6 @@ class SimulationControl:
         """Copy YAML content to system clipboard."""
         try:
             import subprocess
-            # Use system clipboard
             if os.name == 'nt':  # Windows
                 process = subprocess.Popen(['clip'], stdin=subprocess.PIPE)
                 process.communicate(content.encode('utf-8'))
@@ -231,23 +225,6 @@ class SimulationControl:
         always starts its built-in Socket.IO server on a fixed port when
         launched from the GUI.
 
-        The injected block looks like:
-
-            specula_studio_display_server:
-              class: DisplayServer
-              port: 5000
-              mode: data
-              params_dict_ref: <SimulParams node name>
-
-        Rules
-        -----
-        - If a DisplayServer block already exists (user added one manually),
-          it is left untouched and we return True immediately.
-        - The node is appended at the end of yaml_data so it does not affect
-          the order of user-defined nodes.
-        - Any legacy ``display_server: true`` flag on SimulParams is removed
-          to avoid having two display servers.
-
         Returns True if the block was added or already present, False if no
         SimulParams node was found (DisplayServer cannot be wired).
         """
@@ -265,7 +242,6 @@ class SimulationControl:
         for node_name, node_dict in yaml_data.items():
             if isinstance(node_dict, dict) and node_dict.get("class") == "SimulParams":
                 simul_params_name = node_name
-                # Remove legacy display_server flag if present
                 if node_dict.get("display_server") is True:
                     del node_dict["display_server"]
                     print(
@@ -281,17 +257,12 @@ class SimulationControl:
             )
             return False
 
-        # ── Build the DisplayServer block ─────────────────────────────────
-        # input_ref_getter, output_ref_getter and info_getter are internal
-        # callables that specula's simulation runner provides automatically;
-        # they must NOT appear in the YAML config.
         ds_block = {
-            "class":            "DisplayServer",
-            "port":             _DISPLAY_SERVER_PORT,
-            "mode":             "data",
+            "class":  "DisplayServer",
+            "port":   _DISPLAY_SERVER_PORT,
+            "mode":   "data",
         }
 
-        # Choose a node name that does not clash with existing keys
         ds_name = _DISPLAY_SERVER_NODE_NAME
         suffix  = 1
         while ds_name in yaml_data:
@@ -301,16 +272,15 @@ class SimulationControl:
         yaml_data[ds_name] = ds_block
         print(
             f"[SIMULATION] Injected DisplayServer node '{ds_name}' "
-            f"(port={_DISPLAY_SERVER_PORT}, mode=data, "
+            f"(port={_DISPLAY_SERVER_PORT}, mode=data)"
         )
         return True
 
-    def _prepare_simulation_yaml(self, file_path: str):
+    def _prepare_simulation_yaml(self, file_path: str, inject_display_server: bool = True):
         """
         Post-process the exported YAML before handing it to specula:
           1. Strip GUI-only fields (gui_pos).
-          2. Inject a DisplayServer node so the Socket.IO display server
-             always starts on the fixed port.
+          2. Optionally inject a DisplayServer node (skipped in direct in-process mode).
         """
         try:
             with open(file_path, encoding="utf-8") as f:
@@ -320,7 +290,8 @@ class SimulationControl:
                 return
 
             yaml_data = self._strip_gui_fields(yaml_data)
-            self._inject_display_server_node(yaml_data)
+            if inject_display_server:
+                self._inject_display_server_node(yaml_data)
 
             with open(file_path, "w", encoding="utf-8") as f:
                 yaml.dump(yaml_data, f, sort_keys=False, default_flow_style=False)
@@ -369,7 +340,11 @@ class SimulationControl:
         self.is_running = False
         self.process = None
         self._clear_server_url_file()
-        # append_terminal is called by the backend itself for "--- Finished ---"
+        # Clear the backend reference from MonitorManager so probe calls are
+        # no-ops after the simulation has stopped.
+        mm = self.editor.nm.monitors
+        if hasattr(mm, "set_backend"):
+            mm.set_backend(None)
 
     # ------------------------------------------------------------------
     # Simulation launch / control
@@ -398,25 +373,37 @@ class SimulationControl:
 
         self._clear_server_url_file()
 
-        temp_path = self._get_sim_path()
-        self.editor.fh.export_simulation(temp_path, include_defaults=True)
-        # Strip GUI fields and inject the DisplayServer node
-        self._prepare_simulation_yaml(temp_path)
-
-        # Determine which backend to use
+        # ── Determine backend BEFORE YAML preparation so we know whether to
+        #    inject the DisplayServer node (not needed in direct in-process mode).
         backend_mode = (
             dpg.get_value("sim_backend")
             if dpg.does_item_exist("sim_backend")
             else "Display Server"
         )
-        if backend_mode == "In-Process":
-            self._backend = InProcessBackend()
-            # FIX 1: Tell MonitorManager to open in-process DPG windows
-            self.editor.nm.monitors.set_inprocess_mode(True)
+        use_inprocess_direct = (backend_mode == "In-Process")
+
+        temp_path = self._get_sim_path()
+        self.editor.fh.export_simulation(temp_path, include_defaults=True)
+        # Strip GUI fields; inject DisplayServer only for Display-Server mode.
+        self._prepare_simulation_yaml(
+            temp_path,
+            inject_display_server=not use_inprocess_direct,
+        )
+
+        mm = self.editor.nm.monitors
+
+        if use_inprocess_direct:
+            # Pass the MonitorBus so InProcessBackend uses the probe-based path.
+            monitor_bus = mm._monitor_bus
+            self._backend = InProcessBackend(monitor_bus=monitor_bus)
+            mm.set_inprocess_mode(True)
         else:
             self._backend = DisplayServerBackend()
-            # FIX 1: Tell MonitorManager to spawn subprocess monitor windows
-            self.editor.nm.monitors.set_inprocess_mode(False)
+            mm.set_inprocess_mode(False)
+
+        # Give MonitorManager a reference to the backend for dynamic probe
+        # attach / detach when monitor windows are opened or closed.
+        mm.set_backend(self._backend)
 
         cmd_args = {
             "run_all_mode": run_all_mode,
@@ -424,14 +411,19 @@ class SimulationControl:
             "nsimul":    dpg.get_value("sim_nsimul")    if dpg.does_item_exist("sim_nsimul")   else 1,
             "cpu":       dpg.get_value("sim_cpu")       if dpg.does_item_exist("sim_cpu")      else False,
             "target":    dpg.get_value("sim_target")    if dpg.does_item_exist("sim_target")   else -1,
-            "precision": dpg.get_value("sim_precision") if dpg.does_item_exist("sim_precision") else "1",
+            "precision": int(dpg.get_value("sim_precision") if dpg.does_item_exist("sim_precision") else "1"),  # ← int()
             "log_level": dpg.get_value("sim_log")       if dpg.does_item_exist("sim_log")      else "INFO",
         }
 
-        self.append_terminal(
-            f"[INFO] Backend: {backend_mode}\n"
-            f"[INFO] DisplayServer will start on port {_DISPLAY_SERVER_PORT} …\n"
-        )
+        if use_inprocess_direct:
+            self.append_terminal(
+                f"[INFO] Backend: {backend_mode} (direct probe monitoring — no DisplayServer)\n"
+            )
+        else:
+            self.append_terminal(
+                f"[INFO] Backend: {backend_mode}\n"
+                f"[INFO] DisplayServer will start on port {_DISPLAY_SERVER_PORT} …\n"
+            )
 
         self._backend.start(
             yaml_path=temp_path,
@@ -442,14 +434,15 @@ class SimulationControl:
         )
 
         self.is_running = True
-        # Write the expected URL immediately (port is fixed)
-        expected_url = f"http://127.0.0.1:{_DISPLAY_SERVER_PORT}"
-        self._write_server_url_file(expected_url)
-        mm = self.editor.nm.monitors
-        if hasattr(mm, "on_display_server_ready"):
-            mm.on_display_server_ready(expected_url)
-        # Fallback in case the port differs from the injected value
-        self._schedule_display_server_reconnect(delay=4.0)
+
+        if not use_inprocess_direct:
+            # Write the expected URL immediately (port is fixed) and kick off
+            # the Socket.IO reconnect path used by subprocess monitors.
+            expected_url = f"http://127.0.0.1:{_DISPLAY_SERVER_PORT}"
+            self._write_server_url_file(expected_url)
+            if hasattr(mm, "on_display_server_ready"):
+                mm.on_display_server_ready(expected_url)
+            self._schedule_display_server_reconnect(delay=4.0)
 
     def step_sim(self, sender=None, app_data=None):
         if self._backend is not None:
@@ -460,4 +453,3 @@ class SimulationControl:
             self._backend.abort()
         self._clear_server_url_file()
         self.is_running = False
-

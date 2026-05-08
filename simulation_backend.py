@@ -657,64 +657,43 @@ class InProcessBackend(SimulationBackend):
     # Direct probe-monitoring path
     # ------------------------------------------------------------------
 
-    def _run_direct(
-        self,
-        yaml_path: str,
-        nsimul: int,
-        cpu: bool,
-        target: int,
-        precision: int,
-        stepping: bool,
-        append_terminal,
-    ) -> None:
-        """
-        Run specula using its lower-level API and inject MonitorProbeObj
-        instances into the LoopControl trigger lists for direct monitoring.
+    def _run_direct(self, yaml_path, nsimul, cpu, target, precision, stepping, append_terminal):
+        # specula.init() must be called BEFORE any specula submodule is imported.
+        # base_time_obj.py does a module-level:
+        #   from specula import global_precision, default_target_device_idx
+        # which binds those names at import time.  If specula submodules are already
+        # cached in sys.modules from a previous run, the names are stale.
+        # The only safe fix is to call init() first, then force-reload the affected
+        # modules so their module-level names are rebound.
+        import importlib
+        import sys
 
-        Algorithm
-        ---------
-        1. ``specula.init()`` initialises compute device / precision.
-        2. ``LoopControl.run`` is replaced with ``_patched_run`` which:
-           a. Scans the already-populated ``trigger_lists`` to build an
-              ``{topic: BaseDataObj}`` registry.
-           b. Creates a ``MonitorProbeObj`` for every subscribed topic that
-              appears in the registry and appends it to ``trigger_lists`` at
-              ``max_priority + 1`` (i.e. after all simulation objects).
-           c. Calls the original ``LoopControl.run``, which calls ``start()``
-              (so probes are properly set up) then enters the iteration loop.
-        3. ``LoopControl.iter`` is replaced with ``_patched_iter`` which
-           drains a ``collections.deque`` of dynamically added probes at the
-           beginning of each step.
-        4. Both patches are restored in a ``finally`` block.
+        target_device_idx = -1 if cpu else target
 
-        Topic naming
-        ------------
-        SPECULA sets ``obj.name`` from the YAML key, so
-        ``"{obj.name}.{output_key}"`` matches the ``server_output_name``
-        that ``MonitorManager`` derives from ``"{node_name}.{output_name}"``.
-        No special mapping is needed in this mode.
-        """
         import specula
+        specula.init(target_device_idx, precision=int(precision))
+
+        # Force-reload the modules that captured specula globals at import time.
+        # This rebinds their module-level names to the values just set by init().
+        for mod_name in ('specula.base_time_obj', 'specula.base_data_obj',
+                         'specula.base_processing_obj', 'specula.loop_control',
+                         'specula.simul'):
+            if mod_name in sys.modules:
+                importlib.reload(sys.modules[mod_name])
+
         from specula.loop_control import LoopControl
         from specula.simul import Simul
 
-        target_device_idx = -1 if cpu else target
-        try:
-            specula.init(target_device_idx, precision=precision)
-        except Exception as exc:
-            append_terminal(f"[In-Process] specula.init() warning: {exc}\n")
-
         monitor_bus = self._monitor_bus
 
-        # ── Shared mutable state (accessed from patched methods and from
-        #    attach_probe / detach_probe which run on the GUI thread) ──────────
+        # ── Shared mutable state ──────────────────────────────────────────────
         _pending_probes: collections.deque = collections.deque()
-        _active_probes:  dict              = {}          # topic -> MonitorProbeObj
+        _active_probes:  dict              = {}
         _state: dict = {
-            "registry":      {},     # topic -> BaseDataObj (source)
-            "loop_control":  None,   # LoopControl instance while running
-            "probe_priority": 99999, # trigger_lists key used for probes
-            "active_probes": _active_probes,
+            "registry":       {},
+            "loop_control":   None,
+            "probe_priority": 99999,
+            "active_probes":  _active_probes,
         }
         self._probe_queue = _pending_probes
         self._probe_state = _state
@@ -723,7 +702,6 @@ class InProcessBackend(SimulationBackend):
         original_iter = LoopControl.iter
 
         def _patched_run(lc_self, run_time, dt, t0=0, speed_report=False):
-            # ── 1. Build {topic: source_data_obj} registry ───────────────────
             registry: dict = {}
             for idx in sorted(lc_self.trigger_lists.keys()):
                 for obj in lc_self.trigger_lists[idx]:
@@ -737,14 +715,12 @@ class InProcessBackend(SimulationBackend):
             _state["registry"]     = registry
             _state["loop_control"] = lc_self
 
-            # ── 2. Determine probe trigger priority ──────────────────────────
             probe_priority = (
                 max(lc_self.trigger_lists.keys()) + 1
                 if lc_self.trigger_lists else 0
             )
             _state["probe_priority"] = probe_priority
 
-            # ── 3. Inject probes for all currently subscribed bus topics ─────
             for topic in monitor_bus.all_subscribed_outputs():
                 source = registry.get(topic)
                 if source is not None and topic not in _active_probes:
@@ -756,21 +732,16 @@ class InProcessBackend(SimulationBackend):
                     )
                     lc_self.trigger_lists[probe_priority].append(probe)
                     _active_probes[topic] = probe
-                    append_terminal(
-                        f"[In-Process] Probe injected for '{topic}'\n"
-                    )
+                    append_terminal(f"[In-Process] Probe injected for '{topic}'\n")
                 elif source is None:
                     append_terminal(
                         f"[In-Process] Warning: topic '{topic}' not found "
                         f"in registry — no probe created.\n"
                     )
 
-            # ── 4. Hand off to the original LoopControl.run ──────────────────
             original_run(lc_self, run_time, dt, t0=t0, speed_report=speed_report)
 
         def _patched_iter(lc_self) -> None:
-            # Drain pending probes added dynamically (monitors opened while
-            # the simulation is running).  Runs on the simulation thread.
             while _pending_probes:
                 try:
                     topic, probe = _pending_probes.popleft()
@@ -787,8 +758,6 @@ class InProcessBackend(SimulationBackend):
 
         try:
             for simul_idx in range(nsimul):
-                # Reset per-run state so the registry is rebuilt for each
-                # Simul instance (objects may differ between repetitions).
                 _active_probes.clear()
                 _state["registry"].clear()
                 _state["loop_control"] = None
@@ -797,7 +766,7 @@ class InProcessBackend(SimulationBackend):
                     f"[In-Process] Starting run {simul_idx + 1}/{nsimul} …\n"
                 )
                 Simul(
-                    yaml_path,
+                    yaml_path,                    
                     simul_idx=simul_idx,
                     stepping=stepping,
                 ).run()
