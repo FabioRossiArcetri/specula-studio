@@ -33,6 +33,8 @@ import threading
 import traceback
 from abc import ABC, abstractmethod
 
+import yaml
+
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
@@ -56,6 +58,34 @@ def _extract_port(line: str) -> int | None:
             port = int(m.group(1))
             if 1024 <= port <= 65535:
                 return port
+    return None
+
+
+def _extract_display_server_port_from_yaml(yaml_path: str) -> int | None:
+    """Return DisplayServer.port from a simulation YAML file, if present."""
+    try:
+        with open(yaml_path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+    except Exception:
+        return None
+
+    if not isinstance(data, dict):
+        return None
+
+    for _node_name, node_dict in data.items():
+        if not isinstance(node_dict, dict):
+            continue
+        if node_dict.get("class") != "DisplayServer":
+            continue
+        port = node_dict.get("port")
+        try:
+            port = int(port)
+        except (TypeError, ValueError):
+            return None
+        if 1024 <= port <= 65535:
+            return port
+        return None
+
     return None
 
 
@@ -307,6 +337,15 @@ class InProcessBackend(SimulationBackend):
             f"nsimul={nsimul}, cpu={cpu}, target={target}, "
             f"precision={precision}, stepping={stepping})\n"
         )
+
+        # Resolve DisplayServer port from YAML so SimulationControl can update
+        # server URL / reconnection state in the same way as subprocess mode.
+        try:
+            ds_port = _extract_display_server_port_from_yaml(yaml_path)
+            if ds_port:
+                on_port_found(ds_port)
+        except Exception:
+            pass
 
         self._running = True
         self._thread = threading.Thread(

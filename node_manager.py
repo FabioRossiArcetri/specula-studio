@@ -159,6 +159,7 @@ class NodeManager:
         """Handle server 'params' event: update UUID mapping."""
         self.sio_client.bind_nodes_to_server(self.graph.nodes, data)
         self.sio_client.update_uuid_mapping(self.graph.nodes)
+        self.monitors.on_server_params(data)
 
     def _on_data_update(self, name: str, raw_data):
         """Handle real-time data update from server."""

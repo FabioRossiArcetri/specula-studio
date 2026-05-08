@@ -72,6 +72,7 @@ class InProcessMonitor:
         self._win_tag      = f"ipm_win_{monitor_id}"
         self._plot_grp_tag = f"ipm_plot_{monitor_id}"
         self._pholder_tag  = f"ipm_ph_{monitor_id}"
+        self._output_tag   = f"ipm_output_{monitor_id}"
         self._type_tag     = f"ipm_type_{monitor_id}"
         self._shp_tag      = f"ipm_shp_{monitor_id}"
         self._rng_tag      = f"ipm_rng_{monitor_id}"
@@ -126,6 +127,7 @@ class InProcessMonitor:
             dpg.add_text(
                 f"Output:  {self.server_output_name}",
                 color=[100, 255, 100],
+                tag=self._output_tag,
             )
             dpg.add_text(
                 "Status:  Waiting for data …",
@@ -158,6 +160,19 @@ class InProcessMonitor:
         if dpg.does_item_exist(self._win_tag):
             dpg.delete_item(self._win_tag)
         self.is_open = False
+
+    def retarget_server_output(self, new_server_output_name: str) -> bool:
+        """Rebind this monitor to a different fully-qualified server output."""
+        if not new_server_output_name or new_server_output_name == self.server_output_name:
+            return False
+        old = self.server_output_name
+        self._bus.unsubscribe(old, self._on_data)
+        self.server_output_name = new_server_output_name
+        self._bus.subscribe(self.server_output_name, self._on_data)
+        if dpg.does_item_exist(self._output_tag):
+            dpg.set_value(self._output_tag, f"Output:  {self.server_output_name}")
+        self._set_status("subscribed")
+        return True
 
     # ------------------------------------------------------------------
     # Per-frame rendering (main thread only)

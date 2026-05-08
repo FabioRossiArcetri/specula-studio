@@ -128,6 +128,20 @@ class MonitorManager:
     def on_data_update(self, name: str, raw_data):
         pass
 
+    def on_server_params(self, data: dict):
+        """
+        Called when SocketIOClient receives server params and updates mapping.
+
+        In in-process mode, this is used to:
+        1) flush deferred monitor opens that waited for stable output mapping;
+        2) retarget already-open monitors if their output names changed after
+           mapping resolution.
+        """
+        if not self._use_inprocess:
+            return
+        self._flush_pending_monitors()
+        self._refresh_inprocess_monitor_bindings()
+
     def _safe_update_monitor_status(self, monitor_id: str, status: str):
         pass
 
@@ -225,6 +239,13 @@ class MonitorManager:
             self._log(f"Flushing pending monitor for {ud}")
             self.open_monitor(s, a, ud)
 
+    def _flush_pending_monitors(self) -> None:
+        pending = list(self._pending_monitors)
+        self._pending_monitors.clear()
+        for (s, a, ud) in pending:
+            self._log(f"Flushing pending monitor for {ud}")
+            self.open_monitor(s, a, ud)
+
     # =========================================================================
     # Open / close
     # =========================================================================
@@ -263,6 +284,15 @@ class MonitorManager:
         # ��─ In-process path ──────────────────────────────────────────────────
         # FIX 1: Only use in-process path when explicitly enabled AND bus is ready.
         if self._use_inprocess and self._monitor_bus is not None:
+            # If mapping is not ready yet, defer opening so we avoid subscribing
+            # to fallback synthetic topics (e.g. auto_<node>.out_x).
+            if server_output_name.startswith("auto_") and not self.sio_client.server_nodes:
+                self._log(
+                    f"Server mapping not ready; queueing in-process monitor for "
+                    f"{node_name}.{output_name}"
+                )
+                self._pending_monitors.append((sender, app_data, user_data))
+                return
             self._open_inprocess_monitor(
                 node_uuid, node_name, output_name, server_output_name
             )
@@ -431,6 +461,45 @@ class MonitorManager:
                     self._log(f"Warning: could not unsubscribe: {e}")
 
             monitor.close()
+
+    def _refresh_inprocess_monitor_bindings(self) -> None:
+        """Retarget in-process monitors after UUID->server mapping updates."""
+        by_old_output: dict[str, list[str]] = {}
+        for mid, monitor in self._inprocess_monitors.items():
+            by_old_output.setdefault(monitor.server_output_name, []).append(mid)
+
+        for mid, monitor in list(self._inprocess_monitors.items()):
+            try:
+                new_output = self.sio_client.get_server_output_name(
+                    monitor.node_uuid, monitor.output_name, self.graph.nodes
+                )
+            except Exception:
+                continue
+
+            if not new_output or new_output == monitor.server_output_name:
+                continue
+
+            old_output = monitor.server_output_name
+            changed = monitor.retarget_server_output(new_output)
+            if not changed:
+                continue
+
+            # Keep Socket.IO subscriptions aligned with the rebinding.
+            try:
+                self.sio_client.subscribe(new_output)
+            except Exception:
+                pass
+
+            old_watchers = by_old_output.get(old_output, [])
+            if mid in old_watchers:
+                old_watchers.remove(mid)
+            if not old_watchers:
+                try:
+                    self.sio_client.unsubscribe(old_output)
+                except Exception:
+                    pass
+
+            self._log(f"Retargeted in-process monitor {mid}: {old_output} -> {new_output}")
 
     @staticmethod
     def _force_kill_after(proc: subprocess.Popen, timeout: float):
