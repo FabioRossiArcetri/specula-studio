@@ -345,11 +345,9 @@ class PropertyPanel:
             dpg.add_separator(parent=panel_tag)
 
             for output_name in sorted(all_outputs):
-                is_open = any(
-                    info.get("node_uuid") == node_uuid
-                    and info.get("output_name") == output_name
-                    for info in self.monitors.active_monitors.values()
-                )
+                # Use the MonitorManager helpers so both subprocess and
+                # in-process monitors are reflected correctly.
+                is_open = self.monitors.is_monitor_open(node_uuid, output_name)
 
                 with dpg.group(horizontal=True, parent=panel_tag):
                     dpg.add_text(f"  + {output_name}: ", color=[200, 200, 200])
@@ -362,15 +360,7 @@ class PropertyPanel:
                         )
                         dpg.add_text("- Inactive", color=[150, 150, 150])
                     else:
-                        monitor_id = next(
-                            (
-                                mid
-                                for mid, info in self.monitors.active_monitors.items()
-                                if info.get("node_uuid") == node_uuid
-                                and info.get("output_name") == output_name
-                            ),
-                            None,
-                        )
+                        monitor_id = self.monitors.find_monitor_id(node_uuid, output_name)
                         if monitor_id:
                             def _close_wrapper(sender, app_data, user_data):
                                 self.monitors.close_monitor(

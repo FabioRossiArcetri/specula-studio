@@ -1,16 +1,26 @@
 """
 monitor_manager.py
 ==================
-Manages the lifecycle of standalone monitor window subprocesses.
+Manages the lifecycle of monitor windows — both standalone subprocess windows
+and in-process DPG windows.
 
-Each monitor window is a separate OS process (monitor_window.py) with its own
-DearPyGui viewport and its own Socket.IO connection.
+Subprocess monitors (original behaviour)
+    Each monitor window is a separate OS process (monitor_window.py) with its
+    own DearPyGui viewport and its own Socket.IO connection.
 
-Key addition over the first subprocess-based version:
+In-process monitors (new)
+    When a ``MonitorBus`` is provided, ``open_monitor()`` creates an
+    ``InProcessMonitor`` (a DPG window inside the main editor viewport) that
+    receives data via the bus instead of a dedicated Socket.IO connection.
+    In-process monitors are updated on the DPG main thread through a recurring
+    frame callback set up by ``start_periodic_tasks()``.
+
+Key additions over the first subprocess-based version:
   - The display-server URL / port is discovered at simulation start time by
     scanning specula's stdout.  Monitors opened before the port is known are
     queued as *pending* and launched as soon as the URL arrives.
   - A background reaper thread harvests subprocesses that have exited.
+  - Optional ``MonitorBus`` enables in-process (DPG-native) monitor windows.
 """
 
 import os
@@ -20,25 +30,37 @@ import threading
 import time
 import traceback
 
+import dearpygui.dearpygui as dpg
+
+from inprocess_monitor import InProcessMonitor
+
 
 class MonitorManager:
-    """Manages standalone monitor window subprocesses."""
+    """Manages monitor windows (subprocess and in-process)."""
 
-    def __init__(self, sio_client, graph, debug: bool = True):
+    def __init__(self, sio_client, graph, monitor_bus=None, debug: bool = True):
         """
         Parameters
         ----------
-        sio_client : SocketIOClient
-        graph      : GraphManager
-        debug      : bool
+        sio_client  : SocketIOClient
+        graph       : GraphManager
+        monitor_bus : MonitorBus or None
+            When provided, ``open_monitor()`` creates in-process DPG monitor
+            windows that subscribe to the bus instead of spawning subprocesses.
+            Supply ``None`` (default) to keep the original subprocess behaviour.
+        debug       : bool
         """
         self.sio_client = sio_client
         self.graph = graph
         self.debug = debug
+        self._monitor_bus = monitor_bus
 
-        # monitor_id -> info dict
+        # subprocess monitors: monitor_id -> info dict
         self.active_monitors: dict = {}
         self._lock = threading.Lock()
+
+        # in-process monitors: monitor_id -> InProcessMonitor
+        self._inprocess_monitors: dict[str, InProcessMonitor] = {}
 
         # Monitors requested before the display-server URL was known
         self._pending_monitors: list = []   # list of (sender, app_data, user_data)
@@ -50,7 +72,7 @@ class MonitorManager:
             "specula_studio_server.json",
         )
 
-        # Background reaper thread
+        # Background reaper thread (for subprocess monitors)
         self._reaper_stop = threading.Event()
         self._reaper_thread = threading.Thread(
             target=self._reaper_loop, daemon=True
@@ -83,6 +105,49 @@ class MonitorManager:
 
     def _safe_update_monitor_status(self, monitor_id: str, status: str):
         pass
+
+    # =========================================================================
+    # Public query helpers
+    # =========================================================================
+
+    def is_monitor_open(self, node_uuid: str, output_name: str) -> bool:
+        """Return True if any monitor (subprocess or in-process) is open for
+        the given node/output combination."""
+        with self._lock:
+            for info in self.active_monitors.values():
+                if (
+                    info.get("node_uuid") == node_uuid
+                    and info.get("output_name") == output_name
+                    and info["process"].poll() is None
+                ):
+                    return True
+        for monitor in self._inprocess_monitors.values():
+            if (
+                monitor.node_uuid == node_uuid
+                and monitor.output_name == output_name
+                and monitor.is_open
+            ):
+                return True
+        return False
+
+    def find_monitor_id(self, node_uuid: str, output_name: str) -> str | None:
+        """Return the monitor_id of the first open monitor for node/output, or None."""
+        with self._lock:
+            for mid, info in self.active_monitors.items():
+                if (
+                    info.get("node_uuid") == node_uuid
+                    and info.get("output_name") == output_name
+                    and info["process"].poll() is None
+                ):
+                    return mid
+        for mid, monitor in self._inprocess_monitors.items():
+            if (
+                monitor.node_uuid == node_uuid
+                and monitor.output_name == output_name
+                and monitor.is_open
+            ):
+                return mid
+        return None
 
     # =========================================================================
     # Display-server URL notification
@@ -141,11 +206,15 @@ class MonitorManager:
 
     def open_monitor(self, sender, app_data, user_data):
         """
-        Spawn a standalone monitor window for a node output.
+        Open a monitor window for a node output.
         ``user_data`` must be ``(node_uuid, output_name)``.
 
-        If the display-server URL is not yet known, the request is queued and
-        fulfilled as soon as ``on_display_server_ready`` is called.
+        When a ``MonitorBus`` is available, an in-process DPG window is
+        opened instead of a subprocess.
+
+        If the display-server URL is not yet known (and a subprocess monitor is
+        required), the request is queued and fulfilled as soon as
+        ``on_display_server_ready`` is called.
         """
         node_uuid, output_name = user_data
 
@@ -155,17 +224,31 @@ class MonitorManager:
             return
 
         node_name = node_data.get("name", "Unknown")
+
+        # Resolve the fully-qualified server output name
+        try:
+            server_output_name = self.sio_client.get_server_output_name(
+                node_uuid, output_name, self.graph.nodes
+            )
+        except Exception as e:
+            self._log(f"Could not resolve server output name: {e}")
+            server_output_name = f"{node_name}.{output_name}"
+
+        # ── In-process path ──────────────────────────────────────────────────
+        if self._monitor_bus is not None:
+            self._open_inprocess_monitor(
+                node_uuid, node_name, output_name, server_output_name
+            )
+            return
+
+        # ── Subprocess path (original behaviour) ─────────────────────────────
         node_type = node_data.get("type", "Unknown")
 
-        # ── Determine which server URL to use ─────────────────────────────────
-        # Priority: (1) explicitly discovered URL, (2) sio_client URL if connected,
-        # (3) defer until URL is known.
         if self._server_url:
             server_url = self._server_url
         elif self.sio_client.connected:
             server_url = self.sio_client.server_url
         else:
-            # URL not known yet — queue and return
             self._log(
                 f"Display-server URL not yet known; queuing monitor for "
                 f"{node_name}.{output_name}"
@@ -173,7 +256,7 @@ class MonitorManager:
             self._pending_monitors.append((sender, app_data, user_data))
             return
 
-        # ── Prevent duplicate windows for the same output ────────────────────
+        # Prevent duplicate subprocess windows for the same output
         with self._lock:
             for info in list(self.active_monitors.values()):
                 if (
@@ -187,16 +270,7 @@ class MonitorManager:
                     )
                     return
 
-        # ── Resolve server output name ────────────────────────────────────────
-        try:
-            server_output_name = self.sio_client.get_server_output_name(
-                node_uuid, output_name, self.graph.nodes
-            )
-        except Exception as e:
-            self._log(f"Could not resolve server output name: {e}")
-            server_output_name = f"{node_name}.{output_name}"
-
-        # ── Build subprocess command ──────────────────────────────────────────
+        # Build subprocess command
         script = os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "monitor_window.py"
         )
@@ -206,7 +280,6 @@ class MonitorManager:
             "--node-name",           node_name,
             "--output-name",         output_name,
             "--server-url-file",     self._server_url_file,
-            # Pass the current best-known URL as a starting point
             "--server-url",          server_url,
         ]
 
@@ -240,22 +313,65 @@ class MonitorManager:
             f"{server_output_name}"
         )
 
+    # =========================================================================
+    # In-process monitor helpers
+    # =========================================================================
+
+    def _open_inprocess_monitor(
+        self,
+        node_uuid: str,
+        node_name: str,
+        output_name: str,
+        server_output_name: str,
+    ) -> None:
+        """Create an in-process DPG monitor window subscribed to the bus."""
+        # Prevent duplicates
+        for monitor in self._inprocess_monitors.values():
+            if (
+                monitor.node_uuid == node_uuid
+                and monitor.output_name == output_name
+                and monitor.is_open
+            ):
+                self._log(f"In-process monitor already open for {node_name}.{output_name}")
+                monitor.focus()
+                return
+
+        monitor_id = f"{node_uuid}_{output_name}_{int(time.time() * 1000)}"
+        monitor = InProcessMonitor(
+            monitor_id=monitor_id,
+            node_uuid=node_uuid,
+            node_name=node_name,
+            output_name=output_name,
+            server_output_name=server_output_name,
+            monitor_bus=self._monitor_bus,
+        )
+        monitor.open()
+        self._inprocess_monitors[monitor_id] = monitor
+        self._log(f"In-process monitor {monitor_id} opened for {server_output_name}")
+
     def close_monitor(self, monitor_id: str, from_window_close: bool = False):
-        """Terminate a monitor process."""
+        """Terminate a monitor — subprocess or in-process."""
+        # Try subprocess monitors first
         with self._lock:
             info = self.active_monitors.pop(monitor_id, None)
-        if info is None:
+        if info is not None:
+            proc = info["process"]
+            if proc.poll() is None:
+                self._log(f"Terminating monitor {monitor_id} (pid {proc.pid})")
+                try:
+                    proc.terminate()
+                    threading.Thread(
+                        target=self._force_kill_after, args=(proc, 3.0), daemon=True
+                    ).start()
+                except Exception as e:
+                    self._log(f"Error terminating: {e}")
             return
-        proc = info["process"]
-        if proc.poll() is None:
-            self._log(f"Terminating monitor {monitor_id} (pid {proc.pid})")
-            try:
-                proc.terminate()
-                threading.Thread(
-                    target=self._force_kill_after, args=(proc, 3.0), daemon=True
-                ).start()
-            except Exception as e:
-                self._log(f"Error terminating: {e}")
+
+        # Try in-process monitors
+        monitor = self._inprocess_monitors.pop(monitor_id, None)
+        if monitor is not None:
+            self._log(f"Closing in-process monitor {monitor_id}")
+            monitor.close()
 
     @staticmethod
     def _force_kill_after(proc: subprocess.Popen, timeout: float):
@@ -306,12 +422,52 @@ class MonitorManager:
             ]
         for mid in candidates:
             self.close_monitor(mid)
+        # In-process monitors
+        for mid, monitor in list(self._inprocess_monitors.items()):
+            if monitor.node_uuid == node_uuid and monitor.output_name == output_name:
+                self.close_monitor(mid)
 
     def after_dpg_init(self):
-        self._log("Ready — monitors will launch as separate OS processes")
+        self._log(
+            "Ready — monitors will launch as separate OS processes "
+            "(or in-process if MonitorBus is active)"
+        )
 
     def start_periodic_tasks(self):
-        pass
+        """Set up a recurring DPG frame callback to tick in-process monitors."""
+        if self._monitor_bus is not None:
+            self._schedule_inprocess_tick()
+
+    # ------------------------------------------------------------------
+    # Recurring in-process monitor tick
+    # ------------------------------------------------------------------
+
+    def _schedule_inprocess_tick(self) -> None:
+        """Schedule the next per-frame tick one frame from now."""
+        try:
+            next_frame = dpg.get_frame_count() + 1
+            dpg.set_frame_callback(next_frame, self._inprocess_tick)
+        except Exception:
+            pass
+
+    def _inprocess_tick(self) -> None:
+        """Drain all in-process monitor queues and reschedule."""
+        dead = []
+        for mid, monitor in list(self._inprocess_monitors.items()):
+            try:
+                still_alive = monitor.render_frame()
+            except Exception as exc:
+                self._log(f"In-process monitor tick error ({mid}): {exc}")
+                still_alive = False
+            if not still_alive:
+                dead.append(mid)
+
+        for mid in dead:
+            self._inprocess_monitors.pop(mid, None)
+            self._log(f"In-process monitor {mid} closed (window was destroyed)")
+
+        # Reschedule for the next frame
+        self._schedule_inprocess_tick()
 
     def cleanup(self):
         self._reaper_stop.set()
@@ -319,4 +475,12 @@ class MonitorManager:
             monitor_ids = list(self.active_monitors.keys())
         for mid in monitor_ids:
             self.close_monitor(mid)
-        self._log("All monitor processes terminated")
+        for mid in list(self._inprocess_monitors.keys()):
+            self.close_monitor(mid)
+        self._log("All monitors terminated")
+
+    # =========================================================================
+    # Backward-compat (subprocess start_periodic_tasks)
+    # =========================================================================
+
+    # (kept for API compatibility — the subprocess-only path had a no-op here)
