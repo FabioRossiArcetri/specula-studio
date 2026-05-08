@@ -35,6 +35,8 @@ import dearpygui.dearpygui as dpg
 
 from inprocess_monitor import InProcessMonitor
 
+_SYNTHETIC_SERVER_OUTPUT_PREFIX = "auto_"
+
 
 class MonitorManager:
     """Manages monitor windows (subprocess and in-process)."""
@@ -282,7 +284,10 @@ class MonitorManager:
         if self._use_inprocess and self._monitor_bus is not None:
             # If mapping is not ready yet, defer opening so we avoid subscribing
             # to fallback synthetic topics (e.g. auto_<node>.out_x).
-            if server_output_name.startswith("auto_") and not self.sio_client.server_nodes:
+            if (
+                server_output_name.startswith(_SYNTHETIC_SERVER_OUTPUT_PREFIX)
+                and not self.sio_client.server_nodes
+            ):
                 self._log(
                     f"Server mapping not ready; queueing in-process monitor for "
                     f"{node_name}.{output_name}"
@@ -469,7 +474,8 @@ class MonitorManager:
                 new_output = self.sio_client.get_server_output_name(
                     monitor.node_uuid, monitor.output_name, self.graph.nodes
                 )
-            except Exception:
+            except Exception as e:
+                self._log(f"Could not refresh monitor binding for {mid}: {e}")
                 continue
 
             if not new_output or new_output == monitor.server_output_name:
@@ -483,8 +489,8 @@ class MonitorManager:
             # Keep Socket.IO subscriptions aligned with the rebinding.
             try:
                 self.sio_client.subscribe(new_output)
-            except Exception:
-                pass
+            except Exception as e:
+                self._log(f"Warning: could not subscribe to retargeted output '{new_output}': {e}")
 
             old_watchers = by_old_output.get(old_output, [])
             if mid in old_watchers:
@@ -492,8 +498,8 @@ class MonitorManager:
             if not old_watchers:
                 try:
                     self.sio_client.unsubscribe(old_output)
-                except Exception:
-                    pass
+                except Exception as e:
+                    self._log(f"Warning: could not unsubscribe old output '{old_output}': {e}")
 
             self._log(f"Retargeted in-process monitor {mid}: {old_output} -> {new_output}")
 

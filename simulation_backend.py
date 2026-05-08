@@ -62,7 +62,21 @@ def _extract_port(line: str) -> int | None:
 
 
 def _extract_display_server_port_from_yaml(yaml_path: str) -> int | None:
-    """Return DisplayServer.port from a simulation YAML file, if present."""
+    """
+    Return the first valid DisplayServer ``port`` found in *yaml_path*.
+
+    Parameters
+    ----------
+    yaml_path : str
+        Path to the simulation YAML file.
+
+    Returns
+    -------
+    int | None
+        First valid DisplayServer port (1024..65535), or ``None`` if the file
+        cannot be read, does not parse to a dict, has no DisplayServer nodes,
+        or does not contain a valid numeric port.
+    """
     try:
         with open(yaml_path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
