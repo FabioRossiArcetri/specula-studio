@@ -658,9 +658,11 @@ class MonitorManager:
         )
 
     def start_periodic_tasks(self):
-        """Set up a recurring DPG frame callback to tick in-process monitors."""
-        if self._monitor_bus is not None:
-            self._schedule_inprocess_tick()
+        """No-op — in-process monitor ticking is now done from the main render loop."""
+        self._log("start_periodic_tasks called (ticking via main render loop)")
+        #print(f"[TICK-DBG] start_periodic_tasks called, monitor_bus={self._monitor_bus}")  # TEMP
+        #if self._monitor_bus is not None:
+        #    self._schedule_inprocess_tick()
 
     # ------------------------------------------------------------------
     # Recurring in-process monitor tick
@@ -671,27 +673,29 @@ class MonitorManager:
         try:
             next_frame = dpg.get_frame_count() + 1
             dpg.set_frame_callback(next_frame, self._inprocess_tick)
-        except Exception:
-            pass
+        except Exception as exc:
+            # Log instead of silently swallowing — a silent exception here
+            # kills the entire tick chain permanently.
+            self._log(f"_schedule_inprocess_tick error (chain broken!): {exc}")
 
-    def _inprocess_tick(self) -> None:
-        """Drain all in-process monitor queues and reschedule."""
+    def _inprocess_tick_direct(self) -> None:
+        """Tick called directly from the main render loop (no rescheduling needed)."""
+        if not self._inprocess_monitors:
+            return
         dead = []
         for mid, monitor in list(self._inprocess_monitors.items()):
             try:
                 still_alive = monitor.render_frame()
             except Exception as exc:
                 self._log(f"In-process monitor tick error ({mid}): {exc}")
+                import traceback; traceback.print_exc()
                 still_alive = False
             if not still_alive:
                 dead.append(mid)
-
         for mid in dead:
             self._inprocess_monitors.pop(mid, None)
             self._log(f"In-process monitor {mid} closed (window was destroyed)")
 
-        # Reschedule for the next frame
-        self._schedule_inprocess_tick()
 
     def cleanup(self):
         self._reaper_stop.set()

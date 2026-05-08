@@ -795,13 +795,20 @@ class SpeculaEditor:
             dpg.hide_item("startup_dialog")
 
     # ── Run loop ─────────────────────────────────────────────────────────……[...]
-
+    
     def run(self):
         try:
             self.nm.start_periodic_tasks()
-            dpg.start_dearpygui()
+            dpg.set_viewport_resize_callback(None)  # ensure viewport is configured
+
+            while dpg.is_dearpygui_running():
+                # Tick in-process monitors on every frame — avoids the fragile
+                # set_frame_callback chain which silently dies on any error.
+                self.nm.monitors._inprocess_tick_direct()
+                dpg.render_dearpygui_frame()
         finally:
             dpg.destroy_context()
+     
 
 
 if __name__ == "__main__":
