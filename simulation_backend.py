@@ -95,10 +95,10 @@ def _extract_display_server_port_from_yaml(yaml_path: str) -> int | None:
         try:
             port = int(port)
         except (TypeError, ValueError):
-            return None
+            continue
         if 1024 <= port <= 65535:
             return port
-        return None
+        continue
 
     return None
 

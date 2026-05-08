@@ -286,7 +286,8 @@ class MonitorManager:
             # to fallback synthetic topics (e.g. auto_<node>.out_x).
             if (
                 server_output_name.startswith(_SYNTHETIC_SERVER_OUTPUT_PREFIX)
-                and not self.sio_client.server_nodes
+                # Empty dict means params/mapping not populated yet.
+                and len(self.sio_client.server_nodes) == 0
             ):
                 self._log(
                     f"Server mapping not ready; queueing in-process monitor for "
