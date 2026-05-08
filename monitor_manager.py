@@ -287,7 +287,7 @@ class MonitorManager:
             if (
                 server_output_name.startswith(_SYNTHETIC_SERVER_OUTPUT_PREFIX)
                 # Empty dict means params/mapping not populated yet.
-                and len(self.sio_client.server_nodes) == 0
+                and not self.sio_client.server_nodes
             ):
                 self._log(
                     f"Server mapping not ready; queueing in-process monitor for "
@@ -491,7 +491,10 @@ class MonitorManager:
             try:
                 self.sio_client.subscribe(new_output)
             except Exception as e:
-                self._log(f"Warning: could not subscribe to retargeted output '{new_output}': {e}")
+                self._log(
+                    f"Warning: could not subscribe to retargeted output '{new_output}' "
+                    f"for monitor {mid}: {e}"
+                )
 
             old_watchers = by_old_output.get(old_output, [])
             if mid in old_watchers:
@@ -500,7 +503,10 @@ class MonitorManager:
                 try:
                     self.sio_client.unsubscribe(old_output)
                 except Exception as e:
-                    self._log(f"Warning: could not unsubscribe old output '{old_output}': {e}")
+                    self._log(
+                        f"Warning: could not unsubscribe old output '{old_output}' "
+                        f"for monitor {mid}: {e}"
+                    )
 
             self._log(f"Retargeted in-process monitor {mid}: {old_output} -> {new_output}")
 

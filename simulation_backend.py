@@ -98,7 +98,6 @@ def _extract_display_server_port_from_yaml(yaml_path: str) -> int | None:
             continue
         if 1024 <= port <= 65535:
             return port
-        continue
 
     return None
 
