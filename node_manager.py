@@ -37,6 +37,7 @@ from constants import (
 import render_scale
 from node_registry import NodeRegistry
 from socketio_client import SocketIOClient
+from monitor_bus import MonitorBus
 from monitor_manager import MonitorManager
 from property_panel import PropertyPanel
 
@@ -82,17 +83,24 @@ class NodeManager:
             debug=debug,
         )
 
-        # ===== 3. MONITOR MANAGER =====
+        # ===== 3. MONITOR BUS =====
+        # Central pub/sub bus: NodeManager pushes every data_update event to
+        # this bus so that InProcessMonitor windows can subscribe without
+        # requiring their own Socket.IO connections.
+        self.monitor_bus = MonitorBus()
+
+        # ===== 4. MONITOR MANAGER =====
         self.monitors = MonitorManager(
             sio_client=self.sio_client,
             graph=self.graph,
+            monitor_bus=self.monitor_bus,
             debug=debug,
         )
         
         # Backward-compat alias
         self.active_monitors = self.monitors.active_monitors
 
-        # ===== 4. PROPERTY PANEL =====
+        # ===== 5. PROPERTY PANEL =====
         self.property_panel = PropertyPanel(
             graph=self.graph,
             all_templates=self.all_templates,
@@ -102,19 +110,19 @@ class NodeManager:
             refresh_node_theme=self._refresh_node_theme,
         )
 
-        # ===== 5. UI STATE =====
+        # ===== 6. UI STATE =====
         self._last_selected_uuid = None
         self._selected_link_id = None
         self.class_name_counters = {}
         self.node_item_registry = {}
 
-        # ===== 6. THEMES =====
+        # ===== 7. THEMES =====
         self.data_theme = None
         self.proc_theme = None
         self.data_theme_incomplete = None
         self.proc_theme_incomplete = None
 
-        # ===== 7. MOUSE-MOVE THROTTLE =====
+        # ===== 8. MOUSE-MOVE THROTTLE =====
         # Timestamp of the last processed mouse-move event.
         # Only process hover checks at most once every 50 ms to avoid saturating
         # the DPG dispatch queue with O(n_links) dpg.is_item_hovered() calls.
@@ -155,6 +163,8 @@ class NodeManager:
     def _on_data_update(self, name: str, raw_data):
         """Handle real-time data update from server."""
         self.monitors.on_data_update(name, raw_data)
+        # Also push to the MonitorBus so in-process monitors receive the data.
+        self.monitor_bus.push(name, raw_data)
 
     # ==========================================================================
     # PUBLIC DELEGATION HELPERS (maintain API surface)
