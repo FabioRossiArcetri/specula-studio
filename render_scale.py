@@ -43,8 +43,8 @@ SCALE_DEFS: dict = {
         "node_output_spacer_width":   100,   # indent before output-pin labels
 
         # Auto-layout grid
-        "layout_horizontal_spacing":  350,   # pixels between layout columns
-        "layout_vertical_spacing":    235,   # pixels between rows in a column
+        "layout_horizontal_spacing":  2*35,   # pixels between layout columns
+        "layout_vertical_spacing":    2*23,   # pixels between rows in a column
         "auto_layout_base_x":          30,   # left margin of the first column
         "auto_layout_base_y":          30,   # top margin of the first row
     },
@@ -53,8 +53,8 @@ SCALE_DEFS: dict = {
         "font_size":                   18,   # same base; display scaled by 1.8
         "node_header_spacer_width":   360,   # 200 × 1.8
         "node_output_spacer_width":   180,   # 100 × 1.8
-        "layout_horizontal_spacing":  594,   # 330 × 1.8
-        "layout_vertical_spacing":    396,   # 220 × 1.8
+        "layout_horizontal_spacing":  2*59,   # 330 × 1.8
+        "layout_vertical_spacing":    2*39,   # 220 × 1.8
         "auto_layout_base_x":          54,   #  30 × 1.8
         "auto_layout_base_y":          54,
     },
@@ -63,8 +63,8 @@ SCALE_DEFS: dict = {
         "font_size":                   18,   # same base; display scaled by 0.7
         "node_header_spacer_width":   140,   # 200 × 0.7
         "node_output_spacer_width":    70,   # 100 × 0.7
-        "layout_horizontal_spacing":  231,   # 330 × 0.7
-        "layout_vertical_spacing":    154,   # 220 × 0.7
+        "layout_horizontal_spacing":  2*23,   # 330 × 0.7
+        "layout_vertical_spacing":    2*15,   # 220 × 0.7
         "auto_layout_base_x":          21,   #  30 × 0.7
         "auto_layout_base_y":          21,
     },

@@ -119,9 +119,8 @@ def set_zebra_theme():
             dpg.add_theme_color(dpg.mvThemeCol_TableHeaderBg, [60, 60, 60, 255])
     dpg.bind_theme(global_theme)
 
-
 def auto_layout_nodes(graph, uuid_to_dpg, debug=False):
-    """Organize nodes into a grid layout, ignoring feedback loops and references."""
+    """Organize nodes into a grid layout using actual node sizes to prevent overlap."""
     if debug:
         print(f"[AUTO_LAYOUT] Starting auto layout with {len(graph.nodes)} nodes")
 
@@ -129,132 +128,132 @@ def auto_layout_nodes(graph, uuid_to_dpg, debug=False):
         print("[AUTO_LAYOUT] No nodes to layout")
         return
 
-    # Build dependency graph for topological sorting
     nodes = list(graph.nodes.keys())
 
-    # Filter out connections that shouldn't affect layout
+    # --- Build clean connection list (skip feedback / reference edges) ---
     clean_connections = []
-
     for conn in graph.connections:
         src, src_attr, dst, dst_attr = conn
 
-        # Skip reference connections
         if dst_attr.endswith("_ref") or dst_attr == "layer_list" or "params" in dst_attr.lower():
             if debug:
-                print(f"[AUTO_LAYOUT] Skipping reference connection: {src}.{src_attr} -> {dst}.{dst_attr}")
+                print(f"[AUTO_LAYOUT] Skipping reference: {src}.{src_attr} -> {dst}.{dst_attr}")
             continue
 
-        # Check connection properties for delay
         conn_props = graph.connection_properties.get(conn, {})
-        delay = conn_props.get('delay', 0)
-
-        # Skip feedback connections (delay = -1)
-        if delay == -1:
+        if conn_props.get('delay', 0) == -1:
             if debug:
-                print(f"[AUTO_LAYOUT] Skipping feedback connection (delay={delay}): {src}.{src_attr} -> {dst}.{dst_attr}")
+                print(f"[AUTO_LAYOUT] Skipping feedback: {src}.{src_attr} -> {dst}.{dst_attr}")
             continue
 
-        # Also check for feedback patterns in attribute names
         if ":-" in str(src_attr):
             if debug:
-                print(f"[AUTO_LAYOUT] Skipping feedback connection (pattern): {src}.{src_attr} -> {dst}.{dst_attr}")
+                print(f"[AUTO_LAYOUT] Skipping feedback pattern: {src}.{src_attr} -> {dst}.{dst_attr}")
             continue
 
         clean_connections.append((src, dst))
-        if debug:
-            print(f"[AUTO_LAYOUT] Keeping connection for layout: {src} -> {dst}")
 
     if debug:
-        print(f"[AUTO_LAYOUT] Using {len(clean_connections)} clean connections for dependency analysis")
+        print(f"[AUTO_LAYOUT] Using {len(clean_connections)} connections for layout")
 
-    # Build adjacency lists and in-degree counts
-    adj = {node: [] for node in nodes}
-    in_degree = {node: 0 for node in nodes}
+    # --- Topological sort → assign depth levels ---
+    adj       = {n: [] for n in nodes}
+    in_degree = {n: 0  for n in nodes}
 
     for src, dst in clean_connections:
         if src in adj and dst in adj:
             adj[src].append(dst)
             in_degree[dst] += 1
 
-    # Find nodes with no incoming edges
-    queue = deque([node for node in nodes if in_degree[node] == 0])
-
-    # If all nodes have dependencies, start with the first node
+    queue = deque([n for n in nodes if in_degree[n] == 0])
     if not queue and nodes:
         queue.append(nodes[0])
-        if debug:
-            print(f"[AUTO_LAYOUT] No nodes with zero in-degree, starting with {nodes[0]}")
 
     levels = {}
-    level = 0
-
-    # Process nodes level by level
+    level  = 0
     while queue:
-        level_size = len(queue)
         next_queue = deque()
-
-        for _ in range(level_size):
+        for _ in range(len(queue)):
             node = queue.popleft()
-            levels[node] = level
-
+            # Only set level if not already set (first-visit wins → shallowest level)
+            if node not in levels:
+                levels[node] = level
             for neighbor in adj[node]:
                 in_degree[neighbor] -= 1
                 if in_degree[neighbor] == 0:
                     next_queue.append(neighbor)
-
-        queue = next_queue
+        queue  = next_queue
         level += 1
 
-    # Assign level 0 to any remaining nodes (cycles or disconnected)
     for node in nodes:
         if node not in levels:
             levels[node] = 0
             if debug:
-                print(f"[AUTO_LAYOUT] Node {node} had no level assigned, setting to 0")
+                print(f"[AUTO_LAYOUT] Node {node} unleveled (cycle/disconnected), assigning level 0")
 
-    # Group nodes by level
-    level_groups = {}
+    # --- Group by level ---
+    level_groups: dict[int, list] = {}
     for node, lvl in levels.items():
-        if lvl not in level_groups:
-            level_groups[lvl] = []
-        level_groups[lvl].append(node)
+        level_groups.setdefault(lvl, []).append(node)
 
-    if debug:
-        print(f"[AUTO_LAYOUT] Found {len(level_groups)} levels")
-        for lvl, nodes_in_level in sorted(level_groups.items()):
-            print(f"  Level {lvl}: {len(nodes_in_level)} nodes")
-            for node in nodes_in_level:
-                node_name = graph.nodes[node].get('name', node[:4])
-                print(f"    - {node_name}")
+    # --- Collect actual node sizes from DPG ---
+    node_sizes: dict[str, tuple[float, float]] = {}   # uuid → (w, h)
+    fallback_w = render_scale.layout_horizontal_spacing()
+    fallback_h = render_scale.layout_vertical_spacing()
 
-    # Read grid spacing from the active render scale
-    h_spacing = render_scale.layout_horizontal_spacing()
-    v_spacing = render_scale.layout_vertical_spacing()
-    base_x    = render_scale.auto_layout_base_x()
-    base_y    = render_scale.auto_layout_base_y()
+    for node_id in nodes:
+        dpg_id = uuid_to_dpg.get(node_id)
+        if dpg_id and dpg.does_item_exist(dpg_id):
+            try:
+                w, h = dpg.get_item_rect_size(dpg_id)
+                # Guard against zero sizes (node not yet rendered)
+                node_sizes[node_id] = (w if w > 0 else fallback_w,
+                                       h if h > 0 else fallback_h)
+            except Exception:
+                node_sizes[node_id] = (fallback_w, fallback_h)
+        else:
+            node_sizes[node_id] = (fallback_w, fallback_h)
 
-    positioned_nodes = 0
+    # --- Spacing constants (padding between nodes, not total step) ---
+    pad_x  = render_scale.layout_horizontal_spacing()   # horizontal gap between columns
+    pad_y  = render_scale.layout_vertical_spacing()   # vertical gap between nodes
+    base_x = render_scale.auto_layout_base_x()
+    base_y = render_scale.auto_layout_base_y()
 
-    for level in sorted(level_groups.keys()):
-        nodes_in_level = level_groups[level]
+    # --- Compute column x-positions based on the widest node per column ---
+    sorted_levels = sorted(level_groups.keys())
 
-        for i, node_id in enumerate(nodes_in_level):
+    col_x: dict[int, float] = {}   # level → left-edge x
+    cursor_x = base_x
+    for lvl in sorted_levels:
+        col_x[lvl] = cursor_x
+        max_w = max(node_sizes[n][0] for n in level_groups[lvl])
+        cursor_x += max_w + pad_x
+
+    # --- Position each node, stacking vertically with actual heights ---
+    positioned = 0
+    for lvl in sorted_levels:
+        nodes_in_level = level_groups[lvl]
+        x        = col_x[lvl]
+        cursor_y = base_y
+
+        for node_id in nodes_in_level:
             dpg_id = uuid_to_dpg.get(node_id)
             if not dpg_id or not dpg.does_item_exist(dpg_id):
                 if debug:
-                    print(f"[AUTO_LAYOUT] Warning: Node {node_id} has no valid DPG ID")
+                    print(f"[AUTO_LAYOUT] Skipping {node_id}: no valid DPG ID")
                 continue
 
-            x = base_x + level * h_spacing
-            y = base_y + i    * v_spacing
-
+            w, h = node_sizes[node_id]
             node_name = graph.nodes[node_id].get('name', node_id[:4])
-            if debug:
-                print(f"[AUTO_LAYOUT] Positioning {node_name} at ({x}, {y})")
 
-            dpg.set_item_pos(dpg_id, [x, y])
-            positioned_nodes += 1
+            if debug:
+                print(f"[AUTO_LAYOUT] [{lvl}] {node_name} → ({x:.0f}, {cursor_y:.0f})  size=({w:.0f}x{h:.0f})")
+
+            dpg.set_item_pos(dpg_id, [x, cursor_y])
+            cursor_y += h + pad_y
+            positioned += 1
 
     if debug:
-        print(f"[AUTO_LAYOUT] Layout complete. Positioned {positioned_nodes} nodes")
-        
+        print(f"[AUTO_LAYOUT] Done. Positioned {positioned}/{len(nodes)} nodes across {len(sorted_levels)} columns")
+

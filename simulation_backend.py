@@ -395,33 +395,34 @@ class MonitorProbeObj:
     # ------------------------------------------------------------------
 
     def check_ready(self, t) -> bool:
-        """Return True (and set ``inputs_changed``) if the source was updated.
-
-        The source is considered updated when its ``generation_time`` is
-        greater than or equal to the current simulation time *t*.  If the
-        source does not expose ``generation_time`` (unusual), the probe
-        triggers on every step as a best-effort fallback.
-        """
         self._current_time = t
         if not self._enabled:
             self.inputs_changed = False
             return False
         gen_time = getattr(self._source, "generation_time", None)
         if gen_time is None or gen_time < 0:
-            # No timing info — always trigger (best-effort)
             self.inputs_changed = True
         else:
             self.inputs_changed = (gen_time >= t)
+        # --- TEMP DEBUG ---
+        if not hasattr(self, '_dbg_count'):
+            self._dbg_count = 0
+        self._dbg_count += 1
+        if self._dbg_count <= 5:
+            print(f"[PROBE-DBG] check_ready topic={self._topic} t={t} gen_time={gen_time} inputs_changed={self.inputs_changed}")
+        # ------------------
         return self.inputs_changed
 
     def trigger(self) -> None:
-        """Extract array from source and push to the MonitorBus."""
         if not self.inputs_changed or not self._enabled:
             return
+        print(f"[PROBE-DBG] trigger called for topic={self._topic}")   # TEMP DEBUG
         try:
             arr = _extract_cpu_array(self._source)
+            print(f"[PROBE-DBG] _extract_cpu_array returned: {None if arr is None else arr.shape}")  # TEMP DEBUG
             if arr is None:
                 return
+            
             ndim = arr.ndim
             if ndim == 0 or (ndim == 1 and arr.size == 1):
                 dtype_str = "scalar"
@@ -712,6 +713,11 @@ class InProcessBackend(SimulationBackend):
                         topic = f"{obj_name}.{out_key}"
                         registry[topic] = out_data_obj
 
+            # --- TEMP DEBUG ---
+            print(f"[PROBE-DBG] Registry topics: {sorted(registry.keys())}")
+            print(f"[PROBE-DBG] Bus subscriptions: {monitor_bus.all_subscribed_outputs()}")
+            # ------------------
+
             _state["registry"]     = registry
             _state["loop_control"] = lc_self
 
@@ -732,8 +738,10 @@ class InProcessBackend(SimulationBackend):
                     )
                     lc_self.trigger_lists[probe_priority].append(probe)
                     _active_probes[topic] = probe
+                    print(f"[PROBE-DBG] Probe injected for '{topic}', source={type(source).__name__}, source attrs={[a for a in vars(source) if not a.startswith('_')]}")  # TEMP DEBUG
                     append_terminal(f"[In-Process] Probe injected for '{topic}'\n")
                 elif source is None:
+                    print(f"[PROBE-DBG] WARNING: topic '{topic}' NOT found in registry!")  # TEMP DEBUG
                     append_terminal(
                         f"[In-Process] Warning: topic '{topic}' not found "
                         f"in registry — no probe created.\n"
