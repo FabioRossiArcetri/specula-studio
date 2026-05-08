@@ -103,6 +103,11 @@ class InProcessMonitor:
     # DPG window lifecycle (main thread only)
     # ------------------------------------------------------------------
 
+    def focus(self) -> None:
+        """Bring the monitor window to the foreground.  Main thread only."""
+        if dpg.does_item_exist(self._win_tag):
+            dpg.focus_item(self._win_tag)
+
     def open(self) -> None:
         """Create and show the DPG window.  Must be called on the main thread."""
         if self.is_open and dpg.does_item_exist(self._win_tag):

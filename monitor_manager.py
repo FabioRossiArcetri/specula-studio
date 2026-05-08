@@ -333,7 +333,7 @@ class MonitorManager:
                 and monitor.is_open
             ):
                 self._log(f"In-process monitor already open for {node_name}.{output_name}")
-                dpg.focus_item(monitor._win_tag)
+                monitor.focus()
                 return
 
         monitor_id = f"{node_uuid}_{output_name}_{int(time.time() * 1000)}"

@@ -260,7 +260,7 @@ class InProcessBackend(SimulationBackend):
 
     def _make_step_pipe(self) -> None:
         read_fd, write_fd = os.pipe()
-        self._step_read_file  = open(read_fd, closefd=True)
+        self._step_read_file  = open(read_fd,  "r", closefd=True)   # noqa: UP015
         self._step_write_file = open(write_fd, "w", buffering=1, closefd=True)
 
     def _close_step_pipe(self) -> None:
