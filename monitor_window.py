@@ -45,7 +45,7 @@ from constants import (
     MAX_QUEUE_ITEMS_PER_FRAME,
     MONITOR_QUEUE_SIZE,
 )
-FONT_SIZE =18
+FONT_SIZE = 18
 
 try:
     import matplotlib
@@ -62,7 +62,7 @@ except Exception:
 
 class StandaloneMonitor:
     """
-    Self-contained monitor window.
+    Self-contained monitor window with responsive layout.
 
     The DPG render loop runs on the main thread.
     The Socket.IO client runs its own background thread.
@@ -72,7 +72,7 @@ class StandaloneMonitor:
 
     _TAG_WINDOW    = "monitor_main"
     _TAG_STATUS    = "status_text"
-    _TAG_PLOT_GRP  = "plot_container"
+    _TAG_PLOT_CONTAINER = "plot_container"
     _TAG_PHOLDER   = "placeholder_text"
     _TAG_INFO_TYPE = "info_type"
     _TAG_INFO_SHP  = "info_shape"
@@ -95,8 +95,6 @@ class StandaloneMonitor:
         self.output_name         = output_name
 
         # Thread-safe data queue (sio thread → main thread)
-        # Each item is {"data": <inner-payload-dict>, "timestamp": float}
-        # where inner-payload = {"type": "...", "data": [...], "shape": [...]}
         self.data_queue: Queue = Queue(maxsize=MONITOR_QUEUE_SIZE)
 
         # Socket.IO state
@@ -109,6 +107,12 @@ class StandaloneMonitor:
         self.last_update: float   = 0.0
         self.update_count: int    = 0
         self.min_update_interval: float = 0.05
+
+        # Window dimensions
+        self.window_width = 920
+        self.window_height = 720
+        self.plot_width = 880
+        self.plot_height = 500
 
         # Pending status/URL label (set from sio thread, applied on main thread)
         self._pending_status: str | None = None
@@ -153,7 +157,7 @@ class StandaloneMonitor:
             client = sio_module.Client(
                 logger=False,
                 engineio_logger=False,
-                reconnection=False,   # we handle reconnect ourselves
+                reconnection=False,
             )
         else:
             client = sio_module.Client(logger=False, engineio_logger=False)
@@ -163,7 +167,6 @@ class StandaloneMonitor:
             self.connected = True
             print(f"[MONITOR] Connected to {self.server_url}")
             self._set_status("connected")
-            # Subscribe to our output immediately after connecting
             try:
                 client.emit("newdata", [self.server_output_name])
                 self._set_status("subscribed")
@@ -190,16 +193,9 @@ class StandaloneMonitor:
         def data_update(data):
             """
             Called on the sio background thread — only enqueue, never touch DPG.
-
-            The server sends:
-                {"name": "node.output", "data": {"type": "...", "data": [...], "shape": [...]}}
-
-            We extract the inner payload ("data" key) so that _raw_to_numpy
-            receives {"type": ..., "data": ..., "shape": ...} directly —
-            matching the structure expected by the old MonitorManager.
             """
             name         = data.get("name")
-            inner_payload = data.get("data")   # ← extract inner payload here
+            inner_payload = data.get("data")
 
             if name != self.server_output_name:
                 return
@@ -209,10 +205,9 @@ class StandaloneMonitor:
 
             if self.data_queue.full():
                 try:
-                    self.data_queue.get_nowait()   # drop oldest frame
+                    self.data_queue.get_nowait()
                 except Empty:
                     pass
-            # Queue the inner payload, not the outer envelope
             self.data_queue.put({"data": inner_payload, "timestamp": time.time()})
 
         @client.event
@@ -254,7 +249,7 @@ class StandaloneMonitor:
                             pass
                     self.sio = self._build_sio_client()
                 self.sio.connect(url, namespaces=["/"])
-                retry_delay = 1.0   # reset back-off on success
+                retry_delay = 1.0
             except Exception as e:
                 err = str(e)
                 if len(err) > 120:
@@ -277,8 +272,16 @@ class StandaloneMonitor:
 
         title = f"Monitor: {self.node_name}.{self.output_name}"
 
-        with dpg.window(label=title, tag=self._TAG_WINDOW):
+        with dpg.window(
+            label=title, 
+            tag=self._TAG_WINDOW,
+            no_close=False,
+            width=self.window_width,
+            height=self.window_height,
+            on_close=lambda: self._stop_flag.set()
+        ):
 
+            # Header section - Connection info (collapsible)
             with dpg.collapsing_header(label="Connection", default_open=False):
                 dpg.add_text(
                     f"Server:  {self.server_url}",
@@ -286,7 +289,8 @@ class StandaloneMonitor:
                     tag=self._TAG_URL_TXT,
                 )
                 dpg.add_text(
-                    f"Output:  {self.server_output_name}", color=[100, 255, 100]
+                    f"Output:  {self.server_output_name}", 
+                    color=[100, 255, 100]
                 )
                 dpg.add_text(
                     "Status:  Connecting …",
@@ -301,17 +305,30 @@ class StandaloneMonitor:
                 )
 
             dpg.add_separator()
-            dpg.add_text(
-                "Waiting for data …", color=[150, 150, 150], tag=self._TAG_PHOLDER
-            )
-            dpg.add_group(tag=self._TAG_PLOT_GRP)
-            dpg.add_separator()
-            dpg.add_text("Type:    —", color=[200, 200, 200], tag=self._TAG_INFO_TYPE)
-            dpg.add_text("Shape:   —", color=[200, 200, 200], tag=self._TAG_INFO_SHP)
-            dpg.add_text("Range:   —", color=[200, 200, 200], tag=self._TAG_INFO_RNG)
-            dpg.add_text("Updated: never", color=[200, 200, 200], tag=self._TAG_INFO_TIME)
 
-        dpg.create_viewport(title=title, width=920, height=720)
+            # Plot area - using a child window for responsive sizing
+            with dpg.child_window(
+                border=True,
+                width=-1,
+                height=-130,
+                tag=self._TAG_PLOT_CONTAINER
+            ):
+                dpg.add_text(
+                    "Waiting for data …", 
+                    color=[150, 150, 150], 
+                    tag=self._TAG_PHOLDER
+                )
+
+            dpg.add_separator()
+
+            # Info section - Data statistics
+            with dpg.group(horizontal=False):
+                dpg.add_text("Type:    —", color=[200, 200, 200], tag=self._TAG_INFO_TYPE)
+                dpg.add_text("Shape:   —", color=[200, 200, 200], tag=self._TAG_INFO_SHP)
+                dpg.add_text("Range:   —", color=[200, 200, 200], tag=self._TAG_INFO_RNG)
+                dpg.add_text("Updated: never", color=[200, 200, 200], tag=self._TAG_INFO_TIME)
+
+        dpg.create_viewport(title=title, width=self.window_width, height=self.window_height)
         dpg.setup_dearpygui()
         dpg.show_viewport()
         dpg.set_primary_window(self._TAG_WINDOW, True)
@@ -319,7 +336,6 @@ class StandaloneMonitor:
     def _do_reconnect(self):
         """Force a reconnect (called from background thread via button)."""
         self.connected = False
-        # The connection loop will wake up and retry on the next cycle.
 
     # =========================================================================
     # Data conversion + plotting (main thread only)
@@ -329,7 +345,7 @@ class StandaloneMonitor:
         """
         Convert the inner payload dict to a float32 numpy array.
 
-        Expected structure (matches what specula's display server sends):
+        Expected structure:
             {
                 "type":  "1d_array" | "2d_array" | "scalar" | "nd_array" | "multi_data",
                 "data":  <list or nested list>,
@@ -391,7 +407,9 @@ class StandaloneMonitor:
 
         if self.dpg_plotter is None:
             self.dpg_plotter = DPGPlotter(
-                parent_tag=self._TAG_PLOT_GRP, width=880, height=500
+                parent_tag=self._TAG_PLOT_CONTAINER, 
+                width=self.plot_width, 
+                height=self.plot_height
             )
 
         p    = self.dpg_plotter
