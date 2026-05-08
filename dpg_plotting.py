@@ -20,6 +20,15 @@ class InteractiveImageViewer:
         self.registry_tag = None
         self.current_data = None
         self.container_tag = None
+        self.info_text_tag = None
+        
+        # Interaction state
+        self.zoom = 1.0
+        self.pan_x = 0.0
+        self.pan_y = 0.0
+        self.is_dragging = False
+        self.last_mouse_x = 0
+        self.last_mouse_y = 0
         
     def update_image(self, data_2d, colormap='seismic'):
         """Update the displayed image with new data."""
@@ -56,24 +65,81 @@ class InteractiveImageViewer:
                     parent=self.registry_tag
                 )
             
-            # Create or update image display
+            # Create or update image display with group and info text
             if not self.image_tag or not dpg.does_item_exist(self.image_tag):
                 # Create container if needed
                 if not self.container_tag or not dpg.does_item_exist(self.container_tag):
                     self.container_tag = dpg.add_group(parent=self.parent, horizontal=False)
                 
+                # Add info text
+                self.info_text_tag = dpg.add_text(
+                    "Scroll to zoom | Drag to pan",
+                    color=[150, 150, 150],
+                    parent=self.container_tag
+                )
+                
+                # Add image
                 self.image_tag = dpg.add_image(
                     self.texture_tag,
                     parent=self.container_tag
                 )
             
-            self.current_data = data_2d
+            self.current_data = data_2d.copy()
+            self._update_info()
             return True
             
         except Exception as e:
             print(f"[InteractiveImageViewer.update_image] Error: {e}")
             traceback.print_exc()
             return False
+
+    def _update_info(self):
+        """Update info text display."""
+        try:
+            if self.info_text_tag and dpg.does_item_exist(self.info_text_tag):
+                info = f"Zoom: {self.zoom:.2f}x | Pan: ({self.pan_x:.0f}, {self.pan_y:.0f})"
+                dpg.set_value(self.info_text_tag, info)
+        except Exception:
+            pass
+
+    def update_size(self, width, height):
+        """Update viewer size."""
+        self.width = max(width, 50)
+        self.height = max(height, 50)
+
+    def handle_mouse_move(self, mouse_x, mouse_y):
+        """Handle mouse movement for panning."""
+        try:
+            if self.is_dragging:
+                dx = mouse_x - self.last_mouse_x
+                dy = mouse_y - self.last_mouse_y
+                self.pan_x += dx
+                self.pan_y += dy
+                self._update_info()
+            
+            self.last_mouse_x = mouse_x
+            self.last_mouse_y = mouse_y
+        except Exception:
+            pass
+    
+    def handle_mouse_scroll(self, scroll_delta):
+        """Handle mouse wheel zoom."""
+        try:
+            zoom_factor = 1.1 if scroll_delta > 0 else 0.9
+            self.zoom = max(0.1, min(10.0, self.zoom * zoom_factor))
+            self._update_info()
+        except Exception as e:
+            print(f"[InteractiveImageViewer.handle_mouse_scroll] Error: {e}")
+    
+    def start_drag(self, mouse_x, mouse_y):
+        """Start panning operation."""
+        self.is_dragging = True
+        self.last_mouse_x = mouse_x
+        self.last_mouse_y = mouse_y
+    
+    def end_drag(self):
+        """End panning operation."""
+        self.is_dragging = False
 
 
 class DPGPlotter:
@@ -190,6 +256,10 @@ class DPGPlotter:
                 dpg.configure_item(self.plot_tag, width=self.current_width, height=self.current_height)
             except Exception as e:
                 print(f"[DPGPlotter.update_size] Error updating plot: {e}")
+        
+        # Update image viewer if it exists
+        if self.image_viewer is not None:
+            self.image_viewer.update_size(self.current_width, self.current_height)
 
     def plot_2d_heatmap(self, data_2d, label="2D Heatmap"):
         """Plot 2D data as a heatmap using DPG's heat series."""

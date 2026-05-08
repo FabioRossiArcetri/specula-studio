@@ -3,24 +3,6 @@
 monitor_window.py
 =================
 Standalone monitor window — runs as a completely independent subprocess.
-
-Each instance owns:
-  • its own DearPyGui context and viewport (separate OS window)
-  • its own Socket.IO client connected directly to specula's display server
-  • its own render loop with no coupling to the main GUI process
-
-URL discovery
--------------
-The display-server port is not known at spawn time (specula assigns it
-dynamically).  The monitor resolves the actual URL by:
-
-  1. Checking the coordination file (--server-url-file) written by the main
-     process as soon as specula announces its port.
-  2. Falling back to --server-url (the best-known URL at spawn time).
-
-On every reconnect attempt the coordination file is re-read so that if the
-simulation is restarted with a new port the monitor will pick it up
-automatically.
 """
 
 import argparse
@@ -62,7 +44,7 @@ except Exception:
 
 class StandaloneMonitor:
     """
-    Self-contained monitor window with responsive layout.
+    Self-contained monitor window with responsive layout and interactive image viewer.
 
     The DPG render loop runs on the main thread.
     The Socket.IO client runs its own background thread.
@@ -108,11 +90,15 @@ class StandaloneMonitor:
         self.update_count: int    = 0
         self.min_update_interval: float = 0.05
 
-        # Window dimensions
+        # Window dimensions and responsive sizing
         self.window_width = 920
         self.window_height = 720
         self.plot_width = 880
         self.plot_height = 500
+        
+        # Container size tracking
+        self.last_container_width = 0
+        self.last_container_height = 0
 
         # Pending status/URL label (set from sio thread, applied on main thread)
         self._pending_status: str | None = None
@@ -121,6 +107,11 @@ class StandaloneMonitor:
 
         # Stop flag for the connection loop
         self._stop_flag = threading.Event()
+        
+        # Mouse state tracking for image viewer
+        self.last_mouse_x = 0
+        self.last_mouse_y = 0
+        self.mouse_down = False
 
     # =========================================================================
     # URL resolution
@@ -193,14 +184,25 @@ class StandaloneMonitor:
         def data_update(data):
             """
             Called on the sio background thread — only enqueue, never touch DPG.
+            
+            Server sends:
+            {
+                "name": <output_name>,
+                "data": {
+                    "type": "1d_array" | "2d_array" | ...,
+                    "data": <actual data>,
+                    "shape": [...],
+                    ...
+                }
+            }
             """
-            name         = data.get("name")
-            inner_payload = data.get("data")
+            name = data.get("name")
+            payload = data.get("data")
 
             if name != self.server_output_name:
                 return
-            if inner_payload is None:
-                print(f"[MONITOR] data_update: missing inner payload for {name}")
+            if payload is None:
+                print(f"[MONITOR] data_update: missing payload for {name}")
                 return
 
             if self.data_queue.full():
@@ -208,7 +210,9 @@ class StandaloneMonitor:
                     self.data_queue.get_nowait()
                 except Empty:
                     pass
-            self.data_queue.put({"data": inner_payload, "timestamp": time.time()})
+            
+            # Queue the complete payload (contains type, data, shape, etc.)
+            self.data_queue.put({"payload": payload, "timestamp": time.time()})
 
         @client.event
         def done(data):
@@ -260,8 +264,42 @@ class StandaloneMonitor:
                 retry_delay = min(retry_delay * 1.5, max_delay)
 
     # =========================================================================
-    # DPG setup
+    # DPG setup and input handling
     # =========================================================================
+
+    def _on_mouse_move(self, sender, app_data):
+        """Handle mouse move for interactive image viewer."""
+        try:
+            if self.dpg_plotter and self.dpg_plotter.image_viewer:
+                self.dpg_plotter.image_viewer.handle_mouse_move(app_data[0], app_data[1])
+        except Exception:
+            pass
+
+    def _on_mouse_scroll(self, sender, app_data):
+        """Handle mouse scroll for image zoom."""
+        try:
+            if self.dpg_plotter and self.dpg_plotter.image_viewer:
+                self.dpg_plotter.image_viewer.handle_mouse_scroll(app_data)
+        except Exception:
+            pass
+
+    def _on_mouse_down(self, sender, app_data):
+        """Handle mouse button down for pan start."""
+        try:
+            if self.dpg_plotter and self.dpg_plotter.image_viewer:
+                self.dpg_plotter.image_viewer.start_drag(app_data[0], app_data[1])
+                self.mouse_down = True
+        except Exception:
+            pass
+
+    def _on_mouse_up(self, sender, app_data):
+        """Handle mouse button up for pan end."""
+        try:
+            if self.dpg_plotter and self.dpg_plotter.image_viewer:
+                self.dpg_plotter.image_viewer.end_drag()
+                self.mouse_down = False
+        except Exception:
+            pass
 
     def _build_ui(self):
         dpg.create_context()
@@ -306,11 +344,11 @@ class StandaloneMonitor:
 
             dpg.add_separator()
 
-            # Plot area - using a child window for responsive sizing
+            # Plot container - fills available space responsively
             with dpg.child_window(
                 border=True,
                 width=-1,
-                height=-130,
+                height=-115,
                 tag=self._TAG_PLOT_CONTAINER
             ):
                 dpg.add_text(
@@ -328,6 +366,13 @@ class StandaloneMonitor:
                 dpg.add_text("Range:   —", color=[200, 200, 200], tag=self._TAG_INFO_RNG)
                 dpg.add_text("Updated: never", color=[200, 200, 200], tag=self._TAG_INFO_TIME)
 
+        # Setup input handlers
+        with dpg.handler_registry():
+            dpg.add_mouse_move_handler(callback=self._on_mouse_move)
+            dpg.add_mouse_wheel_handler(callback=self._on_mouse_scroll)
+            dpg.add_mouse_click_handler(callback=self._on_mouse_down)
+            dpg.add_mouse_release_handler(callback=self._on_mouse_up)
+
         dpg.create_viewport(title=title, width=self.window_width, height=self.window_height)
         dpg.setup_dearpygui()
         dpg.show_viewport()
@@ -337,31 +382,58 @@ class StandaloneMonitor:
         """Force a reconnect (called from background thread via button)."""
         self.connected = False
 
+    def _update_responsive_layout(self):
+        """
+        Update plot area dimensions based on container size.
+        """
+        try:
+            if not dpg.does_item_exist(self._TAG_PLOT_CONTAINER):
+                return
+
+            container_width = dpg.get_item_width(self._TAG_PLOT_CONTAINER)
+            container_height = dpg.get_item_height(self._TAG_PLOT_CONTAINER)
+
+            # Only update if dimensions changed significantly
+            if (abs(container_width - self.last_container_width) > 5 or 
+                abs(container_height - self.last_container_height) > 5):
+                
+                self.plot_width = container_width
+                self.plot_height = container_height
+                self.last_container_width = container_width
+                self.last_container_height = container_height
+
+                # Update plotter if it exists
+                if self.dpg_plotter is not None:
+                    self.dpg_plotter.update_size(self.plot_width, self.plot_height)
+
+        except Exception:
+            pass
+
     # =========================================================================
     # Data conversion + plotting (main thread only)
     # =========================================================================
 
-    def _raw_to_numpy(self, inner_payload: dict):
+    def _raw_to_numpy(self, payload: dict):
         """
-        Convert the inner payload dict to a float32 numpy array.
+        Convert the payload dict to a float32 numpy array.
 
-        Expected structure:
+        Expected payload structure:
             {
                 "type":  "1d_array" | "2d_array" | "scalar" | "nd_array" | "multi_data",
                 "data":  <list or nested list>,
                 "shape": <list of ints>   (optional)
             }
         """
-        data_type  = inner_payload.get("type")
-        data_value = inner_payload.get("data")
-        shape      = inner_payload.get("shape")
+        data_type  = payload.get("type")
+        data_value = payload.get("data")
+        shape      = payload.get("shape")
 
         if data_value is None:
-            print(f"[MONITOR] _raw_to_numpy: no 'data' key in payload, keys={list(inner_payload.keys())}")
+            print(f"[MONITOR] _raw_to_numpy: no 'data' key in payload, keys={list(payload.keys())}")
             return None
 
         if data_type is None:
-            print(f"[MONITOR] _raw_to_numpy: no 'type' key in payload, keys={list(inner_payload.keys())}")
+            print(f"[MONITOR] _raw_to_numpy: no 'type' key in payload, keys={list(payload.keys())}")
 
         try:
             if data_type in ("1d_array", "2d_array", "scalar", "nd_array") or data_type is None:
@@ -389,7 +461,7 @@ class StandaloneMonitor:
                         if isinstance(first, list)
                         else first.astype(np.float32)
                     )
-                    shapes = inner_payload.get("shapes")
+                    shapes = payload.get("shapes")
                     if shapes and np.prod(shapes[0]) == arr.size:
                         arr = arr.reshape(tuple(shapes[0]))
                     return arr
@@ -523,7 +595,8 @@ class StandaloneMonitor:
             if now - self.last_update < self.min_update_interval:
                 continue
 
-            arr = self._raw_to_numpy(item["data"])
+            # Extract payload from queue item
+            arr = self._raw_to_numpy(item["payload"])
             if arr is None:
                 continue
 
@@ -546,6 +619,7 @@ class StandaloneMonitor:
         # Render loop
         while dpg.is_dearpygui_running():
             self._apply_pending_status()
+            self._update_responsive_layout()
             self._drain_queue()
             dpg.render_dearpygui_frame()
 
