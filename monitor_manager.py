@@ -233,11 +233,7 @@ class MonitorManager:
                     self.active_monitors.pop(mid, None)
 
         # --- Flush pending monitors -------------------------------------------
-        pending = list(self._pending_monitors)
-        self._pending_monitors.clear()
-        for (s, a, ud) in pending:
-            self._log(f"Flushing pending monitor for {ud}")
-            self.open_monitor(s, a, ud)
+        self._flush_pending_monitors()
 
     def _flush_pending_monitors(self) -> None:
         pending = list(self._pending_monitors)
