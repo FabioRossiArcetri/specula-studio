@@ -18,7 +18,6 @@ _DISPLAY_SERVER_NODE_NAME = "specula_studio_display_server"
 
 # ---------------------------------------------------------------------------
 # Patterns used to extract the display-server URL from specula stdout
-# (kept as a confirmation mechanism even though the port is now fixed)
 # ---------------------------------------------------------------------------
 _URL_RE = re.compile(
     r'https?://(?:0\.0\.0\.0|127\.0\.0\.1|localhost):(\d{4,5})',
@@ -212,12 +211,31 @@ class SimulationControl:
     # YAML preparation
     # ------------------------------------------------------------------
 
-    def _strip_gui_fields(self, yaml_data: dict) -> dict:
-        """Remove GUI-only fields (gui_pos) from all nodes."""
+    def _strip_studio_fields(self, yaml_data: dict) -> dict:
+        """
+        Remove all specula-studio-private fields from the YAML dict so that
+        the resulting file is clean for SPECULA.
+
+        Fields removed:
+          - ``gui_pos``           — node positions (present on every node dict)
+          - any top-level key starting with ``_``  — e.g. ``_overrides_metadata``
+        """
+        # Remove top-level studio-private keys (e.g. _overrides_metadata)
+        private_top_level = [k for k in yaml_data if k.startswith('_')]
+        for key in private_top_level:
+            del yaml_data[key]
+            print(f"[SIMULATION] Stripped private key '{key}' from YAML")
+
+        # Remove per-node gui_pos entries
         for _node_name, node_dict in yaml_data.items():
             if isinstance(node_dict, dict) and "gui_pos" in node_dict:
                 del node_dict["gui_pos"]
+
         return yaml_data
+
+    # kept for backward-compat
+    def _strip_gui_fields(self, yaml_data: dict) -> dict:
+        return self._strip_studio_fields(yaml_data)
 
     def _inject_display_server_node(self, yaml_data: dict) -> bool:
         """
@@ -279,25 +297,20 @@ class SimulationControl:
     def _prepare_simulation_yaml(self, file_path: str, inject_display_server: bool = True):
         """
         Post-process the exported YAML before handing it to specula:
-          1. Strip GUI-only fields (gui_pos).
+          1. Strip all specula-studio-private fields (gui_pos, _overrides_metadata, …).
           2. Optionally inject a DisplayServer node (skipped in direct in-process mode).
         """
         try:
             with open(file_path, encoding="utf-8") as f:
                 yaml_data = yaml.safe_load(f)
 
-            # Also add enabled overrides as override files
-            # This reads from the override manager if available
-            if hasattr(self.editor, 'override_manager'):
-                override_string = self.editor.override_manager.get_override_string()
-                if override_string:
-                    print(f"[SIMULATION] Injecting {len(self.editor.override_manager.get_enabled_overrides())} enabled override(s)")
-
             if not isinstance(yaml_data, dict):
                 print("[SIMULATION] Warning: YAML root is not a dict, skipping preparation")
                 return
 
-            yaml_data = self._strip_gui_fields(yaml_data)
+            # Strip GUI-only and studio-private fields BEFORE any other processing
+            yaml_data = self._strip_studio_fields(yaml_data)
+
             if inject_display_server:
                 self._inject_display_server_node(yaml_data)
 
@@ -392,7 +405,7 @@ class SimulationControl:
 
         temp_path = self._get_sim_path()
         self.editor.fh.export_simulation(temp_path, include_defaults=True)
-        # Strip GUI fields; inject DisplayServer only for Display-Server mode.
+        # Strip studio-private fields; inject DisplayServer only for Display-Server mode.
         self._prepare_simulation_yaml(
             temp_path,
             inject_display_server=not use_inprocess_direct,
@@ -419,7 +432,7 @@ class SimulationControl:
             "nsimul":    dpg.get_value("sim_nsimul")    if dpg.does_item_exist("sim_nsimul")   else 1,
             "cpu":       dpg.get_value("sim_cpu")       if dpg.does_item_exist("sim_cpu")      else False,
             "target":    dpg.get_value("sim_target")    if dpg.does_item_exist("sim_target")   else -1,
-            "precision": int(dpg.get_value("sim_precision") if dpg.does_item_exist("sim_precision") else "1"),  # ← int()
+            "precision": int(dpg.get_value("sim_precision") if dpg.does_item_exist("sim_precision") else "1"),
             "log_level": dpg.get_value("sim_log")       if dpg.does_item_exist("sim_log")      else "INFO",
         }
 
