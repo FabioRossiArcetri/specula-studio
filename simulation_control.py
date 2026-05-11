@@ -7,7 +7,7 @@ import time
 import dearpygui.dearpygui as dpg
 import yaml
 
-from simulation_backend import DisplayServerBackend, InProcessBackend, SimulationBackend
+from simulation_backend import RemoteBackend, InProcessBackend, SimulationBackend
 
 # ---------------------------------------------------------------------------
 # Fixed port for the injected DisplayServer node.
@@ -162,30 +162,87 @@ class SimulationControl:
             dpg.focus_item("sim_control_window")
             return
 
-        with dpg.window(label="Simulation Control Panel", tag="sim_control_window", width=700, height=500):
+        with dpg.window(label="Simulation Control Panel", tag="sim_control_window", width=850, height=600):
             with dpg.group(horizontal=True):
-                with dpg.child_window(width=250):
-                    dpg.add_text("Backend", color=[255, 200, 100])
+                with dpg.child_window(width=400):
+                    # ── Backend Mode Selection ──────────────────────────────────
+                    dpg.add_text("Backend Mode", color=[255, 200, 100])
                     dpg.add_combo(
-                        label="Mode",
-                        items=["Display Server", "In-Process"],
+                        label="Execution Mode",
+                        items=["Remote", "In-Process"],
                         tag="sim_backend",
-                        default_value="Display Server",
+                        default_value="Remote",
+                        callback=self._on_backend_mode_changed,
                     )
-                    dpg.add_spacer(height=6)
-                    dpg.add_text("Arguments", color=[100, 200, 255])
-                    dpg.add_input_int(label="N-Simul", tag="sim_nsimul", default_value=1)
+                    
+                    # ── Remote Server Settings (shown when Remote is selected) ────
+                    dpg.add_text("Remote Server Configuration", color=[100, 200, 255], tag="sim_remote_settings_label")
+                    dpg.add_input_text(
+                        label="Server IP / Hostname",
+                        tag="sim_remote_ip",
+                        default_value="localhost",
+                        hint="localhost, 127.0.0.1, or remote host IP",
+                        width=-1,
+                    )
+                    dpg.add_input_text(
+                        label="SSH Username",
+                        tag="sim_remote_user",
+                        default_value="",
+                        hint="Leave empty to use current user",
+                        width=-1,
+                    )
+                    dpg.add_text(
+                        "For remote servers, YAML is copied via scp and\n"
+                        "simulation executed via ssh. DisplayServer\n"
+                        "runs on remote and is accessible locally.",
+                        color=[150, 150, 150],
+                        wrap=380,
+                    )
+                    
+                    dpg.add_separator()
+                    
+                    # ── Simulation Arguments ────────────────────────────────────
+                    dpg.add_text("Simulation Arguments", color=[100, 200, 255])
+                    dpg.add_input_int(label="N-Simul", tag="sim_nsimul", default_value=1, min_value=1)
                     dpg.add_checkbox(label="Use CPU", tag="sim_cpu")
                     dpg.add_input_int(label="GPU ID", tag="sim_target", default_value=0)
-                    dpg.add_combo(label="Precision", items=["0", "1"], tag="sim_precision", default_value="1")
-                    dpg.add_combo(label="Log", items=["DEBUG", "INFO", "WARNING"], tag="sim_log", default_value="INFO")
-                    dpg.add_checkbox(label="Stepping", tag="sim_stepping", default_value=True)
+                    dpg.add_combo(
+                        label="Precision",
+                        items=["0", "1"],
+                        tag="sim_precision",
+                        default_value="1"
+                    )
+                    dpg.add_combo(
+                        label="Log Level",
+                        items=["DEBUG", "INFO", "WARNING"],
+                        tag="sim_log",
+                        default_value="INFO"
+                    )
+                    dpg.add_checkbox(label="Stepping Mode", tag="sim_stepping", default_value=True)
 
-                    dpg.add_spacer(height=10)
-                    dpg.add_button(label="START SIMULATION", callback=self.start_sim, width=-1, height=30)
-                    dpg.add_button(label="Advance Step", callback=self.step_sim, width=-1)
-                    dpg.add_button(label="Abort", callback=self.abort_sim, width=-1)
+                    dpg.add_separator()
 
+                    # ── Control Buttons ─────────────────────────────────────────
+                    dpg.add_button(
+                        label="START SIMULATION",
+                        callback=self.start_sim,
+                        width=-1,
+                        height=35
+                    )
+                    dpg.add_button(
+                        label="Advance Step",
+                        callback=self.step_sim,
+                        width=-1,
+                        height=25
+                    )
+                    dpg.add_button(
+                        label="Abort Simulation",
+                        callback=self.abort_sim,
+                        width=-1,
+                        height=25
+                    )
+
+                # ── Terminal Output ─────────────────────────────────────────────
                 with dpg.child_window(width=-1, tag="sim_terminal_child", border=True):
                     dpg.add_text("Terminal Output", color=[150, 150, 150])
                     dpg.add_input_text(
@@ -196,7 +253,24 @@ class SimulationControl:
                         height=-1,
                     )
 
+    def _on_backend_mode_changed(self, sender, app_data):
+        """Handle backend mode change and update UI visibility."""
+        mode = app_data
+        # When the mode changes, show/hide remote settings accordingly
+        # Note: In a full implementation, you might show/hide the remote server fields
+        is_remote = (mode == "Remote")
+        
+        # Log the change
+        print(f"[SIMULATION] Backend mode changed to: {mode}")
+        
+        # Update visibility of remote server settings
+        if dpg.does_item_exist("sim_remote_settings_label"):
+            # You can conditionally show/hide based on mode
+            # For now, we always show them but they're only relevant in Remote mode
+            pass
+
     def append_terminal(self, text):
+        """Append text to the terminal output display."""
         self.terminal_data.append(text)
         if len(self.terminal_data) > 1000:
             self.terminal_data.pop(0)
@@ -389,23 +463,26 @@ class SimulationControl:
         threading.Thread(target=_attempt, args=(1, delay), daemon=True).start()
 
     def start_sim(self, sender=None, app_data=None, run_all_mode=False):
+        """Start the simulation with the current configuration."""
         if self.is_running:
+            self.append_terminal("[WARNING] Simulation is already running\n")
             return
 
         self._clear_server_url_file()
 
-        # ── Determine backend BEFORE YAML preparation so we know whether to
-        #    inject the DisplayServer node (not needed in direct in-process mode).
+        # ── Determine backend mode ──────────────────────────────────────────
         backend_mode = (
             dpg.get_value("sim_backend")
             if dpg.does_item_exist("sim_backend")
-            else "Display Server"
+            else "Remote"
         )
         use_inprocess_direct = (backend_mode == "In-Process")
+        is_remote = (backend_mode == "Remote")
 
+        # ── Export and prepare simulation YAML ───────────────────────────────
         temp_path = self._get_sim_path()
         self.editor.fh.export_simulation(temp_path, include_defaults=True)
-        # Strip studio-private fields; inject DisplayServer only for Display-Server mode.
+        # Strip studio-private fields; inject DisplayServer for Remote mode (not for In-Process)
         self._prepare_simulation_yaml(
             temp_path,
             inject_display_server=not use_inprocess_direct,
@@ -413,19 +490,32 @@ class SimulationControl:
 
         mm = self.editor.nm.monitors
 
+        # ── Create appropriate backend ──────────────────────────────────────
         if use_inprocess_direct:
             # Pass the MonitorBus so InProcessBackend uses the probe-based path.
             monitor_bus = mm._monitor_bus
             self._backend = InProcessBackend(monitor_bus=monitor_bus)
             mm.set_inprocess_mode(True)
         else:
-            self._backend = DisplayServerBackend()
+            # Remote backend (handles both localhost and remote execution)
+            remote_ip = (
+                dpg.get_value("sim_remote_ip")
+                if dpg.does_item_exist("sim_remote_ip")
+                else "localhost"
+            )
+            remote_user = (
+                dpg.get_value("sim_remote_user")
+                if dpg.does_item_exist("sim_remote_user")
+                else ""
+            )
+            self._backend = RemoteBackend(remote_ip=remote_ip, remote_user=remote_user)
             mm.set_inprocess_mode(False)
 
         # Give MonitorManager a reference to the backend for dynamic probe
         # attach / detach when monitor windows are opened or closed.
         mm.set_backend(self._backend)
 
+        # ── Prepare command arguments ───────────────────────────────────────
         cmd_args = {
             "run_all_mode": run_all_mode,
             "stepping":  dpg.get_value("sim_stepping")  if dpg.does_item_exist("sim_stepping") else False,
@@ -436,17 +526,27 @@ class SimulationControl:
             "log_level": dpg.get_value("sim_log")       if dpg.does_item_exist("sim_log")      else "INFO",
         }
 
+        # ── Log startup info ────────────────────────────────────────────────
         if use_inprocess_direct:
             self.append_terminal(
                 f"[INFO] Backend: {backend_mode} (direct probe monitoring — no DisplayServer)\n"
             )
-        else:
-            self.append_terminal(
-                f"[INFO] Backend: {backend_mode}\n"
-                f"[INFO] DisplayServer will start on port {_DISPLAY_SERVER_PORT} …\n"
-            )
+        elif is_remote:
+            remote_ip = dpg.get_value("sim_remote_ip") if dpg.does_item_exist("sim_remote_ip") else "localhost"
+            remote_user = dpg.get_value("sim_remote_user") if dpg.does_item_exist("sim_remote_user") else ""
+            if remote_ip in ("localhost", "127.0.0.1", ""):
+                self.append_terminal(
+                    f"[INFO] Backend: Remote (localhost)\n"
+                    f"[INFO] DisplayServer will start on port {_DISPLAY_SERVER_PORT} …\n"
+                )
+            else:
+                user_str = f"{remote_user}@" if remote_user else ""
+                self.append_terminal(
+                    f"[INFO] Backend: Remote ({user_str}{remote_ip})\n"
+                    f"[INFO] Transferring YAML via scp, executing via ssh…\n"
+                )
 
-        # Add enabled overrides
+        # ── Add enabled overrides ───────────────────────────────────────────
         if hasattr(self.editor, 'override_manager'):
             enabled_overrides = self.editor.override_manager.get_enabled_overrides()
             if enabled_overrides:
@@ -455,6 +555,7 @@ class SimulationControl:
                     f"[INFO] Applied {len(enabled_overrides)} override file(s)\n"
                 )
 
+        # ── Start the backend ───────────────────────────────────────────────
         self._backend.start(
             yaml_path=temp_path,
             cmd_args=cmd_args,
@@ -465,6 +566,7 @@ class SimulationControl:
 
         self.is_running = True
 
+        # ── Setup monitor reconnection for non-in-process backends ──────────
         if not use_inprocess_direct:
             # Write the expected URL immediately (port is fixed) and kick off
             # the Socket.IO reconnect path used by subprocess monitors.
@@ -475,11 +577,16 @@ class SimulationControl:
             self._schedule_display_server_reconnect(delay=4.0)
 
     def step_sim(self, sender=None, app_data=None):
+        """Advance one simulation step in stepping mode."""
         if self._backend is not None:
             self._backend.step()
+        else:
+            self.append_terminal("[WARNING] No active backend\n")
 
     def abort_sim(self, sender=None, app_data=None):
+        """Abort the running simulation."""
         if self._backend is not None:
             self._backend.abort()
+            self.append_terminal("[INFO] Abort signal sent\n")
         self._clear_server_url_file()
         self.is_running = False

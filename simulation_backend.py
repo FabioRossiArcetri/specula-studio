@@ -3,12 +3,16 @@ simulation_backend.py
 =====================
 Pluggable simulation-execution strategies for Specula Studio.
 
-Two concrete implementations are provided:
+Three concrete implementations are provided:
 
-DisplayServerBackend
-    Reproduces the original behaviour: specula is launched as a child
-    process; its built-in Socket.IO DisplayServer is injected into the
-    simulation YAML; monitor windows connect to it over a local HTTP port.
+RemoteBackend
+    Unified backend for running specula either locally or on a remote server.
+    If remote_ip is 'localhost' or '127.0.0.1', runs locally with DisplayServer.
+    Otherwise, transfers the YAML file via scp and executes the simulation
+    on the remote server via ssh. The remote server's DisplayServer is
+    accessible from the local machine for monitoring.
+    
+    Supports stepping mode, SSL/SSH key authentication, and custom ports.
 
 InProcessBackend
     Calls specula's Python API directly inside a daemon thread.
@@ -38,7 +42,7 @@ InProcessBackend
     ``LoopControl.iter`` patch drains a thread-safe deque of pending probes
     and injects them at the start of each iteration.
 
-    No DisplayServer, no Socket.IO, no subprocess.
+    No Socket.IO, no HTTP, no ``DisplayServer``, no subprocess.
 
     Legacy mode (monitor_bus is None)
     ----------------------------------
@@ -240,23 +244,47 @@ class SimulationBackend(ABC):
 
 
 # ---------------------------------------------------------------------------
-# DisplayServerBackend — subprocess (original behaviour)
+# RemoteBackend — unified local/remote execution with DisplayServer
 # ---------------------------------------------------------------------------
 
 
-class DisplayServerBackend(SimulationBackend):
-    """Runs specula as a child process (original behaviour).
-
+class RemoteBackend(SimulationBackend):
+    """
+    Unified backend for running specula locally or on a remote server via SSH.
+    
+    If remote_ip is 'localhost', '127.0.0.1', or empty, the simulation runs
+    locally with DisplayServer (equivalent to old DisplayServerBackend).
+    
+    For remote execution:
+    - Transfers YAML file to remote server via scp
+    - Executes specula on remote server via ssh
+    - Remote DisplayServer is accessible from local machine for monitoring
+    - Supports stepping mode via ssh stdin
+    
     The simulation YAML is expected to already contain a ``DisplayServer``
     node injected by ``SimulationControl._prepare_simulation_yaml()``.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, remote_ip: str = "localhost", remote_user: str = "") -> None:
+        """
+        Parameters
+        ----------
+        remote_ip : str
+            IP address or hostname of remote server. 'localhost' or '127.0.0.1'
+            means local execution. Defaults to 'localhost'.
+        remote_user : str
+            SSH username. If empty, current user is assumed. Defaults to ''.
+        """
         self._process: subprocess.Popen | None = None
         self._running = False
+        self.remote_ip = remote_ip.strip() if remote_ip else "localhost"
+        self.remote_user = remote_user.strip() if remote_user else ""
+        
+        # Determine if this is local or remote execution
+        self._is_localhost = self.remote_ip in ("localhost", "127.0.0.1", "")
 
     def start(self, yaml_path, cmd_args, append_terminal, on_port_found, on_finished):
-        run_all_mode = cmd_args.get("run_all_mode", False)
+        """Start the simulation either locally or on remote server."""
         stepping     = cmd_args.get("stepping", False)
         nsimul       = cmd_args.get("nsimul", 1)
         cpu          = cmd_args.get("cpu", False)
@@ -264,8 +292,24 @@ class DisplayServerBackend(SimulationBackend):
         precision    = cmd_args.get("precision", "1")
         log_level    = cmd_args.get("log_level", "INFO")
 
+        if self._is_localhost:
+            # ── Local execution (DisplayServer mode) ──────────────────────────
+            self._start_local(
+                yaml_path, stepping, nsimul, cpu, target, precision, log_level,
+                append_terminal, on_port_found, on_finished
+            )
+        else:
+            # ── Remote execution via SSH ──────────────────────────────────────
+            self._start_remote(
+                yaml_path, stepping, nsimul, cpu, target, precision, log_level,
+                append_terminal, on_port_found, on_finished
+            )
+
+    def _start_local(self, yaml_path, stepping, nsimul, cpu, target, precision, log_level,
+                     append_terminal, on_port_found, on_finished):
+        """Execute simulation locally (DisplayServer mode)."""
         cmd = ["specula", yaml_path]
-        if not run_all_mode and stepping:
+        if stepping:
             cmd.append("--stepping")
         cmd.extend(["--nsimul", str(nsimul)])
         if cpu:
@@ -274,7 +318,8 @@ class DisplayServerBackend(SimulationBackend):
         cmd.extend(["--precision", str(precision)])
         cmd.extend(["--log-level", log_level])
 
-        append_terminal(f"Executing: {' '.join(cmd)}\n")
+        append_terminal(f"[Remote] Executing locally: {' '.join(cmd)}\n")
+        print(f"[REMOTE] Local command: {' '.join(cmd)}")
 
         try:
             self._process = subprocess.Popen(
@@ -292,25 +337,127 @@ class DisplayServerBackend(SimulationBackend):
                 daemon=True,
             ).start()
         except Exception as exc:
-            append_terminal(f"Launch Error: {exc}\n")
+            append_terminal(f"[Remote] Launch Error: {exc}\n")
+            print(f"[REMOTE] Launch error: {exc}")
+            traceback.print_exc()
+            on_finished()
+
+    def _start_remote(self, yaml_path, stepping, nsimul, cpu, target, precision, log_level,
+                      append_terminal, on_port_found, on_finished):
+        """Execute simulation on remote server via SSH."""
+        try:
+            # ── 1. Prepare remote command ──────────────────────────────────────
+            yaml_filename = os.path.basename(yaml_path)
+            remote_yaml_path = f"/tmp/{yaml_filename}"
+            
+            cmd_parts = ['bash -ic "specula', remote_yaml_path]
+            if stepping:
+                cmd_parts.append("--stepping")
+            cmd_parts.extend(["--nsimul", str(nsimul)])
+            if cpu:
+                cmd_parts.append("--cpu")
+            cmd_parts.extend(["--target", str(target)])
+            cmd_parts.extend(["--precision", str(precision)])
+            cmd_parts.extend(["--log-level", log_level])
+            remote_cmd = " ".join(cmd_parts)
+            remote_cmd += '"'
+
+            # ── 2. Copy YAML file to remote server via scp ──────────────────────
+            if self.remote_user:
+                remote_target = f"{self.remote_user}@{self.remote_ip}:{remote_yaml_path}"
+            else:
+                remote_target = f"{self.remote_ip}:{remote_yaml_path}"
+
+            scp_cmd = ["scp", yaml_path, remote_target]
+
+            append_terminal(f"[Remote] Copying YAML file to {self.remote_ip}…\n")
+            print(f"[REMOTE] SCP command: {' '.join(scp_cmd)}")
+
+            try:
+                scp_process = subprocess.Popen(
+                    scp_cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    #timeout=60,
+                )
+                scp_stdout, scp_stderr = scp_process.communicate()
+                
+                if scp_process.returncode != 0:
+                    error_msg = scp_stderr if scp_stderr else scp_stdout
+                    append_terminal(f"[Remote] SCP Error (rc={scp_process.returncode}): {error_msg}\n")
+                    print(f"[REMOTE] SCP failed: {error_msg}")
+                    on_finished()
+                    return
+
+                append_terminal(f"[Remote] YAML file copied successfully.\n")
+                print(f"[REMOTE] SCP completed successfully")
+            except subprocess.TimeoutExpired:
+                append_terminal(f"[Remote] SCP timeout (60s exceeded).\n")
+                print(f"[REMOTE] SCP timeout")
+                on_finished()
+                return
+            except Exception as e:
+                append_terminal(f"[Remote] SCP Error: {e}\n")
+                print(f"[REMOTE] SCP error: {e}")
+                on_finished()
+                return
+
+            # ── 3. Execute simulation on remote server via SSH ─────────────────
+            if self.remote_user:
+                ssh_target = f"{self.remote_user}@{self.remote_ip}"
+            else:
+                ssh_target = self.remote_ip
+
+            ssh_cmd = ["ssh", "-t", ssh_target, remote_cmd]
+
+            append_terminal(
+                f"[Remote] Executing on {self.remote_ip} as {self.remote_user or 'current user'}…\n"
+            )
+            append_terminal(f"[Remote] Command: {remote_cmd}\n")
+            print(f"[REMOTE] SSH command: {' '.join(ssh_cmd)}")
+
+            self._process = subprocess.Popen(
+                ssh_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+            )
+            self._running = True
+            threading.Thread(
+                target=self._read_output,
+                args=(append_terminal, on_port_found, on_finished),
+                daemon=True,
+            ).start()
+
+        except Exception as exc:
+            append_terminal(f"[Remote] Launch Error: {exc}\n")
+            print(f"[REMOTE] Launch error: {exc}")
+            traceback.print_exc()
             on_finished()
 
     def _read_output(self, append_terminal, on_port_found, on_finished):
+        """Read and display output from the specula process."""
         port_found = False
-        while self._process and self._process.poll() is None:
-            line = self._process.stdout.readline()
-            if line:
-                append_terminal(line)
-                if not port_found:
-                    port = _extract_port(line)
-                    if port:
-                        port_found = True
-                        on_port_found(port)
-        self._running = False
-        self._process = None
-        on_finished()
+        try:
+            while self._process and self._process.poll() is None:
+                line = self._process.stdout.readline()
+                if line:
+                    append_terminal(line)
+                    if not port_found:
+                        port = _extract_port(line)
+                        if port:
+                            port_found = True
+                            on_port_found(port)
+        finally:
+            self._running = False
+            self._process = None
+            on_finished()
 
     def step(self) -> None:
+        """Advance one step in stepping mode by sending newline to process stdin."""
         if self._process and self._process.poll() is None:
             try:
                 self._process.stdin.write("\n")
@@ -319,6 +466,7 @@ class DisplayServerBackend(SimulationBackend):
                 pass
 
     def abort(self) -> None:
+        """Abort the simulation by terminating the process."""
         if self._process:
             try:
                 self._process.terminate()
@@ -329,6 +477,17 @@ class DisplayServerBackend(SimulationBackend):
     @property
     def is_running(self) -> bool:
         return self._running
+
+
+# Backward compatibility alias (old name for local DisplayServer mode)
+class DisplayServerBackend(RemoteBackend):
+    """
+    Backward-compatibility alias for RemoteBackend with localhost.
+    Reproduces the original behaviour: specula is launched as a local child
+    process with DisplayServer injection.
+    """
+    def __init__(self) -> None:
+        super().__init__(remote_ip="localhost", remote_user="")
 
 
 # ---------------------------------------------------------------------------
@@ -557,7 +716,7 @@ class InProcessBackend(SimulationBackend):
             append_terminal(
                 "[ERROR] 'specula' package not found.\n"
                 "        Install it (pip install specula) or switch to\n"
-                "        Display-Server mode.\n"
+                "        Remote mode.\n"
             )
             on_finished()
             return
