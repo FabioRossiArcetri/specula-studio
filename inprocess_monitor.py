@@ -218,7 +218,7 @@ class InProcessMonitor:
             ``True`` if the window is still open and should continue to be
             ticked, ``False`` if the window has been closed.
         """
-        print(f"[RENDER-DBG] render_frame called, is_open={self.is_open}, win_exists={dpg.does_item_exist(self._win_tag)}, qsize={self._data_queue.qsize()}")  # TEMP
+        # print(f"[RENDER-DBG] render_frame called, is_open={self.is_open}, win_exists={dpg.does_item_exist(self._win_tag)}, qsize={self._data_queue.qsize()}")  # TEMP
         if not self.is_open or not dpg.does_item_exist(self._win_tag):
             return False
 

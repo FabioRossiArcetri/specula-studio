@@ -177,7 +177,7 @@ class SimulationControl:
                     dpg.add_text("Arguments", color=[100, 200, 255])
                     dpg.add_input_int(label="N-Simul", tag="sim_nsimul", default_value=1)
                     dpg.add_checkbox(label="Use CPU", tag="sim_cpu")
-                    dpg.add_input_int(label="GPU ID", tag="sim_target", default_value=-1)
+                    dpg.add_input_int(label="GPU ID", tag="sim_target", default_value=0)
                     dpg.add_combo(label="Precision", items=["0", "1"], tag="sim_precision", default_value="1")
                     dpg.add_combo(label="Log", items=["DEBUG", "INFO", "WARNING"], tag="sim_log", default_value="INFO")
                     dpg.add_checkbox(label="Stepping", tag="sim_stepping", default_value=True)
