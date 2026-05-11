@@ -11,6 +11,7 @@ from node_manager import NodeManager
 from file_handler import FileHandler, auto_layout_nodes
 from graph_manager import GraphManager
 import dpg_utils
+from override_manager import OverrideManager
 
 # Font path via matplotlib
 import matplotlib
@@ -51,6 +52,9 @@ class SpeculaEditor:
         # 3. Initialize Simulation Control
         from simulation_control import SimulationControl
         self.sim_control = SimulationControl(self)
+
+        # 3b. Initialize Override Manager
+        self.override_manager = OverrideManager()
 
         # Track current simulation name and path
         self.current_simulation_name = None
@@ -612,7 +616,10 @@ class SpeculaEditor:
                         for node_type in sorted(self.data_obj_templates.keys()):
                             dpg.add_menu_item(label=node_type, callback=self._on_menu_create, user_data=node_type)
 
-                    
+                with dpg.menu(label="Overrides"):
+                    dpg.add_menu_item(label="Load Override File(s)", callback=self._show_load_overrides_dialog)
+                    dpg.add_separator()
+                    dpg.add_menu_item(label="Remove...", callback=self._show_remove_override_menu, tag="remove_override_menu")
 
                 with dpg.menu(label="Simulation"):
                     dpg.add_menu_item(label="Control Panel", callback=lambda: self.sim_control.show_control_window())
@@ -793,7 +800,160 @@ class SpeculaEditor:
         self._update_status_bar()
         if dpg.does_item_exist("startup_dialog"):
             dpg.hide_item("startup_dialog")
+    # ── Override Management ───────────────────────────────────────────────────
 
+    def _show_load_overrides_dialog(self):
+        """Show file dialog to load override file(s)."""
+        if not dpg.does_item_exist("load_overrides_dialog"):
+            with dpg.file_dialog(
+                label="Load Override File(s)",
+                show=False,
+                callback=self._on_overrides_loaded,
+                id="load_overrides_dialog",
+                width=700,
+                height=400,
+                default_filename=""
+            ):
+                dpg.add_file_extension(".yml")
+                dpg.add_file_extension(".yaml")
+        
+        dpg.show_item("load_overrides_dialog")
+    
+    def _on_overrides_loaded(self, sender, app_data):
+        """Callback when override file(s) are selected."""
+        selections = app_data.get('file_path_name')
+        if not selections:
+            return
+        
+        # Handle both single file and multiple file selections
+        if isinstance(selections, str):
+            selections = [selections]
+        
+        loaded = self.override_manager.load_overrides(selections)
+        print(f"[OVERRIDES] Loaded {loaded} override file(s)")
+        self._refresh_overrides_menu()
+    
+    def _refresh_overrides_menu(self):
+        """Refresh the Overrides menu with current overrides."""
+        # Get the Overrides menu parent
+        try:
+            # Find and update the "Remove..." menu
+            overrides = self.override_manager.get_all_overrides()
+            
+            if overrides:
+                # We need to update the Remove submenu
+                # For now, we'll recreate it
+                self._update_remove_override_submenu()
+        except Exception as e:
+            print(f"[OVERRIDES] Error refreshing menu: {e}")
+    
+    def _update_remove_override_submenu(self):
+        """Update the Remove submenu with current overrides."""
+        overrides = self.override_manager.get_all_overrides()
+        
+        # Clear existing items under Remove menu
+        try:
+            # Find the Remove menu by iterating menu bar
+            # We'll use a simpler approach: recreate the entire Overrides menu
+            pass
+        except Exception:
+            pass
+    
+    def _show_remove_override_menu(self):
+        """Show submenu for removing overrides."""
+        overrides = self.override_manager.get_all_overrides()
+        
+        if not overrides:
+            print("[OVERRIDES] No overrides loaded")
+            return
+        
+        # Create a dynamic popup menu
+        if dpg.does_item_exist("override_remove_popup"):
+            dpg.delete_item("override_remove_popup")
+        
+        with dpg.window(
+            label="Remove Override",
+            tag="override_remove_popup",
+            modal=True,
+            show=True,
+            width=500,
+            height=300,
+            no_resize=False
+        ):
+            dpg.add_text("Select override file(s) to remove:", color=[200, 200, 100])
+            dpg.add_separator()
+            
+            with dpg.group(horizontal=False):
+                for override_path in overrides:
+                    is_enabled = self.override_manager.is_enabled(override_path)
+                    label_text = f"{'✓' if is_enabled else '○'} {pathlib.Path(override_path).name}"
+                    
+                    with dpg.drawlayer(width=450, height=25):
+                        dpg.draw_text(
+                            (10, 5),
+                            label_text,
+                            color=[180, 180, 180] if is_enabled else [120, 120, 120]
+                        )
+                    
+                    dpg.add_button(
+                        label=f"Remove: {pathlib.Path(override_path).name}",
+                        width=-1,
+                        callback=lambda s, a, path=override_path: self._on_remove_override(path)
+                    )
+            
+            dpg.add_spacing(count=2)
+            dpg.add_separator()
+            dpg.add_button(label="Close", width=-1, callback=lambda: dpg.delete_item("override_remove_popup"))
+    
+    def _on_remove_override(self, file_path: str):
+        """Remove an override file."""
+        self.override_manager.remove_override(file_path)
+        dpg.delete_item("override_remove_popup")
+        self._refresh_overrides_menu()
+    
+    def _show_overrides_window(self):
+        """Show a window with all loaded overrides and their state."""
+        if dpg.does_item_exist("overrides_window"):
+            dpg.show_item("overrides_window")
+            dpg.focus_item("overrides_window")
+            return
+        
+        with dpg.window(
+            label="Override Management",
+            tag="overrides_window",
+            width=600,
+            height=400,
+            no_resize=False
+        ):
+            dpg.add_text("Loaded Override Files", color=[200, 200, 100])
+            dpg.add_separator()
+            
+            overrides = self.override_manager.get_all_overrides()
+            
+            if not overrides:
+                dpg.add_text("No overrides loaded.", color=[150, 150, 150])
+            else:
+                with dpg.group(horizontal=False):
+                    for override_path in overrides:
+                        is_enabled = self.override_manager.is_enabled(override_path)
+                        file_name = pathlib.Path(override_path).name
+                        
+                        with dpg.drawlayer(width=550, height=30):
+                            with dpg.group(horizontal=True):
+                                dpg.add_checkbox(
+                                    default_value=is_enabled,
+                                    callback=lambda s, v, path=override_path: self.override_manager.toggle_override(path),
+                                    width=30
+                                )
+                                dpg.add_text(file_name, color=[180, 180, 180])
+                                dpg.add_text(override_path, color=[120, 120, 120])
+            
+            dpg.add_spacing(count=2)
+            dpg.add_separator()
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Load More", width=120, callback=self._show_load_overrides_dialog)
+                dpg.add_button(label="Close", width=100, callback=lambda: dpg.hide_item("overrides_window"))
+                
     # ── Run loop ─────────────────────────────────────────────────────────……[...]
     
     def run(self):

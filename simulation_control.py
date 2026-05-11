@@ -285,6 +285,14 @@ class SimulationControl:
         try:
             with open(file_path, encoding="utf-8") as f:
                 yaml_data = yaml.safe_load(f)
+
+            # Also add enabled overrides as override files
+            # This reads from the override manager if available
+            if hasattr(self.editor, 'override_manager'):
+                override_string = self.editor.override_manager.get_override_string()
+                if override_string:
+                    print(f"[SIMULATION] Injecting {len(self.editor.override_manager.get_enabled_overrides())} enabled override(s)")
+
             if not isinstance(yaml_data, dict):
                 print("[SIMULATION] Warning: YAML root is not a dict, skipping preparation")
                 return
@@ -424,6 +432,15 @@ class SimulationControl:
                 f"[INFO] Backend: {backend_mode}\n"
                 f"[INFO] DisplayServer will start on port {_DISPLAY_SERVER_PORT} …\n"
             )
+
+        # Add enabled overrides
+        if hasattr(self.editor, 'override_manager'):
+            enabled_overrides = self.editor.override_manager.get_enabled_overrides()
+            if enabled_overrides:
+                cmd_args['overrides'] = self.editor.override_manager.get_override_string()
+                self.append_terminal(
+                    f"[INFO] Applied {len(enabled_overrides)} override file(s)\n"
+                )
 
         self._backend.start(
             yaml_path=temp_path,
