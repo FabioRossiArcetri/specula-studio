@@ -21,7 +21,7 @@ FONT_PATH = matplotlib.get_data_path() + '/fonts/ttf/DejaVuSerif.ttf'
 _SETTINGS_PATH = pathlib.Path.home() / ".specula_studio_settings.json"
 
 
-# ── YAML helpers ──────────────────────────────────────────────────────────[...]
+# ── YAML helpers ──────────────────────────────────────────────────────────────
 
 def ordered_load(stream, Loader=yaml.SafeLoader, object_pairs_hook=OrderedDict):
     class OrderedLoader(Loader):
@@ -35,7 +35,7 @@ def ordered_load(stream, Loader=yaml.SafeLoader, object_pairs_hook=OrderedDict):
     return yaml.load(stream, OrderedLoader)
 
 
-# ── Main editor class ────────────────────────────────────────────────────────…[...]
+# ── Main editor class ─────────────────────────────────────────────────────────
 
 class SpeculaEditor:
     def __init__(self, yaml_folder):
@@ -48,6 +48,7 @@ class SpeculaEditor:
         self.graph = GraphManager(self.all_templates)
         self.nm = NodeManager(self.graph, self.all_templates)        
         self.fh = FileHandler(self.nm)
+        self.fh.editor = self          # give FileHandler access to override_manager
 
         # 3. Initialize Simulation Control
         from simulation_control import SimulationControl
@@ -55,6 +56,7 @@ class SpeculaEditor:
 
         # 3b. Initialize Override Manager
         self.override_manager = OverrideManager()
+        self._override_item_tags = []  # tracks dynamic override menu items
 
         # Track current simulation name and path
         self.current_simulation_name = None
@@ -119,7 +121,7 @@ class SpeculaEditor:
                             templates.update(data)
         return templates
 
-    # ── Input handlers ───────────────────────────────────────────────────────……[...]
+    # ── Input handlers ────────────────────────────────────────────────────────
 
     def _setup_custom_handlers(self):
         """Register handlers without the automatic Delete key handler."""
@@ -143,7 +145,7 @@ class SpeculaEditor:
             except SystemError:
                 pass
   
-    # ── Status Bar ─────────────────────────────────────────────────────────[...]
+    # ── Status Bar ────────────────────────────────────────────────────────────
 
     def _update_status_bar(self):
         if self.current_simulation_name:
@@ -153,7 +155,7 @@ class SpeculaEditor:
         if dpg.does_item_exist("status_bar_text"):
             dpg.set_value("status_bar_text", status_text)
 
-    # ── New Simulation ───────────────────────────────────────────────────────……[...]
+    # ── New Simulation ────────────────────────────────────────────────────────
 
     def _on_new_simulation_clicked(self):
         if self.current_simulation_name is None:
@@ -233,7 +235,7 @@ class SpeculaEditor:
         self.pending_deletion_items = []
         self.pending_deletion_type  = None
 
-    # ── Exit ───────────────────────────────────────────────────────────[...]
+    # ── Exit ──────────────────────────────────────────────────────────────────
     
     def _on_exit_requested(self):
         self._center_dialog("exit_confirmation_dialog")
@@ -508,25 +510,6 @@ class SpeculaEditor:
     # ── Preference callbacks ──────────────────────────────────────────────────
 
     def _on_render_size_changed(self, sender, app_data):
-        """
-        Called when the Render Size radio button changes.
-
-        Font switching strategy
-        -----------------------
-        dpg.bind_font() has a known DearPyGui/ImGui limitation: switching to a
-        *larger* font handle than the one active at setup_dearpygui() time can
-        silently fail because the atlas glyph metrics were pre-computed for the
-        smaller size.  The reliable cross-platform alternative is to load a
-        single font at MEDIUM size and use dpg.set_global_font_scale() — an
-        ImGui render-time scalar that works identically in both directions.
-
-        Order of operations
-        -------------------
-        1.  Update the render_scale module (spacer widths etc.).
-        2.  Apply the new global font scale immediately — affects ALL text.
-        3.  Rebuild existing nodes so spacer widths match the new scale.
-        4.  Persist the new preference.
-        """
         new_size = app_data
         if new_size == self.preferences['render_size']:
             return
@@ -534,12 +517,10 @@ class SpeculaEditor:
         self.preferences['render_size'] = new_size
         render_scale.set_size(new_size)
 
-        # ── Font scale (works reliably in both directions) ─────────────────
         scale = render_scale.global_font_scale()
         dpg.set_global_font_scale(scale)
         print(f"[RENDER] Global font scale → {scale}  (size: {new_size})")
 
-        # ── Node rebuild (spacer widths are baked in at creation time) ─────
         if self.nm.graph.nodes:
             self.nm.rebuild_all_nodes_ui()
             dpg.delete_item("property_panel", children_only=True)
@@ -557,27 +538,15 @@ class SpeculaEditor:
         self._save_settings()
         print(f"[PREFERENCES] Include Defaults set to: {app_data}")
 
-    # ── UI creation ────────────────────────────────────────────────────────……[...]
+    # ── UI creation ───────────────────────────────────────────────────────────
 
     def create_ui(self):
         self.export_include_defaults = False
         dpg.create_context()
 
-        # ── Themes ───────────────────────────────────────────────────────……[...]
         dpg_utils.set_zebra_theme()
         self.nm.init_themes()
 
-        # ── Font ─────────────────────────────────────────────────────────……[...]
-        # A SINGLE font is loaded at MEDIUM size (18 px).  Runtime font-size
-        # changes are handled exclusively via dpg.set_global_font_scale(), which
-        # is an ImGui render-time scalar and works correctly in BOTH directions
-        # (scale-up and scale-down).
-        #
-        # Why not load three fonts and use bind_font()?
-        # dpg.bind_font() has a known issue where switching to a font handle
-        # that is LARGER than the font active when setup_dearpygui() was called
-        # silently has no effect.  set_global_font_scale() has no such
-        # restriction.
         self._font_handle = None
         if os.path.exists(FONT_PATH):
             with dpg.font_registry():
@@ -586,9 +555,6 @@ class SpeculaEditor:
                 print(f"[FONT] Loaded DejaVuSerif at {medium_fs} px (handle={self._font_handle})")
             dpg.bind_font(self._font_handle)
 
-        # Apply the scale matching the saved/default preference BEFORE any
-        # widgets are rendered (setup_dearpygui has not been called yet here,
-        # but the scale is stored in ImGui's IO and takes effect immediately).
         initial_scale = render_scale.global_font_scale()
         dpg.set_global_font_scale(initial_scale)
         print(f"[FONT] Initial global font scale: {initial_scale} ({self.preferences['render_size']})")
@@ -616,10 +582,16 @@ class SpeculaEditor:
                         for node_type in sorted(self.data_obj_templates.keys()):
                             dpg.add_menu_item(label=node_type, callback=self._on_menu_create, user_data=node_type)
 
-                with dpg.menu(label="Overrides"):
-                    dpg.add_menu_item(label="Load Override File(s)", callback=self._show_load_overrides_dialog)
-                    dpg.add_separator()
-                    dpg.add_menu_item(label="Remove...", callback=self._show_remove_override_menu, tag="remove_override_menu")
+                with dpg.menu(label="Overrides", tag="overrides_menu"):
+                    dpg.add_menu_item(label="Load Override File(s)",
+                                      callback=self._show_load_overrides_dialog,
+                                      tag="mi_load_overrides")
+                    dpg.add_separator(tag="overrides_sep_top")
+                    # ↑ dynamic per-override toggle items are inserted here ↑
+                    dpg.add_separator(tag="overrides_sep_bottom")
+                    dpg.add_menu_item(label="Remove...",
+                                      callback=self._show_remove_override_menu,
+                                      tag="remove_override_menu")
 
                 with dpg.menu(label="Simulation"):
                     dpg.add_menu_item(label="Control Panel", callback=lambda: self.sim_control.show_control_window())
@@ -651,7 +623,6 @@ class SpeculaEditor:
             dpg.add_key_press_handler(callback=self._on_key_press)
 
         viewport_id = dpg.create_viewport(title="SPECULA Node Editor", width=1600, height=900)
-        # dpg.configure_viewport(viewport_id, vsync=False)
         dpg.set_viewport_resize_callback(self._resize_callback)
 
         self.setup_dialogs()
@@ -671,7 +642,6 @@ class SpeculaEditor:
         
         if dpg.does_item_exist("property_panel"):
             dpg.show_item("property_panel")
-            # Force recalculation of layout
             dpg.split_frame()
 
     def setup_dialogs(self):
@@ -714,7 +684,7 @@ class SpeculaEditor:
                 dpg.add_button(label="Discard",           width=100, callback=self._on_new_simulation_discard)
                 dpg.add_button(label="Cancel",            width=100, callback=self._on_new_simulation_cancel)
 
-    # ── Startup dialog ───────────────────────────────────────────────────────……[...]
+    # ── Startup dialog ────────────────────────────────────────────────────────
 
     def _show_startup_dialog(self):
         if dpg.does_item_exist("startup_dialog"):
@@ -767,7 +737,7 @@ class SpeculaEditor:
         if dpg.does_item_exist("startup_dialog"):
             dpg.hide_item("startup_dialog")
 
-    # ── Menu callbacks ───────────────────────────────────────────────────────……[...]
+    # ── Menu callbacks ────────────────────────────────────────────────────────
 
     def _on_menu_create(self, sender, app_data, user_data):
         node_uuid = self.nm.create_node(node_type=user_data)
@@ -800,10 +770,11 @@ class SpeculaEditor:
         self._update_status_bar()
         if dpg.does_item_exist("startup_dialog"):
             dpg.hide_item("startup_dialog")
+
     # ── Override Management ───────────────────────────────────────────────────
 
     def _show_load_overrides_dialog(self):
-        """Show file dialog to load override file(s)."""
+        """Show file dialog to select override YAML file(s)."""
         if not dpg.does_item_exist("load_overrides_dialog"):
             with dpg.file_dialog(
                 label="Load Override File(s)",
@@ -812,158 +783,221 @@ class SpeculaEditor:
                 id="load_overrides_dialog",
                 width=700,
                 height=400,
-                default_filename=""
+                default_filename="",
             ):
                 dpg.add_file_extension(".yml")
                 dpg.add_file_extension(".yaml")
-        
         dpg.show_item("load_overrides_dialog")
-    
+
     def _on_overrides_loaded(self, sender, app_data):
-        """Callback when override file(s) are selected."""
+        """Callback: override file(s) chosen in the file dialog."""
         selections = app_data.get('file_path_name')
         if not selections:
             return
-        
-        # Handle both single file and multiple file selections
         if isinstance(selections, str):
             selections = [selections]
-        
+
         loaded = self.override_manager.load_overrides(selections)
-        print(f"[OVERRIDES] Loaded {loaded} override file(s)")
+        if loaded:
+            print(f"[OVERRIDES] Loaded {loaded} file(s) — click a name in the "
+                  f"Overrides menu to enable/apply")
+        # Do NOT apply yet — overrides load disabled; user enables via menu click
         self._refresh_overrides_menu()
-    
+
     def _refresh_overrides_menu(self):
-        """Refresh the Overrides menu with current overrides."""
-        # Get the Overrides menu parent
-        try:
-            # Find and update the "Remove..." menu
-            overrides = self.override_manager.get_all_overrides()
-            
-            if overrides:
-                # We need to update the Remove submenu
-                # For now, we'll recreate it
-                self._update_remove_override_submenu()
-        except Exception as e:
-            print(f"[OVERRIDES] Error refreshing menu: {e}")
-    
-    def _update_remove_override_submenu(self):
-        """Update the Remove submenu with current overrides."""
-        overrides = self.override_manager.get_all_overrides()
-        
-        # Clear existing items under Remove menu
-        try:
-            # Find the Remove menu by iterating menu bar
-            # We'll use a simpler approach: recreate the entire Overrides menu
-            pass
-        except Exception:
-            pass
-    
+        """
+        Rebuild the dynamic portion of the Overrides menu.
+
+        One menu item per registered override is inserted between
+        'overrides_sep_top' and 'overrides_sep_bottom'.  Each item shows
+        the current enabled state (✓ / ○) and toggles it on click.
+
+        FIX: DPG calls every callback as callback(sender, app_data, user_data).
+        Using a plain lambda with a default argument (lambda s, a, p=path:)
+        causes DPG's positional user_data=None to override the captured path.
+        The correct pattern is to pass user_data=path explicitly and read it
+        as the third positional argument.
+        """
+        # Remove previously created dynamic items
+        for tag in self._override_item_tags:
+            if dpg.does_item_exist(tag):
+                dpg.delete_item(tag)
+        self._override_item_tags.clear()
+
+        for i, path in enumerate(self.override_manager.get_all_overrides()):
+            is_enabled = self.override_manager.is_enabled(path)
+            label = ("✓  " if is_enabled else "○  ") + pathlib.Path(path).name
+            tag = f"_override_mi_{i}"
+            dpg.add_menu_item(
+                label=label,
+                tag=tag,
+                parent="overrides_menu",
+                before="overrides_sep_bottom",
+                # user_data carries the path; DPG passes it as the 3rd arg
+                user_data=path,
+                callback=lambda s, a, u: self._on_override_toggled(u),
+            )
+            self._override_item_tags.append(tag)
+
+    # ── Toggle / apply ────────────────────────────────────────────────────────
+
+    def _on_override_toggled(self, path: str):
+        """
+        Called when the user clicks an override entry in the menu.
+
+        1. If this is the first override being enabled and no snapshot exists
+           yet → take a snapshot of the current (clean) simulation.
+        2. Toggle the override's enabled state.
+        3. Re-derive the simulation: base snapshot + all enabled overrides.
+        4. If no overrides remain enabled → restore from snapshot and clear it.
+        5. Rebuild the menu to reflect the new state.
+        """
+        # ── 1. Take snapshot before any override is applied ───────────────────
+        if not self.override_manager.any_enabled() and \
+                not self.override_manager.has_base_snapshot():
+            self._take_base_snapshot()
+
+        # ── 2. Toggle ─────────────────────────────────────────────────────────
+        self.override_manager.toggle_override(path)
+
+        # ── 3 / 4. Apply or restore ───────────────────────────────────────────
+        self._apply_overrides_to_simulation()
+
+        # ── 5. Rebuild menu ───────────────────────────────────────────────────
+        self._refresh_overrides_menu()
+
+    def _take_base_snapshot(self):
+        """
+        Capture the current simulation as an in-memory dict and store it in
+        the OverrideManager as the base snapshot.
+
+        Node positions are captured from DPG first so that the graph can be
+        faithfully restored later.
+        """
+        # Capture current node positions before snapshotting
+        for node_uuid, dpg_id in self.nm.uuid_to_dpg.items():
+            if node_uuid in self.nm.graph.nodes:
+                node_data = self.nm.graph.nodes[node_uuid]
+                if dpg.does_item_exist(dpg_id):
+                    node_data['gui_pos'] = dpg.get_item_pos(dpg_id)
+
+        snapshot = self.fh.export_to_yaml_dict(
+            include_defaults=self.preferences.get('include_defaults', False),
+            include_override_metadata=False,  # snapshot must be override-free
+        )
+        self.override_manager.set_base_snapshot(snapshot)
+        print(f"[OVERRIDES] Snapshot taken: {len(snapshot)} node(s)")
+
+    def _apply_overrides_to_simulation(self):
+        """
+        Reload the simulation graph to reflect the current override state.
+
+        * At least one override enabled → merge onto base snapshot, reload.
+        * No overrides enabled          → restore base snapshot verbatim,
+                                          then clear it (back to clean state).
+        """
+        if not self.override_manager.has_base_snapshot():
+            # First load with overrides already enabled (e.g. restored from
+            # a saved file that had override metadata) — take snapshot now.
+            if self.override_manager.any_enabled():
+                self._take_base_snapshot()
+            else:
+                print("[OVERRIDES] No base snapshot available — skipping apply")
+                return
+
+        if self.override_manager.any_enabled():
+            base   = self.override_manager.get_base_snapshot()
+            merged = self.override_manager.apply_overrides(base)
+            n = len(self.override_manager.get_enabled_overrides())
+            print(f"[OVERRIDES] Reloading with {n} active override(s)")
+            self.fh.load_from_yaml_dict(merged)
+        else:
+            # All overrides disabled — restore original state
+            base = self.override_manager.get_base_snapshot()
+            print("[OVERRIDES] All overrides disabled — restoring base snapshot")
+            self.fh.load_from_yaml_dict(base)
+            self.override_manager.clear_base_snapshot()
+
+    # ── Remove overrides ──────────────────────────────────────────────────────
+
     def _show_remove_override_menu(self):
-        """Show submenu for removing overrides."""
+        """Open a modal popup listing loaded overrides with Remove buttons."""
         overrides = self.override_manager.get_all_overrides()
-        
         if not overrides:
             print("[OVERRIDES] No overrides loaded")
             return
-        
-        # Create a dynamic popup menu
+
         if dpg.does_item_exist("override_remove_popup"):
             dpg.delete_item("override_remove_popup")
-        
+
         with dpg.window(
             label="Remove Override",
             tag="override_remove_popup",
             modal=True,
             show=True,
-            width=500,
-            height=300,
-            no_resize=False
+            width=520,
+            height=min(120 + len(overrides) * 36, 500),
+            no_resize=False,
         ):
-            dpg.add_text("Select override file(s) to remove:", color=[200, 200, 100])
+            dpg.add_text("Click a button to remove that override file:",
+                         color=[200, 200, 100])
             dpg.add_separator()
-            
-            with dpg.group(horizontal=False):
-                for override_path in overrides:
-                    is_enabled = self.override_manager.is_enabled(override_path)
-                    label_text = f"{'✓' if is_enabled else '○'} {pathlib.Path(override_path).name}"
-                    
-                    with dpg.drawlayer(width=450, height=25):
-                        dpg.draw_text(
-                            (10, 5),
-                            label_text,
-                            color=[180, 180, 180] if is_enabled else [120, 120, 120]
-                        )
-                    
-                    dpg.add_button(
-                        label=f"Remove: {pathlib.Path(override_path).name}",
-                        width=-1,
-                        callback=lambda s, a, path=override_path: self._on_remove_override(path)
-                    )
-            
-            dpg.add_spacing(count=2)
+            dpg.add_spacer(height=4)
+
+            for path in overrides:
+                is_enabled = self.override_manager.is_enabled(path)
+                state_badge = "ON " if is_enabled else "OFF"
+                btn_label   = f"[{state_badge}]  Remove: {pathlib.Path(path).name}"
+                color       = [100, 220, 100] if is_enabled else [180, 180, 180]
+                dpg.add_button(
+                    label=btn_label,
+                    width=-1,
+                    callback=lambda s, a, p=path: self._on_remove_override(p),
+                )
+                dpg.bind_item_theme(dpg.last_item(),
+                                    self._make_text_color_theme(color))
+
+            dpg.add_spacer(height=6)
             dpg.add_separator()
-            dpg.add_button(label="Close", width=-1, callback=lambda: dpg.delete_item("override_remove_popup"))
-    
+            dpg.add_button(
+                label="Close",
+                width=-1,
+                callback=lambda: dpg.delete_item("override_remove_popup"),
+            )
+
+    @staticmethod
+    def _make_text_color_theme(color):
+        """Create a one-off button theme with the given text colour."""
+        with dpg.theme() as t:
+            with dpg.theme_component(dpg.mvButton):
+                dpg.add_theme_color(dpg.mvThemeCol_Text, color)
+        return t
+
     def _on_remove_override(self, file_path: str):
-        """Remove an override file."""
+        """
+        Remove an override from the registry, then re-derive simulation state.
+        If the removed override was enabled, re-apply the remaining ones.
+        """
+        was_enabled = self.override_manager.is_enabled(file_path)
         self.override_manager.remove_override(file_path)
-        dpg.delete_item("override_remove_popup")
+
+        if dpg.does_item_exist("override_remove_popup"):
+            dpg.delete_item("override_remove_popup")
+
+        if was_enabled:
+            # Re-apply remaining overrides (restores base if none are left)
+            self._apply_overrides_to_simulation()
+
         self._refresh_overrides_menu()
-    
-    def _show_overrides_window(self):
-        """Show a window with all loaded overrides and their state."""
-        if dpg.does_item_exist("overrides_window"):
-            dpg.show_item("overrides_window")
-            dpg.focus_item("overrides_window")
-            return
-        
-        with dpg.window(
-            label="Override Management",
-            tag="overrides_window",
-            width=600,
-            height=400,
-            no_resize=False
-        ):
-            dpg.add_text("Loaded Override Files", color=[200, 200, 100])
-            dpg.add_separator()
-            
-            overrides = self.override_manager.get_all_overrides()
-            
-            if not overrides:
-                dpg.add_text("No overrides loaded.", color=[150, 150, 150])
-            else:
-                with dpg.group(horizontal=False):
-                    for override_path in overrides:
-                        is_enabled = self.override_manager.is_enabled(override_path)
-                        file_name = pathlib.Path(override_path).name
-                        
-                        with dpg.drawlayer(width=550, height=30):
-                            with dpg.group(horizontal=True):
-                                dpg.add_checkbox(
-                                    default_value=is_enabled,
-                                    callback=lambda s, v, path=override_path: self.override_manager.toggle_override(path),
-                                    width=30
-                                )
-                                dpg.add_text(file_name, color=[180, 180, 180])
-                                dpg.add_text(override_path, color=[120, 120, 120])
-            
-            dpg.add_spacing(count=2)
-            dpg.add_separator()
-            with dpg.group(horizontal=True):
-                dpg.add_button(label="Load More", width=120, callback=self._show_load_overrides_dialog)
-                dpg.add_button(label="Close", width=100, callback=lambda: dpg.hide_item("overrides_window"))
-                
-    # ── Run loop ─────────────────────────────────────────────────────────……[...]
+
+    # ── Run loop ──────────────────────────────────────────────────────────────
     
     def run(self):
         try:
             self.nm.start_periodic_tasks()
-            dpg.set_viewport_resize_callback(None)  # ensure viewport is configured
+            dpg.set_viewport_resize_callback(None)
 
             while dpg.is_dearpygui_running():
-                # Tick in-process monitors on every frame — avoids the fragile
-                # set_frame_callback chain which silently dies on any error.
                 self.nm.monitors._inprocess_tick_direct()
                 dpg.render_dearpygui_frame()
         finally:
@@ -974,4 +1008,3 @@ class SpeculaEditor:
 if __name__ == "__main__":
     editor = SpeculaEditor(yaml_folder="specula_yaml_docs") 
     editor.run()
-

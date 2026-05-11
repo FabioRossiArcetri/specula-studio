@@ -109,6 +109,8 @@ class OverrideManager:
     def load_overrides(self, paths) -> int:
         """
         Parse and register one or more override YAML files.
+        Newly loaded overrides are DISABLED by default; the user must
+        explicitly enable them from the Overrides menu.
         Skips paths that are already registered.
         Returns the number of newly loaded files.
         """
@@ -122,15 +124,14 @@ class OverrideManager:
                 with open(path, 'r', encoding='utf-8') as f:
                     data = yaml.safe_load(f)
                 if not isinstance(data, dict):
-                    print(f"[OVERRIDE_MGR] Skipping {path}: "
-                          f"root is not a mapping")
+                    print(f"[OVERRIDE_MGR] Skipping {path}: root is not a mapping")
                     continue
-                self._overrides[path] = {'enabled': True, 'data': data}
-                print(f"[OVERRIDE_MGR] Loaded: {Path(path).name}")
+                self._overrides[path] = {'enabled': False, 'data': data}   # ← disabled
+                print(f"[OVERRIDE_MGR] Loaded (disabled): {Path(path).name}")
                 loaded += 1
             except Exception as e:
                 print(f"[OVERRIDE_MGR] Error loading {path}: {e}")
-        return loaded
+        return loaded        
 
     def remove_override(self, path: str):
         """Remove an override from the registry (regardless of enabled state)."""

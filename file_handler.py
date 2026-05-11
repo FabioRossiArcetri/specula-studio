@@ -7,26 +7,44 @@ import traceback
 from collections import OrderedDict
 
 
+# ── Custom YAML dumper ────────────────────────────────────────────────────────
+# Serialises OrderedDict as a plain YAML mapping so that the output file
+# contains no !!python/… tags and is readable by any standard YAML parser
+# (including SPECULA's yaml.safe_load).
+
+class _CleanDumper(yaml.Dumper):
+    pass
+
+_CleanDumper.add_representer(
+    OrderedDict,
+    lambda dumper, data: dumper.represent_mapping(
+        'tag:yaml.org,2002:map', data.items()
+    )
+)
+
+
+# ── FileHandler ───────────────────────────────────────────────────────────────
+
 class FileHandler:
     def __init__(self, node_manager):
         self.nm = node_manager
-        self.editor = None  # Will be set by main.py after initialization
+        self.editor = None  # Set by SpeculaEditor after construction
 
     # ── Override metadata helpers ─────────────────────────────────────────────
 
     def _add_overrides_metadata(self, yaml_data: dict):
-        """Add override manager metadata to YAML data before saving."""
+        """Embed override manager state in export data."""
         if hasattr(self, 'editor') and self.editor is not None and \
                 hasattr(self.editor, 'override_manager'):
-            override_meta = self.editor.override_manager.to_dict()
-            if override_meta.get('overrides'):
-                yaml_data['_overrides_metadata'] = override_meta
+            meta = self.editor.override_manager.to_dict()
+            if meta.get('overrides'):
+                yaml_data['_overrides_metadata'] = meta
         return yaml_data
 
     def _load_overrides_metadata(self, yaml_data: dict):
         """
-        Load override manager metadata from YAML data.
-        Pops the key so it is not treated as a simulation node downstream.
+        Extract and restore override manager state from loaded data.
+        Pops the key so it is not treated as a simulation node.
         """
         if '_overrides_metadata' in yaml_data and \
                 hasattr(self, 'editor') and self.editor is not None:
@@ -54,12 +72,10 @@ class FileHandler:
     # ── Theme / UI helpers ────────────────────────────────────────────────────
 
     def refresh_all_themes(self):
-        """Refresh all node themes after import."""
         for node_uuid in self.nm.graph.nodes:
             self.nm._refresh_node_theme(node_uuid)
 
     def update_ui_values(self):
-        """Schedule UI update for imported values."""
         for u_id, node_data in self.nm.graph.nodes.items():
             if u_id in self.nm.uuid_to_dpg and 'values' in node_data:
                 if self.nm._last_selected_uuid == u_id:
@@ -68,32 +84,25 @@ class FileHandler:
     # ── YAML loading helpers ──────────────────────────────────────────────────
 
     def _load_yaml_file(self, file_path):
-        """Load and validate YAML file.  Returns parsed OrderedDict or None."""
+        """Load and validate YAML file. Returns OrderedDict or None."""
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 data = self.ordered_load(f)
-
             if not isinstance(data, dict):
                 print(f"[FILE_HANDLER] Error: YAML root must be a mapping, "
                       f"got {type(data)}")
                 return None
-
             return data
         except Exception as e:
             print(f"[FILE_HANDLER] Error loading YAML file: {e}")
             return None
 
-    # ── Pass 1 ────────────────────────────────────────────────────────────────
+    # ── Pass 1: populate graph model ──────────────────────────────────────────
 
     def _populate_graph_from_yaml(self, yaml_data):
         """
-        Populate graph model from YAML data (Pass 1).
-
-        Creates nodes in the graph model and loads their parameter values,
-        but does not create UI elements or connections yet.
-
-        Returns:
-            dict: Mapping of node names to UUIDs
+        Pass 1 — create graph nodes from YAML data.
+        Returns dict mapping node names to UUIDs.
         """
         name_to_uuid = {}
 
@@ -118,7 +127,6 @@ class FileHandler:
             node_data['suffixes'] = set()
             node_data['values'] = {}
 
-            # Store position if available
             if 'gui_pos' in content:
                 node_data['gui_pos'] = content['gui_pos']
 
@@ -126,21 +134,17 @@ class FileHandler:
             template_params = template.get('parameters', {})
 
             for key, value in content.items():
-                # Skip reserved fields
-                if key in ['class', 'inputs', 'outputs', 'gui_pos']:
+                if key in ('class', 'inputs', 'outputs', 'gui_pos'):
                     continue
-
-                # Skip reference connections (handled in pass 3)
                 if key.endswith('_ref') or key == 'layer_list':
                     continue
 
-                # Object parameter with _object suffix
                 if key.endswith('_object'):
                     base_key = key[:-7]
                     if base_key in template_params:
                         param_meta = template_params[base_key]
-                        param_kind = param_meta.get('kind', 'value')
-                        if param_kind == 'object' or key.endswith('_object'):
+                        if param_meta.get('kind', 'value') == 'object' \
+                                or key.endswith('_object'):
                             node_data['suffixes'].add(base_key)
                             node_data['values'][base_key] = value
                         else:
@@ -151,8 +155,7 @@ class FileHandler:
 
                 elif key in template_params:
                     param_meta = template_params[key]
-                    param_kind = param_meta.get('kind', 'value')
-                    if param_kind == 'object':
+                    if param_meta.get('kind', 'value') == 'object':
                         node_data['suffixes'].add(key)
                         node_data['values'][key] = value
                     else:
@@ -162,36 +165,28 @@ class FileHandler:
 
         return name_to_uuid
 
-    # ── Pass 2 ────────────────────────────────────────────────────────────────
+    # ── Pass 2: create UI nodes ───────────────────────────────────────────────
 
     def _create_ui_nodes(self, yaml_data, name_to_uuid):
         """
-        Create UI nodes from graph model (Pass 2).
-
-        Creates the actual DPG node elements with positions.
-        Ends with two split_frame() calls so DPG registers all node attributes
-        before connections are attempted in Pass 3.
+        Pass 2 — create DPG node elements.
+        Ends with two split_frame() so attribute IDs are ready for Pass 3.
         """
         for node_name, content in yaml_data.items():
             if node_name not in name_to_uuid:
-                continue  # e.g. entries without 'class'
+                continue
             u = name_to_uuid[node_name]
             pos = content.get('gui_pos', [100, 100])
             self.nm.create_node(content['class'], pos=pos,
                                 existing_uuid=u, name_override=node_name)
-
-        # Let DPG register the newly created node attributes
         dpg.split_frame()
         dpg.split_frame()
 
-    # ── Pass 3 ────────────────────────────────────────────────────────────────
+    # ── Pass 3: create connections ────────────────────────────────────────────
 
     def _create_connections(self, yaml_data, name_to_uuid):
         """
-        Create connections between nodes (Pass 3).
-
-        Processes `inputs` blocks and top-level `*_ref` / `layer_list` keys
-        from YAML and creates connections in both the graph model and the UI.
+        Pass 3 — wire up all connections from inputs and *_ref / layer_list keys.
         """
         connections_to_create = []
 
@@ -200,16 +195,13 @@ class FileHandler:
             if not dst_u:
                 continue
 
-            # ── Standard data inputs ──────────────────────────────────────────
+            # Standard data inputs
             if "inputs" in content:
                 for in_pin, src_raw in content["inputs"].items():
                     sources = src_raw if isinstance(src_raw, list) else [src_raw]
-
                     for s in sources:
                         if not isinstance(s, str):
                             continue
-
-                        # DataStore input_list with filename prefix
                         if in_pin == "input_list" and "-" in s:
                             filename, node_and_attr = s.split("-", 1)
                             src_node_name, src_attr, delay = \
@@ -220,8 +212,6 @@ class FileHandler:
                                     dst_u, in_pin, delay, filename
                                 ))
                             continue
-
-                        # Regular connection
                         src_node_name, src_attr, delay = \
                             self._parse_source_info(s)
                         if src_node_name in name_to_uuid:
@@ -230,7 +220,7 @@ class FileHandler:
                                 dst_u, in_pin, delay, None
                             ))
 
-            # ── Reference links (*_ref, layer_list) ──────────────────────────
+            # Reference links (*_ref, layer_list)
             for key, val in content.items():
                 if not (key.endswith("_ref") or key == "layer_list"):
                     continue
@@ -243,7 +233,6 @@ class FileHandler:
                             name_to_uuid[r_name], "ref",
                             dst_u, key, 0, None
                         ))
-                        # Pre-populate values for display in property panel
                         dst_node_data = self.nm.graph.nodes[dst_u]
                         dst_node_data.setdefault('values', {})
                         if key in ('source_dict_ref', 'layer_list'):
@@ -253,10 +242,8 @@ class FileHandler:
                         else:
                             dst_node_data['values'][key] = r_name
 
-        # Create all collected connections
         for src_u, src_a, dst_u, dst_a, delay, filename in connections_to_create:
             self.nm.manual_link(src_u, src_a, dst_u, dst_a, delay=delay)
-
             if filename and dst_a == "input_list":
                 self.nm.graph.nodes[dst_u].setdefault('filename_map', {})
                 conn_key = f"{src_u}.{src_a}"
@@ -265,17 +252,8 @@ class FileHandler:
     # ── Finalize ──────────────────────────────────────────────────────────────
 
     def _finalize_load(self, perform_auto_layout=True, operation_name="LOAD"):
-        """
-        Finalize a load operation with theme refresh and optional auto-layout.
-
-        Args:
-            perform_auto_layout (bool): Whether to auto-layout nodes
-            operation_name (str):       Label used in log messages
-        """
         current_frame = dpg.get_frame_count()
         dpg.set_frame_callback(current_frame + 3, self.refresh_all_themes)
-
-        current_frame = dpg.get_frame_count()
         dpg.set_frame_callback(current_frame + 3, self.update_ui_values)
 
         def verify_nodes(attempt=1, max_attempts=5):
@@ -289,78 +267,97 @@ class FileHandler:
                     lambda: verify_nodes(attempt + 1, max_attempts))
                 return
             if missing:
-                print(f"[{operation_name}] Failed after {max_attempts} "
-                      f"attempts. {len(missing)} nodes still missing DPG IDs")
+                print(f"[{operation_name}] Failed after {max_attempts} attempts")
                 return
             if perform_auto_layout:
-                print(f"[{operation_name}] Performing auto-layout…")
                 try:
                     auto_layout_nodes(self.nm.graph, self.nm.uuid_to_dpg)
-                    print(f"[{operation_name}] Layout completed")
+                    print(f"[{operation_name}] Auto-layout done")
                 except Exception as e:
                     print(f"[{operation_name}] Layout error: {e}")
                     traceback.print_exc()
             else:
-                print(f"[{operation_name}] All {len(self.nm.graph.nodes)} "
-                      f"nodes loaded with saved positions")
+                print(f"[{operation_name}] {len(self.nm.graph.nodes)} nodes "
+                      f"loaded with saved positions")
 
-        current_frame = dpg.get_frame_count()
-        dpg.set_frame_callback(current_frame + 10, lambda: verify_nodes(1, 5))
+        dpg.set_frame_callback(dpg.get_frame_count() + 10,
+                               lambda: verify_nodes(1, 5))
 
-    # ── Public API ────────────────────────────────────────────────────────────
+    # ── Internal load from dict ───────────────────────────────────────────────
 
-    def load_simulation(self, file_path, include_defaults=False):
+    def _load_from_yaml_data(self, yaml_data: dict,
+                             perform_auto_layout: bool = False,
+                             operation_name: str = "LOAD"):
         """
-        Load a saved simulation from YAML.
-
-        Loads a complete simulation including all nodes, connections, and
-        positions as they were when saved.  Node positions are respected and
-        auto-layout is NOT performed.
+        Core load implementation that works from an already-parsed dict.
+        Used by both load_simulation() and load_from_yaml_dict().
         """
-        yaml_data = self._load_yaml_file(file_path)
-        if yaml_data is None:
-            return
-
-        # Strip override metadata (must happen before the three passes so that
-        # the key is not mistaken for a simulation node)
-        self._load_overrides_metadata(yaml_data)
-
-        # Clear existing graph
         self.nm.clear_all()
         self.nm.graph.nodes.clear()
         self.nm.graph.connections.clear()
         self.nm.graph.connection_properties.clear()
 
-        # Three-pass load
-        name_to_uuid = self._populate_graph_from_yaml(yaml_data)   # Pass 1
-        self._create_ui_nodes(yaml_data, name_to_uuid)              # Pass 2 + frame sync
-        self._create_connections(yaml_data, name_to_uuid)           # Pass 3
+        name_to_uuid = self._populate_graph_from_yaml(yaml_data)
+        self._create_ui_nodes(yaml_data, name_to_uuid)
+        self._create_connections(yaml_data, name_to_uuid)
+        self._finalize_load(perform_auto_layout=perform_auto_layout,
+                            operation_name=operation_name)
 
-        # Finalize WITHOUT auto-layout (preserve saved positions)
-        self._finalize_load(perform_auto_layout=False, operation_name="LOAD")
+    # ── Public API ────────────────────────────────────────────────────────────
 
+    def load_simulation(self, file_path, include_defaults=False):
+        """Load a simulation from a YAML file (preserves saved positions)."""
+        yaml_data = self._load_yaml_file(file_path)
+        if yaml_data is None:
+            return
+        self._load_overrides_metadata(yaml_data)
+        self._load_from_yaml_data(yaml_data, perform_auto_layout=False,
+                                  operation_name="LOAD")
         print(f"[LOAD] Simulation loaded from {file_path}")
 
-    def save_simulation(self, file_path, include_defaults=False):
+    def load_from_yaml_dict(self, yaml_data: dict):
         """
-        Save the current simulation layout to YAML.
+        Load a simulation from an in-memory dict (no file I/O).
+        Used by the override mechanism.
+        Override metadata is intentionally NOT extracted here.
+        """
+        self._load_from_yaml_data(
+            dict(yaml_data),
+            perform_auto_layout=False,
+            operation_name="OVERRIDE-RELOAD"
+        )
+        print("[FILE_HANDLER] Simulation reloaded from in-memory dict")
 
-        Captures the current DPG node positions before exporting so they are
-        preserved on the next load.
-        """
-        # Capture current positions from DPG
+    def save_simulation(self, file_path, include_defaults=False):
+        """Capture current DPG positions then export to YAML file."""
         for node_uuid, dpg_id in self.nm.uuid_to_dpg.items():
             if node_uuid in self.nm.graph.nodes:
                 node_data = self.nm.graph.nodes[node_uuid]
                 if dpg.does_item_exist(dpg_id):
                     node_data['gui_pos'] = dpg.get_item_pos(dpg_id)
-
         self.export_simulation(file_path, include_defaults=include_defaults)
         print(f"[SAVE] Simulation saved to {file_path}")
 
     def export_simulation(self, file_path, include_defaults=False):
         """Export the graph state to a SPECULA-compatible YAML file."""
-        export_data = {}
+        export_data = self.export_to_yaml_dict(
+            include_defaults=include_defaults,
+            include_override_metadata=True)
+        with open(file_path, "w", encoding="utf-8") as f:
+            yaml.dump(export_data, f,
+                      Dumper=_CleanDumper,       # ← no !!python/… tags
+                      sort_keys=False,
+                      default_flow_style=False,
+                      allow_unicode=True)
+        print(f"[FILE_HANDLER] Exported simulation to {file_path}")
+
+    def export_to_yaml_dict(self, include_defaults=False,
+                             include_override_metadata=False) -> dict:
+        """
+        Export the current graph to an in-memory OrderedDict.
+        Shared by export_simulation() and the override snapshot mechanism.
+        """
+        export_data = OrderedDict()
 
         for u_id, node_data in self.nm.graph.nodes.items():
             node_type = node_data['type']
@@ -369,42 +366,36 @@ class FileHandler:
             template = self.nm.all_templates.get(node_type, {})
             template_params = template.get('parameters', {})
 
-            node_dict = {'class': node_type}
+            node_dict = OrderedDict({'class': node_type})
 
             # Position
             if 'gui_pos' in node_data:
                 node_dict['gui_pos'] = node_data['gui_pos']
 
-            # ── Outputs ───────────────────────────────────────────────────────
+            # Outputs
             all_outputs = []
-            standard_outputs = template.get('outputs', [])
-            if isinstance(standard_outputs, list):
-                for out in standard_outputs:
-                    if isinstance(out, str):
-                        if "name" in out and "+" in out and "'" in out:
-                            continue
-                        if ":" in out:
-                            continue
-                        if out not in all_outputs:
-                            all_outputs.append(out)
-
+            for out in template.get('outputs', []):
+                if isinstance(out, str):
+                    if "name" in out and "+" in out and "'" in out:
+                        continue
+                    if ":" in out:
+                        continue
+                    if out not in all_outputs:
+                        all_outputs.append(out)
             for out in node_data.get('outputs_extra', []):
                 if isinstance(out, str) and out not in all_outputs:
                     all_outputs.append(out)
-
             if node_type == "AtmoPropagation":
                 for (src_u, src_at, dst_u, dst_at) in self.nm.graph.connections:
                     if dst_u == u_id and dst_at == "source_dict_ref":
-                        src_node_name = self.nm.graph.nodes[src_u].get(
-                            'name', "unknown")
-                        output_name = f"out_{src_node_name}_ef"
-                        if output_name not in all_outputs:
-                            all_outputs.append(output_name)
-
+                        src_name = self.nm.graph.nodes[src_u].get('name', "unknown")
+                        out_name = f"out_{src_name}_ef"
+                        if out_name not in all_outputs:
+                            all_outputs.append(out_name)
             if all_outputs:
                 node_dict['outputs'] = all_outputs
 
-            # ── Parameters ────────────────────────────────────────────────────
+            # Parameters
             current_values = node_data.get('values', {})
             suffixes = node_data.get('suffixes', set())
             handled_params = set()
@@ -413,25 +404,24 @@ class FileHandler:
                 if p_meta.get('kind') == 'reference':
                     handled_params.add(p_name)
                     continue
-
                 val = current_values.get(p_name)
                 kind = p_meta.get('kind', 'value')
                 default_val = p_meta.get('default')
 
                 if not include_defaults:
-                    should_skip = False
+                    skip = False
                     if val is None and default_val is None:
-                        should_skip = True
+                        skip = True
                     elif isinstance(val, str) and isinstance(default_val, str):
                         if default_val != "REQUIRED":
-                            should_skip = (val.lower() == default_val.lower())
+                            skip = (val.lower() == default_val.lower())
                     elif val == default_val:
-                        should_skip = True
+                        skip = True
                     elif val == "" and default_val is None:
-                        should_skip = True
+                        skip = True
                     elif val is None and default_val == "":
-                        should_skip = True
-                    if should_skip:
+                        skip = True
+                    if skip:
                         handled_params.add(p_name)
                         continue
 
@@ -458,14 +448,13 @@ class FileHandler:
                     else:
                         node_dict[key] = val
 
-            # ── Connections (inputs + references) ────────────────────────────
+            # Connections
             input_connections = {}
             ref_connections = {}
 
             for (src_u, src_at, dst_u, dst_at) in self.nm.graph.connections:
                 if dst_u != u_id:
                     continue
-
                 connection_str = self.nm.get_connection_for_yaml(
                     src_u, src_at, dst_u, dst_at)
 
@@ -490,13 +479,12 @@ class FileHandler:
                             filename = node_data['filename_map'].get(
                                 conn_key, "data")
                         connection_str = f"{filename}-{connection_str}"
-
                     input_connections.setdefault(dst_at, [])
                     if connection_str not in input_connections[dst_at]:
                         input_connections[dst_at].append(connection_str)
 
             if input_connections:
-                node_dict['inputs'] = {}
+                node_dict['inputs'] = OrderedDict()
                 for dst_at, sources in input_connections.items():
                     if dst_at == "input_list":
                         node_dict['inputs'][dst_at] = sources
@@ -510,48 +498,37 @@ class FileHandler:
                 if param_name in ('source_dict_ref', 'layer_list'):
                     node_dict[param_name] = sources
                 else:
-                    export_param_name = (param_name
-                                         if param_name.endswith("_ref")
-                                         else f"{param_name}_ref")
+                    export_key = (param_name if param_name.endswith("_ref")
+                                  else f"{param_name}_ref")
                     tp = template_params.get(param_name, {})
                     if (isinstance(tp, dict) and
                             tp.get('kind') == 'reference' and
                             ('list' in str(tp.get('type', '')).lower() or
                              len(sources) > 1)):
-                        node_dict[export_param_name] = sources
+                        node_dict[export_key] = sources
                     elif len(sources) > 1:
-                        node_dict[export_param_name] = sources
+                        node_dict[export_key] = sources
                     else:
-                        node_dict[export_param_name] = \
-                            sources[0] if sources else None
+                        node_dict[export_key] = (sources[0] if sources
+                                                 else None)
 
             export_data[node_name] = node_dict
 
-        # Add override metadata (ignored by SPECULA, used by specula-studio)
-        export_data = self._add_overrides_metadata(export_data)
+        if include_override_metadata:
+            export_data = self._add_overrides_metadata(export_data)
 
-        with open(file_path, "w", encoding="utf-8") as f:
-            yaml.dump(export_data, f, sort_keys=False,
-                      default_flow_style=False, allow_unicode=True)
-
-        print(f"[FILE_HANDLER] Exported simulation to {file_path}")
+        return export_data
 
     # ── Connection string parser ──────────────────────────────────────────────
 
     def _parse_source_info(self, source_val):
         """
         Parse a SPECULA connection string.
-
-        Handles the formats produced by SPECULA's YAML:
-          - "node_name.attr_name"      →  (node_name, attr_name, 0)
-          - "node_name.attr_name:-1"   →  (node_name, attr_name, -1)
-          - "node_name"                →  (node_name, "ref", 0)
-
-        Returns:
-            (node_name, attr_name, delay)  or  (None, None, 0) on failure
+          "node.attr"       → (node, attr, 0)
+          "node.attr:-1"    → (node, attr, -1)
+          "node"            → (node, "ref", 0)
         """
         delay = 0
-
         if isinstance(source_val, list):
             if not source_val:
                 return None, None, 0
@@ -579,14 +556,10 @@ class FileHandler:
     # ── Node template utilities ───────────────────────────────────────────────
 
     def get_node_template(self, node_type: str) -> dict:
-        """Get the template definition for a node type."""
         return self.nm.all_templates.get(node_type, {})
 
     def get_node_defaults(self, node_type: str) -> dict:
-        """Get default parameter values for a node type."""
         template = self.get_node_template(node_type)
-        defaults = {}
-        for param_name, param_meta in template.get('parameters', {}).items():
-            if 'default' in param_meta:
-                defaults[param_name] = param_meta['default']
-        return defaults
+        return {p: m['default']
+                for p, m in template.get('parameters', {}).items()
+                if 'default' in m}
