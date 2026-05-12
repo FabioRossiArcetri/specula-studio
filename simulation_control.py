@@ -240,6 +240,23 @@ class SimulationControl:
                         width=-1,
                         height=25
                     )
+                    
+                    # ── Advance N Steps ─────────────────────────────────────────
+                    with dpg.group(horizontal=True):
+                        dpg.add_input_int(
+                            label="Steps",
+                            tag="sim_advance_n_steps",
+                            default_value=1,
+                            min_value=1,
+                            width=140,
+                        )
+                        dpg.add_button(
+                            label="Advance N Steps",
+                            callback=self.step_sim_n,
+                            width=-1,
+                            height=25
+                        )
+                    
                     dpg.add_button(
                         label="Abort Simulation",
                         callback=self.abort_sim,
@@ -416,7 +433,7 @@ class SimulationControl:
                     return port
         return None
 
-    def _on_display_server_port_found(self, port: int, remote_ip: str = None):
+    def _on_display_server_port_found(self, port: int, remote_ip: str = "localhost"):
         """
         Called when the DisplayServer port is detected on local or remote execution.
         
@@ -424,19 +441,14 @@ class SimulationControl:
         ----------
         port : int
             The port number the DisplayServer is listening on.
-        remote_ip : str or None
-            For remote execution, the hostname/IP of the remote server.
-            For local execution, None.
+        remote_ip : str
+            The IP address or hostname of the server running the simulation.
+            For localhost, this is "127.0.0.1".
         """
-        # Construct the correct URL based on whether execution is local or remote
-        if remote_ip is None:
-            # Local execution: use 127.0.0.1
-            new_url = f"http://127.0.0.1:{port}"
-        elif remote_ip in ("localhost", "127.0.0.1", ""):
-            # Localhost passed as remote_ip: use 127.0.0.1
+        # For remote servers, connect via the remote IP; for localhost, use 127.0.0.1
+        if remote_ip in ("localhost", "127.0.0.1", ""):
             new_url = f"http://127.0.0.1:{port}"
         else:
-            # True remote execution: use the remote hostname/IP
             new_url = f"http://{remote_ip}:{port}"
         
         print(f"[SIMULATION] Display server confirmed at {new_url}")
@@ -533,7 +545,7 @@ class SimulationControl:
 
         mm = self.editor.nm.monitors
 
-        # ── Get remote server info ────────────���─────────────────────────────
+        # ── Get remote server info ──────────────────────────────────────────
         remote_ip = "localhost"
         remote_user = ""
         
@@ -574,6 +586,9 @@ class SimulationControl:
             "precision": int(dpg.get_value("sim_precision") if dpg.does_item_exist("sim_precision") else "1"),
             "log_level": dpg.get_value("sim_log")       if dpg.does_item_exist("sim_log")      else "INFO",
         }
+        
+        # Store remote_ip in cmd_args so backend can use it for port callbacks
+        cmd_args["remote_ip"] = remote_ip
 
         # ── Log startup info ────────────────────────────────────────────────
         if use_inprocess_direct:
@@ -603,6 +618,12 @@ class SimulationControl:
                     f"[INFO] Applied {len(enabled_overrides)} override file(s)\n"
                 )
 
+        # ── Determine the expected server URL ───────────────────────���───────
+        if remote_ip in ("localhost", "127.0.0.1", ""):
+            expected_url = f"http://127.0.0.1:{_DISPLAY_SERVER_PORT}"
+        else:
+            expected_url = f"http://{remote_ip}:{_DISPLAY_SERVER_PORT}"
+
         # ── CRITICAL: Disconnect old SocketIOClient connection and prepare for new one
         sio = self.editor.nm.sio_client
         if sio is not None and sio.connected:
@@ -612,12 +633,17 @@ class SimulationControl:
             except Exception as e:
                 print(f"[SIMULATION] Error disconnecting: {e}")
         
+        # ── Update SocketIOClient's server URL BEFORE simulation starts
+        if sio is not None:
+            print(f"[SIMULATION] Pre-configuring SocketIOClient to connect to {expected_url}")
+            sio.server_url = expected_url
+
         # ── Start the backend ───────────────────────────────────────────────
         self._backend.start(
             yaml_path=temp_path,
             cmd_args=cmd_args,
             append_terminal=self.append_terminal,
-            on_port_found=self._on_display_server_port_found,
+            on_port_found=lambda port: self._on_display_server_port_found(port, remote_ip),
             on_finished=self._on_backend_finished,
         )
 
@@ -625,21 +651,14 @@ class SimulationControl:
 
         # ── Setup monitor reconnection for non-in-process backends ──────────
         if not use_inprocess_direct:
-            # For remote execution, we need to determine the correct URL
-            # This will be updated when the port is discovered
-            if remote_ip in ("localhost", "127.0.0.1", ""):
-                expected_url = f"http://127.0.0.1:{_DISPLAY_SERVER_PORT}"
-            else:
-                expected_url = f"http://{remote_ip}:{_DISPLAY_SERVER_PORT}"
-            
             # Write the expected URL file for monitor subprocesses
             self._write_server_url_file(expected_url)
             
-            # Notify the monitor manager of the expected URL
+            # Notify the monitor manager of the new server URL
             if hasattr(mm, "on_display_server_ready"):
                 mm.on_display_server_ready(expected_url)
             
-            # Schedule reconnection attempts with the expected URL
+            # Schedule reconnection attempts with the correct URL
             self._schedule_display_server_reconnect(delay=4.0, expected_url=expected_url)
                 
     def step_sim(self, sender=None, app_data=None):
@@ -648,6 +667,25 @@ class SimulationControl:
             self._backend.step()
         else:
             self.append_terminal("[WARNING] No active backend\n")
+
+    def step_sim_n(self, sender=None, app_data=None):
+        """Advance N simulation steps in stepping mode."""
+        if self._backend is None:
+            self.append_terminal("[WARNING] No active backend\n")
+            return
+        
+        n_steps = dpg.get_value("sim_advance_n_steps")
+        
+        if n_steps < 1:
+            self.append_terminal("[WARNING] Number of steps must be at least 1\n")
+            return
+        
+        self.append_terminal(f"[INFO] Advancing {n_steps} step(s)...\n")
+        
+        for i in range(n_steps):
+            self._backend.step()
+            if i < n_steps - 1:
+                time.sleep(0.1)  # Small delay between steps to allow UI updates
 
     def abort_sim(self, sender=None, app_data=None):
         """Abort the running simulation."""
