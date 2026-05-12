@@ -69,6 +69,7 @@ import collections
 import io
 import os
 import re
+import socket
 import subprocess
 import sys
 import threading
@@ -131,6 +132,69 @@ def _extract_display_server_port_from_yaml(yaml_path: str) -> int | None:
             return port
 
     return None
+
+def _resolve_remote_hostname(hostname: str) -> str:
+    """
+    Resolve a remote hostname to its IP address.
+    
+    This is used to convert hostnames (like 'gandalf') that are only resolvable
+    on the remote network into IP addresses that the local client can connect to.
+    
+    Uses SSH to run 'hostname -I' on the remote server and extract the primary IP.
+    Falls back to the original hostname if resolution fails.
+    
+    Parameters
+    ----------
+    hostname : str
+        The remote hostname or IP address
+        
+    Returns
+    -------
+    str
+        The resolved IP address, or the original hostname if resolution fails
+    """
+    import subprocess
+    
+    # If it's already an IP address (contains dots), return as-is
+    if hostname.replace(".", "").replace(":", "").isalnum():
+        try:
+            # Try to parse as IP to validate
+            import socket as sock_module
+            sock_module.inet_aton(hostname)
+            return hostname  # Valid IP address
+        except (sock_module.error, ValueError):
+            pass
+    
+    # Try to resolve via SSH
+    try:
+        # Run 'hostname -I' on the remote server to get its IP address
+        result = subprocess.run(
+            ["ssh", hostname, "hostname -I"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            ips = result.stdout.strip().split()
+            if ips:
+                ip = ips[0]  # Take the first IP
+                print(f"[REMOTE] Resolved '{hostname}' → {ip}")
+                return ip
+    except Exception as e:
+        print(f"[REMOTE] Could not resolve '{hostname}' via SSH: {e}")
+    
+    # Fallback: try standard DNS resolution
+    try:
+        import socket as sock_module
+        ip = sock_module.gethostbyname(hostname)
+        print(f"[REMOTE] Resolved '{hostname}' (DNS) → {ip}")
+        return ip
+    except Exception as e:
+        print(f"[REMOTE] Could not resolve '{hostname}' via DNS: {e}")
+    
+    # Final fallback: return original hostname
+    print(f"[REMOTE] Warning: Could not resolve '{hostname}', using as-is")
+    return hostname
 
 
 def _extract_cpu_array(out_obj) -> np.ndarray | None:
@@ -258,7 +322,7 @@ class RemoteBackend(SimulationBackend):
     For remote execution:
     - Transfers YAML file to remote server via scp
     - Executes specula on remote server via ssh
-    - Remote DisplayServer is accessible from local machine for monitoring
+    - Remote DisplayServer binds to 0.0.0.0 so it's accessible from the client
     - Supports stepping mode via ssh stdin
     
     The simulation YAML is expected to already contain a ``DisplayServer``
@@ -320,8 +384,6 @@ class RemoteBackend(SimulationBackend):
         except Exception as e:
             print(f"[REMOTE] Warning: could not prepare remote YAML: {e}")
 
-    # Update the start method to call _prepare_remote_yaml BEFORE passing to _start_remote:
-
     def start(self, yaml_path, cmd_args, append_terminal, on_port_found, on_finished):
         """Start the simulation either locally or on remote server."""
         stepping     = cmd_args.get("stepping", False)
@@ -375,7 +437,7 @@ class RemoteBackend(SimulationBackend):
             self._running = True
             threading.Thread(
                 target=self._read_output,
-                args=(append_terminal, on_port_found, on_finished),
+                args=(append_terminal, on_port_found, on_finished, None),
                 daemon=True,
             ).start()
         except Exception as exc:
@@ -384,10 +446,14 @@ class RemoteBackend(SimulationBackend):
             traceback.print_exc()
             on_finished()
 
+
     def _start_remote(self, yaml_path, stepping, nsimul, cpu, target, precision, log_level,
                       append_terminal, on_port_found, on_finished):
         """Execute simulation on remote server via SSH."""
         try:
+            # ── 0. Resolve remote hostname to IP ────────────────���──────────────
+            remote_ip_for_monitors = _resolve_remote_hostname(self.remote_ip)
+            
             # ── 1. Prepare remote command ──────────────────────────────────────
             yaml_filename = os.path.basename(yaml_path)
             remote_yaml_path = f"/tmp/{yaml_filename}"
@@ -421,7 +487,6 @@ class RemoteBackend(SimulationBackend):
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
-                    #timeout=60,
                 )
                 scp_stdout, scp_stderr = scp_process.communicate()
                 
@@ -434,11 +499,6 @@ class RemoteBackend(SimulationBackend):
 
                 append_terminal(f"[Remote] YAML file copied successfully.\n")
                 print(f"[REMOTE] SCP completed successfully")
-            except subprocess.TimeoutExpired:
-                append_terminal(f"[Remote] SCP timeout (60s exceeded).\n")
-                print(f"[REMOTE] SCP timeout")
-                on_finished()
-                return
             except Exception as e:
                 append_terminal(f"[Remote] SCP Error: {e}\n")
                 print(f"[REMOTE] SCP error: {e}")
@@ -454,7 +514,7 @@ class RemoteBackend(SimulationBackend):
             ssh_cmd = ["ssh", "-t", ssh_target, remote_cmd]
 
             append_terminal(
-                f"[Remote] Executing on {self.remote_ip} as {self.remote_user or 'current user'}…\n"
+                f"[Remote] Executing on {self.remote_ip} (IP: {remote_ip_for_monitors}) as {self.remote_user or 'current user'}…\n"
             )
             append_terminal(f"[Remote] Command: {remote_cmd}\n")
             print(f"[REMOTE] SSH command: {' '.join(ssh_cmd)}")
@@ -470,7 +530,7 @@ class RemoteBackend(SimulationBackend):
             self._running = True
             threading.Thread(
                 target=self._read_output,
-                args=(append_terminal, on_port_found, on_finished),
+                args=(append_terminal, on_port_found, on_finished, remote_ip_for_monitors),
                 daemon=True,
             ).start()
 
@@ -480,8 +540,22 @@ class RemoteBackend(SimulationBackend):
             traceback.print_exc()
             on_finished()
 
-    def _read_output(self, append_terminal, on_port_found, on_finished):
-        """Read and display output from the specula process."""
+
+    def _read_output(self, append_terminal, on_port_found, on_finished, remote_ip):
+        """Read and display output from the specula process.
+        
+        Parameters
+        ----------
+        append_terminal : callable
+            Function to append text to the simulation terminal
+        on_port_found : callable
+            Callback when DisplayServer port is detected; receives (port, remote_ip)
+        on_finished : callable
+            Callback when simulation process terminates
+        remote_ip : str or None
+            For remote execution, the hostname/IP of the remote server.
+            For local execution, None.
+        """
         port_found = False
         try:
             while self._process and self._process.poll() is None:
@@ -492,7 +566,13 @@ class RemoteBackend(SimulationBackend):
                         port = _extract_port(line)
                         if port:
                             port_found = True
-                            on_port_found(port)
+                            # For remote execution, resolve the hostname to IP
+                            # so monitors on the local machine can connect
+                            if remote_ip and remote_ip not in ("localhost", "127.0.0.1", ""):
+                                resolved_ip = _resolve_remote_hostname(remote_ip)
+                                on_port_found(port, resolved_ip)
+                            else:
+                                on_port_found(port, remote_ip)
         finally:
             self._running = False
             self._process = None
@@ -605,22 +685,13 @@ class MonitorProbeObj:
             self.inputs_changed = True
         else:
             self.inputs_changed = (gen_time >= t)
-        # --- TEMP DEBUG ---
-        if not hasattr(self, '_dbg_count'):
-            self._dbg_count = 0
-        self._dbg_count += 1
-        if self._dbg_count <= 5:
-            print(f"[PROBE-DBG] check_ready topic={self._topic} t={t} gen_time={gen_time} inputs_changed={self.inputs_changed}")
-        # ------------------
         return self.inputs_changed
 
     def trigger(self) -> None:
         if not self.inputs_changed or not self._enabled:
             return
-        print(f"[PROBE-DBG] trigger called for topic={self._topic}")   # TEMP DEBUG
         try:
             arr = _extract_cpu_array(self._source)
-            print(f"[PROBE-DBG] _extract_cpu_array returned: {None if arr is None else arr.shape}")  # TEMP DEBUG
             if arr is None:
                 return
             
@@ -794,7 +865,7 @@ class InProcessBackend(SimulationBackend):
             try:
                 ds_port = _extract_display_server_port_from_yaml(yaml_path)
                 if ds_port:
-                    on_port_found(ds_port)
+                    on_port_found(ds_port, None)
             except Exception:
                 pass
 
@@ -914,11 +985,6 @@ class InProcessBackend(SimulationBackend):
                         topic = f"{obj_name}.{out_key}"
                         registry[topic] = out_data_obj
 
-            # --- TEMP DEBUG ---
-            print(f"[PROBE-DBG] Registry topics: {sorted(registry.keys())}")
-            print(f"[PROBE-DBG] Bus subscriptions: {monitor_bus.all_subscribed_outputs()}")
-            # ------------------
-
             _state["registry"]     = registry
             _state["loop_control"] = lc_self
 
@@ -939,10 +1005,8 @@ class InProcessBackend(SimulationBackend):
                     )
                     lc_self.trigger_lists[probe_priority].append(probe)
                     _active_probes[topic] = probe
-                    print(f"[PROBE-DBG] Probe injected for '{topic}', source={type(source).__name__}, source attrs={[a for a in vars(source) if not a.startswith('_')]}")  # TEMP DEBUG
                     append_terminal(f"[In-Process] Probe injected for '{topic}'\n")
                 elif source is None:
-                    print(f"[PROBE-DBG] WARNING: topic '{topic}' NOT found in registry!")  # TEMP DEBUG
                     append_terminal(
                         f"[In-Process] Warning: topic '{topic}' not found "
                         f"in registry — no probe created.\n"
