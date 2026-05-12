@@ -16,6 +16,11 @@ from simulation_backend import RemoteBackend, InProcessBackend, SimulationBacken
 _DISPLAY_SERVER_PORT = 5000
 _DISPLAY_SERVER_NODE_NAME = "specula_studio_display_server"
 
+_REMOTE_SERVER_INFO_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "specula_studio_remote_server.json",
+)
+
 # ---------------------------------------------------------------------------
 # Patterns used to extract the display-server URL from specula stdout
 # ---------------------------------------------------------------------------
@@ -411,8 +416,24 @@ class SimulationControl:
                     return port
         return None
 
-    def _on_display_server_port_found(self, port: int):
-        new_url = f"http://127.0.0.1:{port}"
+    def _on_display_server_port_found(self, port: int, remote_ip: str = "localhost"):
+        """
+        Called when the DisplayServer port is detected on local or remote execution.
+        
+        Parameters
+        ----------
+        port : int
+            The port number the DisplayServer is listening on.
+        remote_ip : str
+            The IP address or hostname of the server running the simulation.
+            For localhost, this is "127.0.0.1".
+        """
+        # For remote servers, connect via the remote IP; for localhost, use 127.0.0.1
+        if remote_ip in ("localhost", "127.0.0.1", ""):
+            new_url = f"http://127.0.0.1:{port}"
+        else:
+            new_url = f"http://{remote_ip}:{port}"
+        
         print(f"[SIMULATION] Display server confirmed at {new_url}")
         self.append_terminal(f"[INFO] Display server running at {new_url}\n")
 
@@ -444,20 +465,37 @@ class SimulationControl:
     # ------------------------------------------------------------------
     # Simulation launch / control
     # ------------------------------------------------------------------
-
-    def _schedule_display_server_reconnect(self, delay: float = 4.0):
+    def _schedule_display_server_reconnect(self, delay: float = 4.0, expected_url: str = None):
         """
         Fallback reconnect attempt in case the port never appears in stdout.
         With a fixed port this should rarely be needed.
+        
+        Parameters
+        ----------
+        delay : float
+            Initial delay before first reconnect attempt (seconds)
+        expected_url : str
+            The URL to connect to (e.g., http://gandalf:5000)
         """
+        if expected_url is None:
+            expected_url = f"http://127.0.0.1:{_DISPLAY_SERVER_PORT}"
+        
         def _attempt(attempt_no, delay_s):
             time.sleep(delay_s)
             sio = self.editor.nm.sio_client
-            if sio is None or sio.connected:
+            if sio is None:
                 return
-            print(f"[SIMULATION] Fallback reconnect attempt {attempt_no} → {sio.server_url}")
+            if sio.connected:
+                print(f"[SIMULATION] Already connected to {sio.server_url}")
+                return
+            
+            print(f"[SIMULATION] Fallback reconnect attempt {attempt_no} → {expected_url}")
+            # CRITICAL: Update the client's URL before reconnecting
+            sio.server_url = expected_url
             sio.reconnect()
+            
             if not sio.connected and attempt_no == 1:
+                # Schedule a second attempt
                 threading.Thread(target=_attempt, args=(2, 6.0), daemon=True).start()
 
         threading.Thread(target=_attempt, args=(1, delay), daemon=True).start()
@@ -490,14 +528,11 @@ class SimulationControl:
 
         mm = self.editor.nm.monitors
 
-        # ── Create appropriate backend ──────────────────────────────────────
-        if use_inprocess_direct:
-            # Pass the MonitorBus so InProcessBackend uses the probe-based path.
-            monitor_bus = mm._monitor_bus
-            self._backend = InProcessBackend(monitor_bus=monitor_bus)
-            mm.set_inprocess_mode(True)
-        else:
-            # Remote backend (handles both localhost and remote execution)
+        # ── Get remote server info ──────────────────────────────────────────
+        remote_ip = "localhost"
+        remote_user = ""
+        
+        if is_remote:
             remote_ip = (
                 dpg.get_value("sim_remote_ip")
                 if dpg.does_item_exist("sim_remote_ip")
@@ -508,6 +543,15 @@ class SimulationControl:
                 if dpg.does_item_exist("sim_remote_user")
                 else ""
             )
+
+        # ── Create appropriate backend ──────────────────────────────────────
+        if use_inprocess_direct:
+            # Pass the MonitorBus so InProcessBackend uses the probe-based path.
+            monitor_bus = mm._monitor_bus
+            self._backend = InProcessBackend(monitor_bus=monitor_bus)
+            mm.set_inprocess_mode(True)
+        else:
+            # Remote backend (handles both localhost and remote execution)
             self._backend = RemoteBackend(remote_ip=remote_ip, remote_user=remote_user)
             mm.set_inprocess_mode(False)
 
@@ -525,6 +569,9 @@ class SimulationControl:
             "precision": int(dpg.get_value("sim_precision") if dpg.does_item_exist("sim_precision") else "1"),
             "log_level": dpg.get_value("sim_log")       if dpg.does_item_exist("sim_log")      else "INFO",
         }
+        
+        # Store remote_ip in cmd_args so backend can use it for port callbacks
+        cmd_args["remote_ip"] = remote_ip
 
         # ── Log startup info ────────────────────────────────────────────────
         if use_inprocess_direct:
@@ -532,8 +579,6 @@ class SimulationControl:
                 f"[INFO] Backend: {backend_mode} (direct probe monitoring — no DisplayServer)\n"
             )
         elif is_remote:
-            remote_ip = dpg.get_value("sim_remote_ip") if dpg.does_item_exist("sim_remote_ip") else "localhost"
-            remote_user = dpg.get_value("sim_remote_user") if dpg.does_item_exist("sim_remote_user") else ""
             if remote_ip in ("localhost", "127.0.0.1", ""):
                 self.append_terminal(
                     f"[INFO] Backend: Remote (localhost)\n"
@@ -544,6 +589,7 @@ class SimulationControl:
                 self.append_terminal(
                     f"[INFO] Backend: Remote ({user_str}{remote_ip})\n"
                     f"[INFO] Transferring YAML via scp, executing via ssh…\n"
+                    f"[INFO] DisplayServer will be accessible at http://{remote_ip}:{_DISPLAY_SERVER_PORT}\n"
                 )
 
         # ── Add enabled overrides ───────────────────────────────────────────
@@ -555,12 +601,32 @@ class SimulationControl:
                     f"[INFO] Applied {len(enabled_overrides)} override file(s)\n"
                 )
 
+        # ── Determine the expected server URL ───────────────────────────────
+        if remote_ip in ("localhost", "127.0.0.1", ""):
+            expected_url = f"http://127.0.0.1:{_DISPLAY_SERVER_PORT}"
+        else:
+            expected_url = f"http://{remote_ip}:{_DISPLAY_SERVER_PORT}"
+
+        # ── CRITICAL: Disconnect old SocketIOClient connection and prepare for new one
+        sio = self.editor.nm.sio_client
+        if sio is not None and sio.connected:
+            print(f"[SIMULATION] Disconnecting from old server at {sio.server_url}")
+            try:
+                sio.disconnect()
+            except Exception as e:
+                print(f"[SIMULATION] Error disconnecting: {e}")
+        
+        # ── Update SocketIOClient's server URL BEFORE simulation starts
+        if sio is not None:
+            print(f"[SIMULATION] Pre-configuring SocketIOClient to connect to {expected_url}")
+            sio.server_url = expected_url
+
         # ── Start the backend ───────────────────────────────────────────────
         self._backend.start(
             yaml_path=temp_path,
             cmd_args=cmd_args,
             append_terminal=self.append_terminal,
-            on_port_found=self._on_display_server_port_found,
+            on_port_found=lambda port: self._on_display_server_port_found(port, remote_ip),
             on_finished=self._on_backend_finished,
         )
 
@@ -568,14 +634,16 @@ class SimulationControl:
 
         # ── Setup monitor reconnection for non-in-process backends ──────────
         if not use_inprocess_direct:
-            # Write the expected URL immediately (port is fixed) and kick off
-            # the Socket.IO reconnect path used by subprocess monitors.
-            expected_url = f"http://127.0.0.1:{_DISPLAY_SERVER_PORT}"
+            # Write the expected URL file for monitor subprocesses
             self._write_server_url_file(expected_url)
+            
+            # Notify the monitor manager of the new server URL
             if hasattr(mm, "on_display_server_ready"):
                 mm.on_display_server_ready(expected_url)
-            self._schedule_display_server_reconnect(delay=4.0)
-
+            
+            # Schedule reconnection attempts with the correct URL
+            self._schedule_display_server_reconnect(delay=4.0, expected_url=expected_url)
+                
     def step_sim(self, sender=None, app_data=None):
         """Advance one simulation step in stepping mode."""
         if self._backend is not None:

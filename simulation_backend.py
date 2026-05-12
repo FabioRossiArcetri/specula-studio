@@ -283,6 +283,45 @@ class RemoteBackend(SimulationBackend):
         # Determine if this is local or remote execution
         self._is_localhost = self.remote_ip in ("localhost", "127.0.0.1", "")
 
+    def _prepare_remote_yaml(self, yaml_path: str) -> None:
+        """
+        Prepare YAML for remote execution by ensuring DisplayServer binds to 0.0.0.0.
+        
+        When running on a remote server, the DisplayServer must bind to 0.0.0.0
+        (all interfaces) so it's accessible from the local machine.
+        For localhost execution, binding to 127.0.0.1 is fine.
+        """
+        if self._is_localhost:
+            # For local execution, no changes needed
+            return
+        
+        try:
+            with open(yaml_path, encoding="utf-8") as f:
+                yaml_data = yaml.safe_load(f)
+            
+            if not isinstance(yaml_data, dict):
+                print("[REMOTE] YAML root is not a dict, skipping DisplayServer config")
+                return
+            
+            # Find and update DisplayServer node to bind to 0.0.0.0
+            for node_name, node_dict in yaml_data.items():
+                if isinstance(node_dict, dict) and node_dict.get("class") == "DisplayServer":
+                    old_host = node_dict.get("host", "127.0.0.1")
+                    node_dict["host"] = "0.0.0.0"
+                    print(
+                        f"[REMOTE] Updated DisplayServer '{node_name}' binding: "
+                        f"{old_host} → 0.0.0.0"
+                    )
+            
+            with open(yaml_path, "w", encoding="utf-8") as f:
+                yaml.dump(yaml_data, f, sort_keys=False, default_flow_style=False)
+            
+            print(f"[REMOTE] Prepared remote YAML for binding to {self.remote_ip}")
+        except Exception as e:
+            print(f"[REMOTE] Warning: could not prepare remote YAML: {e}")
+
+    # Update the start method to call _prepare_remote_yaml BEFORE passing to _start_remote:
+
     def start(self, yaml_path, cmd_args, append_terminal, on_port_found, on_finished):
         """Start the simulation either locally or on remote server."""
         stepping     = cmd_args.get("stepping", False)
@@ -291,6 +330,9 @@ class RemoteBackend(SimulationBackend):
         target       = cmd_args.get("target", -1)
         precision    = cmd_args.get("precision", "1")
         log_level    = cmd_args.get("log_level", "INFO")
+        
+        # For remote execution, configure DisplayServer to bind to 0.0.0.0
+        self._prepare_remote_yaml(yaml_path)
 
         if self._is_localhost:
             # ── Local execution (DisplayServer mode) ──────────────────────────
