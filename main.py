@@ -48,7 +48,7 @@ class SpeculaEditor:
         self.graph = GraphManager(self.all_templates)
         self.nm = NodeManager(self.graph, self.all_templates)        
         self.fh = FileHandler(self.nm)
-        self.fh.editor = self          # give FileHandler access to override_manager
+        self.fh.editor = self          # give FileHandler access to override_manager                
 
         # 3. Initialize Simulation Control
         from simulation_control import SimulationControl
@@ -146,7 +146,20 @@ class SpeculaEditor:
                 pass
   
     # ── Status Bar ────────────────────────────────────────────────────────────
-
+    def _update_property_panel_visibility(self):
+        """Show property panel only when a single node is selected."""
+        if dpg.does_item_exist("property_panel"):
+            selected_nodes = self.nm.get_selected_nodes()
+            if len(selected_nodes) == 1:
+                # Show the panel and ensure it has the correct width
+                dpg.show_item("property_panel")
+                main_w = dpg.get_viewport_width()
+                property_width = int(main_w * 0.25)
+                dpg.set_item_width("property_panel", property_width)
+            else:
+                # Hide the panel if 0 or more than 1 node is selected
+                dpg.hide_item("property_panel")
+    
     def _update_status_bar(self):
         if self.current_simulation_name:
             status_text = f"Simulation: {self.current_simulation_name}"
@@ -213,7 +226,7 @@ class SpeculaEditor:
             modal=True, show=True, width=400, height=150, no_resize=True
         ):
             dpg.add_text(message)
-            dpg.add_spacing(count=2)
+            dpg.add_spacer()
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Delete", width=100, callback=self._on_delete_confirm)
                 dpg.add_button(label="Cancel", width=100, callback=self._on_delete_cancel)
@@ -508,7 +521,6 @@ class SpeculaEditor:
                                callback=lambda: dpg.hide_item("preferences_dialog"))
 
     # ── Preference callbacks ──────────────────────────────────────────────────
-
     def _on_render_size_changed(self, sender, app_data):
         new_size = app_data
         if new_size == self.preferences['render_size']:
@@ -523,7 +535,7 @@ class SpeculaEditor:
 
         if self.nm.graph.nodes:
             self.nm.rebuild_all_nodes_ui()
-            dpg.delete_item("property_panel", children_only=True)
+            # Property panel will be hidden/shown automatically based on selection
 
         self._save_settings()
         print(f"[PREFERENCES] Render size set to: {new_size}")
@@ -605,8 +617,8 @@ class SpeculaEditor:
                                                              f"Connections: {len(self.nm.graph.connections)}"))
 
             with dpg.group(horizontal=False):
-                with dpg.group(horizontal=True):
-                    with dpg.child_window(width=-450, tag="specula_editor_parent", border=False):
+                with dpg.group(horizontal=True, tag="editor_group"):
+                    with dpg.child_window(width=-1, tag="specula_editor_parent", border=False):
                         with dpg.node_editor(
                             tag="specula_editor",
                             callback=self.nm.link_callback,
@@ -614,11 +626,11 @@ class SpeculaEditor:
                             minimap=True
                         ):
                             pass
-                    with dpg.child_window(width=430, tag="property_panel", border=True):
+                    with dpg.child_window(width=0, tag="property_panel", border=True, show=False):
                         pass
                 with dpg.child_window(height=30, tag="status_bar", border=False):
                     dpg.add_text("Simulation: (Unsaved)", tag="status_bar_text", color=(180, 180, 180))
-
+            
         with dpg.handler_registry():
             dpg.add_key_press_handler(callback=self._on_key_press)
 
@@ -637,13 +649,17 @@ class SpeculaEditor:
     def _resize_callback(self):
         h = dpg.get_viewport_height()
         new_height = h - 80
+        main_w = dpg.get_viewport_width()
+        
+        # Only resize editor if panel is not visible
+        if dpg.does_item_exist("property_panel") and not dpg.is_item_visible("property_panel"):
+            dpg.set_item_width("specula_editor_parent", -1)
+        
         dpg.set_item_height("specula_editor_parent", new_height)
         dpg.set_item_height("property_panel", new_height)
-        
-        if dpg.does_item_exist("property_panel"):
-            dpg.show_item("property_panel")
-            dpg.split_frame()
 
+
+        
     def setup_dialogs(self):
         with dpg.file_dialog(label="Save Simulation", show=False, callback=self._save_simulation_cb,
                              id="save_simulation_dialog", width=700, height=400):
@@ -666,7 +682,7 @@ class SpeculaEditor:
                         modal=True, show=False, width=450, height=180, no_resize=True):
             dpg.add_text("Are you sure you want to exit?")
             dpg.add_text("Would you like to save your current simulation before exiting?", color=[180, 180, 180])
-            dpg.add_spacing(count=2)
+            dpg.add_spacer()
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Save and Exit",      width=140, callback=self._on_exit_save_and_confirm)
                 dpg.add_button(label="Exit without Saving",width=140, callback=self._on_exit_confirm)
@@ -678,7 +694,7 @@ class SpeculaEditor:
             dpg.add_text("Create a new simulation?")
             dpg.add_text("Your current simulation will be cleared. Would you like to save it first?",
                          color=[180, 180, 180])
-            dpg.add_spacing(count=2)
+            dpg.add_spacer()
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Save and Continue", width=140, callback=self._on_new_simulation_save_and_proceed)
                 dpg.add_button(label="Discard",           width=100, callback=self._on_new_simulation_discard)
@@ -706,12 +722,12 @@ class SpeculaEditor:
             return
         with dpg.window(label="Welcome", tag="startup_dialog", modal=True, show=True, width=640, height=160):
             dpg.add_text("Create a new simulation or open an existing one.")
-            dpg.add_spacing(count=1)
+            dpg.add_spacer()
             with dpg.group(horizontal=True):
                 dpg.add_text("Simulation name:")
                 dpg.add_input_text(tag="startup_simulation_name", width=420,
                                    hint="Enter simulation name for new/import")
-            dpg.add_spacing(count=1)
+            dpg.add_spacer()
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Create New Simulation",    callback=self._startup_create_new)
                 dpg.add_button(label="Open Existing Simulation", callback=self._on_startup_open_existing)

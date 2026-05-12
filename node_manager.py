@@ -130,6 +130,8 @@ class NodeManager:
         _MOUSE_MOVE_INTERVAL: float = 0.05   # seconds (50 ms → ≤20 checks/s)
         self._MOUSE_MOVE_INTERVAL = _MOUSE_MOVE_INTERVAL
 
+        self.editor = None
+
     # ==========================================================================
     # LOGGING
     # ==========================================================================
@@ -954,6 +956,29 @@ class NodeManager:
             dpg.add_mouse_double_click_handler(callback=self._on_canvas_double_click)
             dpg.add_mouse_move_handler(callback=self._on_mouse_move)
 
+    def _on_link_click(self, sender, app_data, link_id):
+        """Select a link and show its properties in the panel."""
+        if self._selected_link_id and self._selected_link_id != link_id:
+            self._reset_link_style(self._selected_link_id)
+
+        self._selected_link_id = link_id
+        self._highlight_link(link_id)
+        dpg.clear_selected_nodes("specula_editor")
+        self._last_selected_uuid = None
+        
+        # Show property panel before updating it
+        if dpg.does_item_exist("property_panel"):
+            dpg.show_item("property_panel")
+            # Calculate width as 25% of viewport width
+            try:
+                viewport_width = dpg.get_viewport_width()
+                property_width = int(viewport_width * 0.25)
+                dpg.set_item_width("property_panel", property_width)
+            except Exception as e:
+                self._log(f"Error setting property panel width: {e}")
+        
+        self.update_connection_panel(link_id, "property_panel")
+
     def on_click_editor(self, sender, app_data):
         """Handle editor click - select node or link.
 
@@ -974,22 +999,76 @@ class NodeManager:
         if len(selected) == 1:
             node_uuid = selected[0]
             self._log(f"Node clicked: {node_uuid}")
-            # debug_node_completeness is an expensive print-heavy call;
-            # invoke it only when the debug flag is explicitly set.
             if self.debug:
                 self.debug_node_completeness(node_uuid)
 
             if node_uuid != self._last_selected_uuid:
                 self._last_selected_uuid = node_uuid
                 self._clear_link_selection()
-                self.update_property_panel(node_uuid, "property_panel")
+                self._show_property_panel(node_uuid)
+                
         elif len(selected) == 0:
             if not self._selected_link_id:
-                dpg.delete_item("property_panel", children_only=True)
+                self._hide_property_panel()
                 self._last_selected_uuid = None
+        else:
+            # Multiple nodes selected
+            self._hide_property_panel()
+
+    def _show_property_panel(self, node_uuid: str):
+        """Show property panel with node details and resize layout."""
+        if not dpg.does_item_exist("property_panel"):
+            return
+        
+        try:
+            # Calculate 25% of viewport width
+            viewport_width = dpg.get_viewport_width()
+            property_width = int(viewport_width * 0.25)
+            
+            # Set width and show
+            dpg.configure_item("property_panel", width=property_width, show=True)
+            
+            # Resize editor to fill remaining space
+            dpg.configure_item("specula_editor_parent", width=-(property_width + 5))
+            
+            # Update content
+            self.update_property_panel(node_uuid, "property_panel")
+            
+            self._log(f"Property panel shown for {node_uuid} (width: {property_width}px)")
+        except Exception as e:
+            self._log(f"Error showing property panel: {e}")
+
+    def _hide_property_panel(self):
+        """Hide property panel and restore editor to full width."""
+        if not dpg.does_item_exist("property_panel"):
+            return
+        
+        try:
+            dpg.configure_item("property_panel", width=0, show=False)
+            dpg.delete_item("property_panel", children_only=True)
+            dpg.configure_item("specula_editor_parent", width=-1)
+            self._log("Property panel hidden")
+        except Exception as e:
+            self._log(f"Error hiding property panel: {e}")
+
+    def _update_property_panel_visibility(self):
+        """Show property panel only when exactly one node is selected."""
+        if not self.editor or not dpg.does_item_exist("property_panel"):
+            return
+        
+        selected = self.get_selected_nodes()
+        if len(selected) == 1:
+            dpg.show_item("property_panel")
+            # Calculate width as 25% of viewport width
+            viewport_width = dpg.get_viewport_width()
+            property_width = int(viewport_width * 0.25)
+            dpg.set_item_width("property_panel", property_width)
+        else:
+            dpg.hide_item("property_panel")
+
 
     def _on_link_click(self, sender, app_data, link_id):
-        """Select a link."""
+        """Select a link and show its properties in the panel."""
         if self._selected_link_id and self._selected_link_id != link_id:
             self._reset_link_style(self._selected_link_id)
 
@@ -997,7 +1076,31 @@ class NodeManager:
         self._highlight_link(link_id)
         dpg.clear_selected_nodes("specula_editor")
         self._last_selected_uuid = None
-        self.update_connection_panel(link_id, "property_panel")
+        self._show_connection_panel(link_id)
+
+    def _show_connection_panel(self, link_id: int):
+        """Show property panel with connection details and resize layout."""
+        if not dpg.does_item_exist("property_panel"):
+            return
+        
+        try:
+            # Calculate 25% of viewport width
+            viewport_width = dpg.get_viewport_width()
+            property_width = int(viewport_width * 0.25)
+            
+            # Set width and show
+            dpg.configure_item("property_panel", width=property_width, show=True)
+            
+            # Resize editor to fill remaining space
+            dpg.configure_item("specula_editor_parent", width=-(property_width + 5))
+            
+            # Update content
+            self.update_connection_panel(link_id, "property_panel")
+            
+            self._log(f"Property panel shown for connection (width: {property_width}px)")
+        except Exception as e:
+            self._log(f"Error showing property panel: {e}")
+
 
     def _highlight_link(self, link_id):
         """Highlight a selected link."""
