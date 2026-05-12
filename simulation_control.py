@@ -561,6 +561,16 @@ class SimulationControl:
                 else ""
             )
 
+        # ── CRITICAL FIX: Resolve hostname to IP for remote servers ──────────
+        # This must be done ONCE at startup so the same IP is used everywhere
+        # (coordination file, callbacks, monitor connections)
+        if is_remote and remote_ip not in ("localhost", "127.0.0.1", ""):
+            from simulation_backend import _resolve_remote_hostname
+            remote_ip_for_monitors = _resolve_remote_hostname(remote_ip)
+            print(f"[SIMULATION] Resolved remote server: {remote_ip} → {remote_ip_for_monitors}")
+        else:
+            remote_ip_for_monitors = remote_ip
+
         # ── Create appropriate backend ──────────────────────────────────────
         if use_inprocess_direct:
             # Pass the MonitorBus so InProcessBackend uses the probe-based path.
@@ -585,8 +595,8 @@ class SimulationControl:
             "target":    dpg.get_value("sim_target")    if dpg.does_item_exist("sim_target")   else -1,
             "precision": int(dpg.get_value("sim_precision") if dpg.does_item_exist("sim_precision") else "1"),
             "log_level": dpg.get_value("sim_log")       if dpg.does_item_exist("sim_log")      else "INFO",
+            "resolved_ip": remote_ip_for_monitors,  # ← ADD THIS
         }
-        
         # Store remote_ip in cmd_args so backend can use it for port callbacks
         cmd_args["remote_ip"] = remote_ip
 
@@ -606,7 +616,7 @@ class SimulationControl:
                 self.append_terminal(
                     f"[INFO] Backend: Remote ({user_str}{remote_ip})\n"
                     f"[INFO] Transferring YAML via scp, executing via ssh…\n"
-                    f"[INFO] DisplayServer will be accessible at http://{remote_ip}:{_DISPLAY_SERVER_PORT}\n"
+                    f"[INFO] DisplayServer will be accessible at http://{remote_ip_for_monitors}:{_DISPLAY_SERVER_PORT}\n"
                 )
 
         # ── Add enabled overrides ───────────────────────────────────────────
@@ -618,11 +628,11 @@ class SimulationControl:
                     f"[INFO] Applied {len(enabled_overrides)} override file(s)\n"
                 )
 
-        # ── Determine the expected server URL ───────────────────────���───────
+        # ── Determine the expected server URL using RESOLVED IP ──────────────
         if remote_ip in ("localhost", "127.0.0.1", ""):
             expected_url = f"http://127.0.0.1:{_DISPLAY_SERVER_PORT}"
         else:
-            expected_url = f"http://{remote_ip}:{_DISPLAY_SERVER_PORT}"
+            expected_url = f"http://{remote_ip_for_monitors}:{_DISPLAY_SERVER_PORT}"
 
         # ── CRITICAL: Disconnect old SocketIOClient connection and prepare for new one
         sio = self.editor.nm.sio_client
@@ -643,7 +653,7 @@ class SimulationControl:
             yaml_path=temp_path,
             cmd_args=cmd_args,
             append_terminal=self.append_terminal,
-            on_port_found=lambda port: self._on_display_server_port_found(port, remote_ip),
+            on_port_found=lambda port, ip: self._on_display_server_port_found(port, ip),
             on_finished=self._on_backend_finished,
         )
 
@@ -660,7 +670,7 @@ class SimulationControl:
             
             # Schedule reconnection attempts with the correct URL
             self._schedule_display_server_reconnect(delay=4.0, expected_url=expected_url)
-                
+
     def step_sim(self, sender=None, app_data=None):
         """Advance one simulation step in stepping mode."""
         if self._backend is not None:

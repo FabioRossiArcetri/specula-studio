@@ -343,9 +343,15 @@ class RemoteBackend(SimulationBackend):
         self._running = False
         self.remote_ip = remote_ip.strip() if remote_ip else "localhost"
         self.remote_user = remote_user.strip() if remote_user else ""
+        self._resolved_ip: str | None = None  # ← ADD THIS: Store resolved IP
         
         # Determine if this is local or remote execution
         self._is_localhost = self.remote_ip in ("localhost", "127.0.0.1", "")
+
+    def set_resolved_ip(self, ip: str) -> None:
+        """Store the resolved IP address for remote connections."""
+        self._resolved_ip = ip
+        print(f"[REMOTE] Stored resolved IP: {ip}")
 
     def _prepare_remote_yaml(self, yaml_path: str) -> None:
         """
@@ -384,6 +390,7 @@ class RemoteBackend(SimulationBackend):
         except Exception as e:
             print(f"[REMOTE] Warning: could not prepare remote YAML: {e}")
 
+
     def start(self, yaml_path, cmd_args, append_terminal, on_port_found, on_finished):
         """Start the simulation either locally or on remote server."""
         stepping     = cmd_args.get("stepping", False)
@@ -392,6 +399,10 @@ class RemoteBackend(SimulationBackend):
         target       = cmd_args.get("target", -1)
         precision    = cmd_args.get("precision", "1")
         log_level    = cmd_args.get("log_level", "INFO")
+        
+        # Extract resolved IP if available in cmd_args
+        if "resolved_ip" in cmd_args:
+            self.set_resolved_ip(cmd_args["resolved_ip"])
         
         # For remote execution, configure DisplayServer to bind to 0.0.0.0
         self._prepare_remote_yaml(yaml_path)
@@ -408,6 +419,7 @@ class RemoteBackend(SimulationBackend):
                 yaml_path, stepping, nsimul, cpu, target, precision, log_level,
                 append_terminal, on_port_found, on_finished
             )
+
 
     def _start_local(self, yaml_path, stepping, nsimul, cpu, target, precision, log_level,
                      append_terminal, on_port_found, on_finished):
@@ -446,13 +458,12 @@ class RemoteBackend(SimulationBackend):
             traceback.print_exc()
             on_finished()
 
-
     def _start_remote(self, yaml_path, stepping, nsimul, cpu, target, precision, log_level,
-                      append_terminal, on_port_found, on_finished):
+                    append_terminal, on_port_found, on_finished):
         """Execute simulation on remote server via SSH."""
         try:
-            # ── 0. Resolve remote hostname to IP ────────────────���──────────────
-            remote_ip_for_monitors = _resolve_remote_hostname(self.remote_ip)
+            # Note: remote_ip is already resolved by SimulationControl.start_sim()
+            # No resolution needed here
             
             # ── 1. Prepare remote command ──────────────────────────────────────
             yaml_filename = os.path.basename(yaml_path)
@@ -514,10 +525,11 @@ class RemoteBackend(SimulationBackend):
             ssh_cmd = ["ssh", "-t", ssh_target, remote_cmd]
 
             append_terminal(
-                f"[Remote] Executing on {self.remote_ip} (IP: {remote_ip_for_monitors}) as {self.remote_user or 'current user'}…\n"
+                f"[Remote] Executing on {self.remote_ip} as {self.remote_user or 'current user'}…\n"
             )
             append_terminal(f"[Remote] Command: {remote_cmd}\n")
             print(f"[REMOTE] SSH command: {' '.join(ssh_cmd)}")
+
 
             self._process = subprocess.Popen(
                 ssh_cmd,
@@ -528,9 +540,11 @@ class RemoteBackend(SimulationBackend):
                 bufsize=1,
             )
             self._running = True
+            # Pass the resolved IP (if available) to _read_output
+            ip_to_use = self._resolved_ip if self._resolved_ip else self.remote_ip
             threading.Thread(
                 target=self._read_output,
-                args=(append_terminal, on_port_found, on_finished, remote_ip_for_monitors),
+                args=(append_terminal, on_port_found, on_finished, ip_to_use),
                 daemon=True,
             ).start()
 
@@ -539,7 +553,6 @@ class RemoteBackend(SimulationBackend):
             print(f"[REMOTE] Launch error: {exc}")
             traceback.print_exc()
             on_finished()
-
 
     def _read_output(self, append_terminal, on_port_found, on_finished, remote_ip):
         """Read and display output from the specula process.
@@ -553,7 +566,7 @@ class RemoteBackend(SimulationBackend):
         on_finished : callable
             Callback when simulation process terminates
         remote_ip : str or None
-            For remote execution, the hostname/IP of the remote server.
+            For remote execution, the resolved IP of the remote server.
             For local execution, None.
         """
         port_found = False
@@ -566,13 +579,9 @@ class RemoteBackend(SimulationBackend):
                         port = _extract_port(line)
                         if port:
                             port_found = True
-                            # For remote execution, resolve the hostname to IP
-                            # so monitors on the local machine can connect
-                            if remote_ip and remote_ip not in ("localhost", "127.0.0.1", ""):
-                                resolved_ip = _resolve_remote_hostname(remote_ip)
-                                on_port_found(port, resolved_ip)
-                            else:
-                                on_port_found(port, remote_ip)
+                            # Use resolved IP if available, otherwise use what was passed
+                            ip_to_use = self._resolved_ip if self._resolved_ip else remote_ip
+                            on_port_found(port, ip_to_use)
         finally:
             self._running = False
             self._process = None
