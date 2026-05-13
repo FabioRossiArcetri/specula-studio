@@ -124,6 +124,7 @@ class InteractiveImageViewer:
             parent=self.texture_registry_tag,
         )
 
+
     def _make_image_series(self) -> None:
         """(Re)create the image series and fit the axes to the image extents.
 
@@ -147,10 +148,14 @@ class InteractiveImageViewer:
         # pixel is at (0, img_height) and the bottom-right at (img_width, 0).
         # This way DPG's default upward-increasing Y axis displays the image
         # right-side-up.
+        # uv_min/max are texture coordinates [0, 1] that map to the actual
+        # texture data. Keeping them at [0, 0] to [1, 1] ensures full coverage.
         self.image_series_tag = dpg.add_image_series(
             self.texture_tag,
             bounds_min=[0,              0             ],
             bounds_max=[self.img_width, self.img_height],
+            uv_min=[0.0, 0.0],
+            uv_max=[1.0, 1.0],
             parent=self.y_axis_tag,
         )
 
@@ -158,6 +163,7 @@ class InteractiveImageViewer:
         # axis limits, so zoom and pan remain fully functional afterwards.
         dpg.fit_axis_data(self.x_axis_tag)
         dpg.fit_axis_data(self.y_axis_tag)
+
 
     # =========================================================================
     # Public API
@@ -260,7 +266,7 @@ class InteractiveImageViewer:
             except Exception as e:
                 print(f"[InteractiveImageViewer.update_size] Error: {e}")
 
-    # ── Legacy compat no-ops ──────────────────────────────────────────────────
+    # ─��� Legacy compat no-ops ──────────────────────────────────────────────────
     # The DPG plot widget handles all mouse interaction natively.
     # These methods are preserved so monitor_window.py compiles unchanged.
 

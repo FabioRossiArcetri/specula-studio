@@ -16,12 +16,13 @@ from override_manager import OverrideManager
 # Font path via matplotlib
 import matplotlib
 FONT_PATH = matplotlib.get_data_path() + '/fonts/ttf/DejaVuSerif.ttf'
+MATPLOTLIB_FONTS_PATH = pathlib.Path(matplotlib.get_data_path()) / 'fonts' / 'ttf'
 
 # Persistent settings file (lives in the user's home directory)
 _SETTINGS_PATH = pathlib.Path.home() / ".specula_studio_settings.json"
 
 
-# ── YAML helpers ──────────────────────────────────────────────────────────────
+# ── YAML helpers ──────────────────────────────────────────────────────────
 
 def ordered_load(stream, Loader=yaml.SafeLoader, object_pairs_hook=OrderedDict):
     class OrderedLoader(Loader):
@@ -35,7 +36,7 @@ def ordered_load(stream, Loader=yaml.SafeLoader, object_pairs_hook=OrderedDict):
     return yaml.load(stream, OrderedLoader)
 
 
-# ── Main editor class ─────────────────────────────────────────────────────────
+# ── Main editor class ────────────────────────────────────────────────────────
 
 class SpeculaEditor:
     def __init__(self, yaml_folder):
@@ -71,6 +72,7 @@ class SpeculaEditor:
             'auto_simul_params': DEFAULT_AUTO_SIMUL_PARAMS,
             'include_defaults': False,
             'render_size': DEFAULT_RENDER_SIZE,
+            'font_path': FONT_PATH,
         }
 
         # 5. Load persisted settings (overrides defaults)
@@ -93,7 +95,15 @@ class SpeculaEditor:
                     saved = json.load(f)
                 for key in self.preferences:
                     if key in saved:
-                        self.preferences[key] = saved[key]
+                        # Validate font path exists; fall back to default if not
+                        if key == 'font_path':
+                            font_path = saved[key]
+                            if os.path.exists(font_path):
+                                self.preferences[key] = font_path
+                            else:
+                                print(f"[SETTINGS] Saved font path does not exist, using default: {font_path}")
+                        else:
+                            self.preferences[key] = saved[key]
                 print(f"[SETTINGS] Loaded from {_SETTINGS_PATH}")
         except Exception as e:
             print(f"[SETTINGS] Could not load settings: {e}")
@@ -448,13 +458,16 @@ class SpeculaEditor:
             dpg.set_value("pref_auto_simul_params_checkbox", self.preferences['auto_simul_params'])
             dpg.set_value("pref_include_defaults_checkbox",  self.preferences['include_defaults'])
             dpg.set_value("pref_render_size_radio",          self.preferences['render_size'])
+            # Update font path display
+            font_name = pathlib.Path(self.preferences['font_path']).name
+            dpg.set_value("pref_font_path_text", f"Selected: {font_name}")
         self._center_dialog("preferences_dialog")
         dpg.show_item("preferences_dialog")
 
     def _create_preferences_dialog(self):
         with dpg.window(
             label="Preferences", tag="preferences_dialog",
-            modal=True, show=False, width=540, height=500, no_resize=True
+            modal=True, show=False, width=540, height=650, no_resize=True
         ):
             dpg.add_text("Preferences", color=[200, 200, 100])
             dpg.add_separator()
@@ -473,6 +486,26 @@ class SpeculaEditor:
                 "Controls font size and node dimensions.\n"
                 "SMALL = 50 %,  MEDIUM = 100 %,  LARGE = 180 %.\n"
                 "All text and nodes are updated immediately.",
+                color=[150, 150, 150],
+                wrap=490,
+            )
+
+            dpg.add_spacer(height=16)
+            dpg.add_separator()
+            dpg.add_spacer(height=12)
+
+            # ── Font Selection ────────────────────────────────────────────────
+            dpg.add_text("Font", color=[100, 200, 255])
+            font_name = pathlib.Path(self.preferences['font_path']).name
+            dpg.add_text(f"Selected: {font_name}", tag="pref_font_path_text", color=[150, 200, 150])
+            dpg.add_button(
+                label="Browse Fonts",
+                width=-1,
+                callback=self._on_browse_fonts_clicked,
+            )
+            dpg.add_text(
+                "Select a TrueType font (.ttf) from the matplotlib font directory.\n"
+                "The GUI will refresh with the new font.",
                 color=[150, 150, 150],
                 wrap=490,
             )
@@ -521,6 +554,88 @@ class SpeculaEditor:
                                callback=lambda: dpg.hide_item("preferences_dialog"))
 
     # ── Preference callbacks ──────────────────────────────────────────────────
+    
+    def _on_browse_fonts_clicked(self):
+        """Open file dialog to select a font (modal, appears over preferences dialog)."""
+        # Hide preferences dialog
+        if dpg.does_item_exist("preferences_dialog"):
+            dpg.hide_item("preferences_dialog")
+        
+        dialog_tag = "font_selection_dialog"
+        if dpg.does_item_exist(dialog_tag):
+            dpg.show_item(dialog_tag)
+            dpg.focus_item(dialog_tag)
+            return
+        
+        with dpg.file_dialog(
+            label="Select Font (TTF)",
+            show=True,
+            callback=self._on_font_selected,
+            tag=dialog_tag,
+            width=700,
+            height=400,
+            default_path=str(MATPLOTLIB_FONTS_PATH),
+            modal=True,
+        ):
+            dpg.add_file_extension(".ttf", color=(150, 150, 150), custom_text="TrueType Font")
+            dpg.add_file_extension(".*", color=(100, 100, 100), custom_text="All files")
+
+
+    def _on_font_selected(self, sender, app_data):
+        """Callback when a font file is selected."""
+        file_path = app_data.get('file_path_name')
+        if not file_path or not os.path.exists(file_path):
+            print("[FONT] No valid file selected")
+            return
+        
+        if not file_path.lower().endswith('.ttf'):
+            print("[FONT] Selected file is not a .ttf font file")
+            return
+        
+        # Update preferences
+        self.preferences['font_path'] = file_path
+        self._save_settings()
+        
+        # Reload font and refresh UI
+        self._reload_font()
+        
+        # Update the preference dialog display
+        if dpg.does_item_exist("pref_font_path_text"):
+            font_name = pathlib.Path(file_path).name
+            dpg.set_value("pref_font_path_text", f"Selected: {font_name}")
+        
+        print(f"[FONT] Font changed to: {file_path}")
+
+    def _reload_font(self):
+        """Reload the font in DPG and refresh the GUI."""
+        font_path = self.preferences['font_path']
+        
+        if not os.path.exists(font_path):
+            print(f"[FONT] Font file not found: {font_path}")
+            return
+        
+        try:
+            # Remove old font handle if it exists
+            if self._font_handle is not None and dpg.does_item_exist(self._font_handle):
+                dpg.delete_item(self._font_handle)
+            
+            # Load new font
+            with dpg.font_registry():
+                medium_fs = render_scale.SCALE_DEFS["MEDIUM"]["font_size"]
+                self._font_handle = dpg.add_font(font_path, medium_fs)
+                print(f"[FONT] Loaded font from {font_path} at {medium_fs} px")
+            
+            # Bind the new font
+            dpg.bind_font(self._font_handle)
+            
+            # Rebuild UI with new font
+            if self.nm.graph.nodes:
+                self.nm.rebuild_all_nodes_ui()
+            
+            print("[FONT] GUI refreshed with new font")
+        except Exception as e:
+            print(f"[FONT] Error loading font: {e}")
+
     def _on_render_size_changed(self, sender, app_data):
         new_size = app_data
         if new_size == self.preferences['render_size']:
@@ -535,7 +650,6 @@ class SpeculaEditor:
 
         if self.nm.graph.nodes:
             self.nm.rebuild_all_nodes_ui()
-            # Property panel will be hidden/shown automatically based on selection
 
         self._save_settings()
         print(f"[PREFERENCES] Render size set to: {new_size}")
@@ -551,7 +665,6 @@ class SpeculaEditor:
         print(f"[PREFERENCES] Include Defaults set to: {app_data}")
 
     # ── UI creation ───────────────────────────────────────────────────────────
-
     def create_ui(self):
         self.export_include_defaults = False
         dpg.create_context()
@@ -560,12 +673,16 @@ class SpeculaEditor:
         self.nm.init_themes()
 
         self._font_handle = None
-        if os.path.exists(FONT_PATH):
+        font_path = self.preferences['font_path']
+        
+        if os.path.exists(font_path):
             with dpg.font_registry():
                 medium_fs = render_scale.SCALE_DEFS["MEDIUM"]["font_size"]  # 18
-                self._font_handle = dpg.add_font(FONT_PATH, medium_fs)
-                print(f"[FONT] Loaded DejaVuSerif at {medium_fs} px (handle={self._font_handle})")
+                self._font_handle = dpg.add_font(font_path, medium_fs)
+                print(f"[FONT] Loaded font from {font_path} at {medium_fs} px (handle={self._font_handle})")
             dpg.bind_font(self._font_handle)
+        else:
+            print(f"[FONT] Font path not found: {font_path}, using default")
 
         initial_scale = render_scale.global_font_scale()
         dpg.set_global_font_scale(initial_scale)
