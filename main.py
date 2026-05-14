@@ -1126,12 +1126,20 @@ class SpeculaEditor:
     # ── Run loop ──────────────────────────────────────────────────────────────
     
     def run(self):
+        # Cache the bridge reference once — avoids a module lookup every frame.
+        try:
+            from matplotlib_dpg_bridge import MatplotlibDPGBridge as _MplBridge
+        except ImportError:
+            _MplBridge = None
+
         try:
             self.nm.start_periodic_tasks()
             dpg.set_viewport_resize_callback(None)
 
             while dpg.is_dearpygui_running():
                 self.nm.monitors._inprocess_tick_direct()
+                if _MplBridge is not None:
+                    _MplBridge.tick()
                 dpg.render_dearpygui_frame()
         finally:
             dpg.destroy_context()

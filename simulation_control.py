@@ -167,9 +167,9 @@ class SimulationControl:
             dpg.focus_item("sim_control_window")
             return
 
-        with dpg.window(label="Simulation Control Panel", tag="sim_control_window", width=850, height=600):
+        with dpg.window(label="Simulation Control Panel", tag="sim_control_window", width=900, height=600):
             with dpg.group(horizontal=True):
-                with dpg.child_window(width=400):
+                with dpg.child_window(width=500):
                     # ── Backend Mode Selection ──────────────────────────────────
                     dpg.add_text("Backend Mode", color=[255, 200, 100])
                     dpg.add_combo(

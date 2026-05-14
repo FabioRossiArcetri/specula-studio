@@ -845,96 +845,59 @@ class InProcessBackend(SimulationBackend):
     # ------------------------------------------------------------------
     # Matplotlib handling (prevent crashes on window close)
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Matplotlib handling — delegate entirely to MatplotlibDPGBridge
+    # ------------------------------------------------------------------
 
     def _patch_matplotlib(self) -> None:
-        """Patch matplotlib to prevent sys.exit() on window close while keeping windows visible."""
+        """
+        Install the matplotlib → DPG bridge.
+
+        Switches matplotlib to the non-interactive 'Agg' backend (no OS
+        windows, no sys.exit calls) and patches plt.show() to render
+        figures into DearPyGui windows via MatplotlibDPGBridge.
+
+        This completely replaces the previous TkAgg + sys.exit-patching
+        approach, which was the root cause of the abort-kills-app bug:
+        TkAgg windows created from a background thread cannot be closed
+        safely without risking Tk root destruction or os._exit() calls
+        that bypass any sys.exit patch.
+        """
         if self._matplotlib_patched:
             return
-        
         try:
-            import sys
-            import atexit
-            import matplotlib
-            
-            # Store original sys.exit before patching
-            self._original_exit = sys.exit
-            
-            # Create a closure to capture self
-            backend_self = self
-            
-            # Replace sys.exit with a safe version that respects abort state
-            def _safe_exit(code=0):
-                print(f"[In-Process] sys.exit({code}) called, suppressing it")
-                if code != 0:
-                    print(f"[In-Process] (exit code was {code}, but continuing anyway)")
-            
-            sys.exit = _safe_exit
-            
-            # Clear any existing atexit handlers that might call sys.exit
-            original_atexit_register = atexit.register
-            
-            def _safe_atexit_register(func, *args, **kwargs):
-                """Only register non-exit functions"""
-                func_name = getattr(func, '__name__', str(func))
-                if 'exit' not in func_name.lower():
-                    original_atexit_register(func, *args, **kwargs)
-                else:
-                    print(f"[In-Process] Skipped atexit handler: {func_name}")
-                return func
-            
-            atexit.register = _safe_atexit_register
-            
-            # Now set the interactive backend
-            try:
-                matplotlib.use('TkAgg', force=True)
-                print("[In-Process] Set matplotlib backend to 'TkAgg'")
-            except Exception as e:
-                print(f"[In-Process] Warning: Could not set TkAgg: {e}")
-                try:
-                    matplotlib.use('Qt5Agg', force=True)
-                    print("[In-Process] Set matplotlib backend to 'Qt5Agg'")
-                except Exception:
-                    pass
-            
-            # Import pyplot after backend is set
-            import matplotlib.pyplot as plt
-            
-            # Disable blocking behavior
-            plt.ioff()
-            print("[In-Process] Disabled matplotlib blocking mode")
-            
-            # Patch plt.show to not block
-            original_show = plt.show
-            def _patched_show(*args, **kwargs):
-                kwargs['block'] = False
-                try:
-                    original_show(*args, **kwargs)
-                except Exception as e:
-                    print(f"[In-Process] Warning: plt.show() error: {e}")
-            
-            plt.show = _patched_show
-            
+            from matplotlib_dpg_bridge import MatplotlibDPGBridge
+            MatplotlibDPGBridge.install()
             self._matplotlib_patched = True
-            print("[In-Process] Matplotlib patching complete")
-        except Exception as e:
-            print(f"[In-Process] Warning: Could not patch matplotlib: {e}")
+            print("[In-Process] Matplotlib DPG bridge installed.")
+        except Exception as exc:
+            print(f"[In-Process] Warning: could not install matplotlib DPG bridge: {exc}")
 
     def _cleanup_matplotlib(self) -> None:
-        """Clean up matplotlib figures between runs."""
+        """
+        Close all open DPG matplotlib windows and free in-memory figures.
+
+        Called from _run_direct's finally block after each simulation run.
+        With the Agg backend this is fully safe to call from the simulation
+        thread — plt.close('all') only frees memory, no OS windows are
+        involved.  The DPG window teardown is queued and executed on the
+        main thread by MatplotlibDPGBridge.tick().
+        """
         try:
-            import matplotlib.pyplot as plt
-            plt.close('all')
-            print("[In-Process] Closed all matplotlib figures")
-        except Exception:
-            pass
+            from matplotlib_dpg_bridge import MatplotlibDPGBridge
+            MatplotlibDPGBridge.close_all()
+        except Exception as exc:
+            print(f"[In-Process] Warning: matplotlib cleanup error: {exc}")
 
     def _restore_sys_exit(self) -> None:
-        """Restore original sys.exit ONLY when truly done."""
-        if self._original_exit is not None:
-            import sys
-            sys.exit = self._original_exit
-            self._original_exit = None
-            print("[In-Process] Restored original sys.exit")
+        """
+        No-op — sys.exit is no longer patched by _patch_matplotlib.
+
+        The Agg backend never calls sys.exit() or os._exit(), so no
+        patching (and therefore no restoration) is needed.  This method
+        is kept for call-site compatibility only.
+        """
+        pass
 
     def start(self, yaml_path, cmd_args, append_terminal, on_port_found, on_finished):
         try:
@@ -1037,8 +1000,15 @@ class InProcessBackend(SimulationBackend):
             self._probe_queue = None
             self._probe_state = None
             self._close_step_pipe()
+            # Belt-and-suspenders: close any matplotlib DPG windows that
+            # specula may have opened during its own teardown sequence
+            # (i.e. after _run_direct's per-run finally already ran).
+            # Calling close_all() twice is harmless — the second call finds
+            # _figure_windows empty and is a no-op.
+            self._cleanup_matplotlib()
             on_finished()
             append_terminal("\n--- Finished (in-process) ---\n")
+
 
     # ------------------------------------------------------------------
     # Direct probe-monitoring path
@@ -1267,20 +1237,23 @@ class InProcessBackend(SimulationBackend):
         """Abort the simulation gracefully without exiting or crashing.
 
         Sets the abort flag which is checked at the start of each iteration
-        and between runs. Does NOT restore sys.exit - that stays patched
-        to prevent any exit calls from specula or matplotlib.
+        and between runs.
+
+        Also immediately closes any DPG matplotlib windows that the bridge
+        created, so the user sees them disappear on the very next frame
+        without having to wait for the simulation thread to fully unwind.
         """
         print("[In-Process] Abort requested - setting flag")
         self._running = False
         self._abort_in_progress = True
-        
+
         # Set abort flag for _run_direct mode
         if self._probe_state is not None:
             abort_flag = self._probe_state.get("abort_requested")
             if abort_flag is not None:
                 abort_flag[0] = True
                 print("[In-Process] Abort flag set")
-        
+
         # Close pipe for stepping mode
         if self._step_write_file and not self._step_write_file.closed:
             try:
@@ -1288,8 +1261,20 @@ class InProcessBackend(SimulationBackend):
                 print("[In-Process] Step pipe closed")
             except Exception as e:
                 print(f"[In-Process] Error closing pipe: {e}")
-        
+
+        # Close matplotlib DPG windows immediately (GUI thread — safe with Agg).
+        # This is the primary close: it runs synchronously on the GUI thread so
+        # the windows disappear on the very next DPG frame, regardless of how
+        # long the simulation thread takes to unwind.
+        try:
+            from matplotlib_dpg_bridge import MatplotlibDPGBridge
+            MatplotlibDPGBridge.close_all()
+            print("[In-Process] Matplotlib DPG windows queued for closure")
+        except Exception as exc:
+            print(f"[In-Process] Warning: could not queue matplotlib close_all: {exc}")
+
         print("[In-Process] Abort complete - simulation will stop gracefully")
+
 
 
     @property
