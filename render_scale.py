@@ -50,7 +50,7 @@ SCALE_DEFS: dict = {
     },
     "LARGE": {
         # ~180 % of MEDIUM
-        "font_size":                   18,   # same base; display scaled by 1.8
+        "font_size":                   24,   # same base; display scaled by 1.8
         "node_header_spacer_width":   360,   # 200 × 1.8
         "node_output_spacer_width":   180,   # 100 × 1.8
         "layout_horizontal_spacing":  120,   # 330 × 1.8
@@ -60,7 +60,7 @@ SCALE_DEFS: dict = {
     },
     "SMALL": {
         # ~70 % of MEDIUM
-        "font_size":                   18,   # same base; display scaled by 0.7
+        "font_size":                   14,   # same base; display scaled by 0.7
         "node_header_spacer_width":   140,   # 200 × 0.7
         "node_output_spacer_width":    70,   # 100 × 0.7
         "layout_horizontal_spacing":   46,   # 330 × 0.7
@@ -75,9 +75,9 @@ SCALE_DEFS: dict = {
 # MEDIUM size (18 px); these factors scale it up or down at render time.
 
 _GLOBAL_FONT_SCALES: dict = {
-    "SMALL":  0.7,
+    "SMALL":  1.0,
     "MEDIUM": 1.0,
-    "LARGE":  1.8,
+    "LARGE":  1.0,
 }
 
 # ── Active scale state ────────────────────────────────────────────────────────
@@ -107,13 +107,8 @@ def get(key: str):
 # ── Convenience accessors ─────────────────────────────────────────────────────
 
 def font_size() -> int:
-    """Base font size (always MEDIUM; actual display controlled by global scale)."""
-    return SCALE_DEFS["MEDIUM"]["font_size"]
-
-
-def global_font_scale() -> float:
-    """ImGui global font scale factor for the current render size."""
-    return _GLOBAL_FONT_SCALES[_current_size]
+    """Base font size (actual display controlled by global scale)."""
+    return SCALE_DEFS[_current_size]["font_size"]
 
 
 def node_header_spacer_width() -> int:

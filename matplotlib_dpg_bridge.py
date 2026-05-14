@@ -13,97 +13,84 @@ Integration points (all already present in the repo):
         calls MatplotlibDPGBridge.close_all()
   - main.SpeculaEditor.run() render loop
         calls MatplotlibDPGBridge.tick() once per frame
+
+Design
+------
+We hook FigureCanvasAgg.draw at the class level.  Every time specula (or
+any library code) renders pixels into a figure, our hook fires on the
+simulation thread, captures raw RGBA bytes from the Agg buffer, and stores
+them in a per-figure "latest render" dict (_pending).
+
+The main DPG render loop calls tick() once per frame.  tick() snapshots
+_pending and calls _dpg_show_figure() for each figure that has a pending
+update.  Because we keep only the latest render per figure, the dict never
+builds up regardless of how fast the simulation draws.
+
+Generation counter
+------------------
+Each close_all() call increments _close_generation.  Every captured render
+is tagged with the generation at capture time.  tick() silently discards
+any render whose generation is older than _close_generation, preventing
+stale close_all commands (queued during a previous simulation run) from
+wiping out windows that belong to a new run.
 """
 from __future__ import annotations
 
-import io
-import queue
 import threading
 import time
-from typing import Dict, Optional
+import queue
+from typing import Dict
 
+import numpy as np
 import dearpygui.dearpygui as dpg
 
 _TEX_REGISTRY_TAG = "mpl_dpg_bridge_tex_registry"
 
 
-def _png_to_rgba_flat(png_bytes: bytes):
-    """
-    Decode *png_bytes* → (width, height, flat float32 RGBA list).
-
-    Returns (None, None, None) on failure.
-    Tries Pillow first (fast), falls back to matplotlib's own reader.
-    """
-    # ── Pillow ───────────────────────────────────────────────────────────────
-    try:
-        from PIL import Image
-        import numpy as np
-        img = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
-        w, h = img.size
-        arr = np.asarray(img, dtype=np.float32) / 255.0
-        return w, h, arr.flatten().tolist()
-    except ImportError:
-        pass
-    except Exception as exc:
-        print(f"[MPL-DPG] Pillow decode error: {exc}")
-
-    # ── matplotlib fallback ───────────────────────────────────────────────────
-    try:
-        import numpy as np
-        import matplotlib.image as mpimg
-        arr = mpimg.imread(io.BytesIO(png_bytes))          # float32 RGB or RGBA
-        if arr.ndim == 3 and arr.shape[2] == 3:
-            ones = np.ones((*arr.shape[:2], 1), dtype=arr.dtype)
-            arr = np.concatenate([arr, ones], axis=2)
-        if arr.ndim != 3 or arr.shape[2] != 4:
-            return None, None, None
-        h, w = arr.shape[:2]
-        return w, h, arr.astype(np.float32).flatten().tolist()
-    except Exception as exc:
-        print(f"[MPL-DPG] matplotlib PNG decode error: {exc}")
-
-    return None, None, None
-
-
 class MatplotlibDPGBridge:
-    """
-    Thread-safe singleton bridging matplotlib Agg figures → DPG windows.
 
-    Design
-    ------
-    The simulation runs on a background thread. When specula (or any code
-    it calls) invokes plt.show(), our patched version renders every open
-    figure to a PNG byte-buffer and puts a ("show", ...) command on a
-    thread-safe queue.
+    _lock = threading.Lock()
+    _installed = False
 
-    The main DPG render loop calls tick() once per frame. tick() drains
-    the queue and creates / updates DPG windows with the rendered images —
-    all safely on the main thread.
+    # Originals saved for uninstall
+    _orig_canvas_draw      = None
+    _orig_canvas_draw_idle = None
+    _orig_show             = None
+    _orig_draw             = None
+    _orig_pause            = None
+    _orig_ion              = None
 
-    When the simulation is aborted or finishes, close_all() queues a
-    ("close_all", ...) command so tick() tears down the DPG windows on
-    the next frame.
+    # Generation counter — incremented by every close_all() call.
+    # Renders captured before the latest close_all are silently dropped.
+    _close_generation: int = 0
 
-    The Agg backend never creates OS windows, never calls sys.exit() or
-    os._exit(), so closing figures is always safe.
-    """
+    # Latest pending render per figure:
+    #   fig_num → (title, w, h, flat_float32_ndarray, generation)
+    # Written from simulation thread, consumed+replaced from main thread.
+    # CPython dict writes are GIL-atomic — no explicit lock needed.
+    _pending: Dict[int, tuple] = {}
 
-    _lock           = threading.Lock()
-    _installed      = False
-    _original_show  = None
-    _cmd_queue: queue.Queue               = queue.Queue()
-    # fig_num → {"win_tag", "tex_tag", "img_tag", "width", "height"}
-    _figure_windows: Dict[int, dict]      = {}
+    # Control commands (close_all only)
+    _ctrl_queue: queue.Queue = queue.Queue()
+
+    # DPG window/texture bookkeeping: fig_num → dict
+    _figure_windows: Dict[int, dict] = {}
 
     # ── Public API ────────────────────────────────────────────────────────────
 
     @classmethod
     def install(cls) -> None:
         """
-        Switch matplotlib to the Agg backend and patch plt.show().
+        Switch matplotlib to Agg and hook the canvas draw path.
+
+        Hooks installed:
+          FigureCanvasAgg.draw / draw_idle — captures pixels on every render
+          plt.show  — forces canvas.draw() on all open figures
+          plt.draw  — same
+          plt.pause — same (does NOT sleep; DPG loop provides pacing)
+          plt.ion   — no-op (our bridge is the interactive display)
 
         Safe to call multiple times — subsequent calls are no-ops.
-        Must be called before the simulation thread creates any Figure.
         """
         with cls._lock:
             if cls._installed:
@@ -112,47 +99,102 @@ class MatplotlibDPGBridge:
                 import matplotlib
                 matplotlib.use('Agg', force=True)
 
+                from matplotlib.backends.backend_agg import FigureCanvasAgg
                 import matplotlib.pyplot as plt
-                cls._original_show = plt.show
-                bridge = cls
 
-                def _patched_show(*args, **kwargs):
-                    """Render all open figures to PNG and queue for DPG."""
+                cls._orig_canvas_draw      = FigureCanvasAgg.draw
+                cls._orig_canvas_draw_idle = FigureCanvasAgg.draw_idle
+                cls._orig_show             = plt.show
+                cls._orig_draw             = plt.draw
+                cls._orig_pause            = plt.pause
+                cls._orig_ion              = plt.ion
+
+                bridge     = cls
+                _orig_draw = cls._orig_canvas_draw
+
+                def _patched_canvas_draw(canvas_self):
+                    # ── 1. Perform the actual Agg render ──────────────────────
+                    _orig_draw(canvas_self)
+                    # ── 2. Capture raw RGBA pixels tagged with current gen ────
                     try:
-                        for fig_num in plt.get_fignums():
-                            fig = plt.figure(fig_num)
-                            buf = io.BytesIO()
-                            fig.savefig(buf, format='png', dpi=96,
-                                        bbox_inches='tight')
-                            buf.seek(0)
-                            png_bytes = buf.read()
-                            try:
-                                title = fig.canvas.manager.get_window_title()
-                            except Exception:
-                                title = f"Figure {fig_num}"
-                            bridge._cmd_queue.put(
-                                ("show", fig_num, title, png_bytes)
-                            )
-                    except Exception as exc:
-                        print(f"[MPL-DPG] plt.show() patch error: {exc}")
+                        fig     = canvas_self.figure
+                        fig_num = fig.number
+                        w, h    = canvas_self.get_width_height()
 
-                plt.show = _patched_show
+                        # buffer_rgba() is a memoryview into Agg's pixel buffer.
+                        # We copy immediately (ascontiguousarray) before the
+                        # next draw call can overwrite the backing buffer.
+                        buf  = canvas_self.buffer_rgba()
+                        flat = np.frombuffer(buf, dtype=np.uint8) \
+                                 .reshape(h, w, 4) \
+                                 .astype(np.float32)
+                        flat /= 255.0
+                        flat  = np.ascontiguousarray(flat.ravel())
+
+                        try:
+                            title = canvas_self.manager.get_window_title()
+                        except Exception:
+                            title = f"Figure {fig_num}"
+
+                        # Tag with the current generation so tick() can detect
+                        # renders that predate the most recent close_all().
+                        gen = bridge._close_generation
+                        bridge._pending[fig_num] = (title, w, h, flat, gen)
+                    except Exception:
+                        pass   # never crash the simulation loop
+
+                def _patched_canvas_draw_idle(canvas_self):
+                    _patched_canvas_draw(canvas_self)
+
+                # plt-level hooks: force canvas.draw() which triggers our hook
+                def _patched_show(*args, **kwargs):
+                    try:
+                        for fn in plt.get_fignums():
+                            plt.figure(fn).canvas.draw()
+                    except Exception:
+                        pass
+
+                def _patched_draw(*args, **kwargs):
+                    _patched_show()
+
+                def _patched_pause(interval):
+                    # Do NOT sleep — DPG loop provides the frame pacing.
+                    _patched_show()
+
+                def _patched_ion():
+                    pass  # no-op: our bridge IS the interactive display
+
+                FigureCanvasAgg.draw      = _patched_canvas_draw
+                FigureCanvasAgg.draw_idle = _patched_canvas_draw_idle
+                plt.show  = _patched_show
+                plt.draw  = _patched_draw
+                plt.pause = _patched_pause
+                plt.ion   = _patched_ion
+
                 cls._installed = True
-                print("[MPL-DPG] Installed: Agg backend + plt.show() → DPG bridge.")
+                print("[MPL-DPG] Installed: FigureCanvasAgg.draw hooked.")
             except Exception as exc:
                 print(f"[MPL-DPG] install() failed: {exc}")
 
     @classmethod
     def uninstall(cls) -> None:
-        """Restore the original plt.show(). Call on application exit."""
+        """Restore all patched functions. Call on application exit."""
         with cls._lock:
             if not cls._installed:
                 return
             try:
+                from matplotlib.backends.backend_agg import FigureCanvasAgg
                 import matplotlib.pyplot as plt
-                if cls._original_show is not None:
-                    plt.show = cls._original_show
-                    cls._original_show = None
+                if cls._orig_canvas_draw:
+                    FigureCanvasAgg.draw      = cls._orig_canvas_draw
+                if cls._orig_canvas_draw_idle:
+                    FigureCanvasAgg.draw_idle = cls._orig_canvas_draw_idle
+                if cls._orig_show:  plt.show  = cls._orig_show
+                if cls._orig_draw:  plt.draw  = cls._orig_draw
+                if cls._orig_pause: plt.pause = cls._orig_pause
+                if cls._orig_ion:   plt.ion   = cls._orig_ion
+                cls._orig_canvas_draw = cls._orig_canvas_draw_idle = None
+                cls._orig_show = cls._orig_draw = cls._orig_pause = cls._orig_ion = None
                 cls._installed = False
                 print("[MPL-DPG] Uninstalled.")
             except Exception as exc:
@@ -161,14 +203,15 @@ class MatplotlibDPGBridge:
     @classmethod
     def close_all(cls) -> None:
         """
-        Queue a request to close all DPG figure windows.
-
-        Also frees all in-memory matplotlib figures (safe with Agg — no
-        OS windows are involved, this only releases memory).
-
+        Close all DPG figure windows and free in-memory figures.
         Called from InProcessBackend._cleanup_matplotlib() and abort().
         """
-        cls._cmd_queue.put(("close_all", None, None, None))
+        # Bump generation BEFORE clearing _pending so that any render the
+        # simulation thread stores between now and the next tick() will
+        # carry the new generation and will NOT be discarded.
+        cls._close_generation += 1
+        cls._pending.clear()
+        cls._ctrl_queue.put("close_all")
         try:
             import matplotlib.pyplot as plt
             plt.close('all')
@@ -178,27 +221,40 @@ class MatplotlibDPGBridge:
     @classmethod
     def tick(cls) -> None:
         """
-        Drain the command queue and update DPG state.
+        Consume pending renders and control commands; update DPG.
 
-        MUST be called from the DPG main thread, once per render frame,
-        e.g. alongside MonitorManager._inprocess_tick_direct().
+        Must be called from the DPG main thread once per render frame.
 
-        Processes up to 20 commands per call to avoid frame stalls.
+        Order of operations
+        -------------------
+        1. Drain the control queue (close_all commands from previous runs).
+        2. Consume pending renders, discarding any whose generation is older
+           than _close_generation (i.e. captured before the last close_all).
         """
-        for _ in range(20):
+        # ── 1. Process control commands ───────────────────────────────────────
+        while True:
             try:
-                cmd, fig_num, title, data = cls._cmd_queue.get_nowait()
+                cmd = cls._ctrl_queue.get_nowait()
             except queue.Empty:
                 break
-            try:
-                if cmd == "show":
-                    cls._dpg_show_figure(fig_num, title, data)
-                elif cmd == "close_all":
-                    cls._dpg_destroy_all()
-            except Exception as exc:
-                import traceback
-                print(f"[MPL-DPG] tick error ({cmd}): {exc}")
-                traceback.print_exc()
+            if cmd == "close_all":
+                cls._dpg_destroy_all()
+
+        # ── 2. Consume pending renders ────────────────────────────────────────
+        if cls._pending:
+            # Atomic swap: replace with empty dict, process the snapshot.
+            pending, cls._pending = cls._pending, {}
+            for fig_num, entry in pending.items():
+                title, w, h, flat, gen = entry
+                # Discard renders captured before the most recent close_all.
+                if gen < cls._close_generation:
+                    continue
+                try:
+                    cls._dpg_show_figure(fig_num, title, w, h, flat)
+                except Exception as exc:
+                    import traceback
+                    print(f"[MPL-DPG] tick error (fig {fig_num}): {exc}")
+                    traceback.print_exc()
 
     # ── Private helpers — main thread only ───────────────────────────────────
 
@@ -208,19 +264,15 @@ class MatplotlibDPGBridge:
             dpg.add_texture_registry(tag=_TEX_REGISTRY_TAG, show=False)
 
     @classmethod
-    def _dpg_show_figure(cls, fig_num: int, title: str, png_bytes: bytes) -> None:
-        """Create or update a DPG window for the given matplotlib figure."""
-        w, h, rgba_flat = _png_to_rgba_flat(png_bytes)
-        if w is None:
-            print(f"[MPL-DPG] Could not decode PNG for Figure {fig_num}.")
-            return
-
+    def _dpg_show_figure(
+        cls, fig_num: int, title: str, w: int, h: int, flat: np.ndarray
+    ) -> None:
+        """Create or update the DPG window for figure *fig_num*."""
         cls._ensure_tex_registry()
         info         = cls._figure_windows.get(fig_num)
         window_alive = info is not None and dpg.does_item_exist(info["win_tag"])
 
         if not window_alive:
-            # ── Create new DPG window ─────────────────────────────────────────
             ts      = int(time.time() * 1000)
             win_tag = f"mpl_fig_win_{fig_num}_{ts}"
             tex_tag = f"mpl_fig_tex_{fig_num}_{ts}"
@@ -228,16 +280,14 @@ class MatplotlibDPGBridge:
 
             dpg.add_raw_texture(
                 width=w, height=h,
-                default_value=rgba_flat,
+                default_value=flat,
                 tag=tex_tag,
                 format=dpg.mvFormat_Float_rgba,
                 parent=_TEX_REGISTRY_TAG,
             )
             with dpg.window(
-                label=title,
-                tag=win_tag,
-                width=w + 24,
-                height=h + 48,
+                label=title, tag=win_tag,
+                width=w + 24, height=h + 48,
                 on_close=lambda _s, _a, fn=fig_num: cls._on_window_close(fn),
                 no_scrollbar=True,
             ):
@@ -250,42 +300,36 @@ class MatplotlibDPGBridge:
             print(f"[MPL-DPG] Created DPG window for Figure {fig_num}: '{title}'")
 
         else:
-            # ── Update existing window ────────────────────────────────────────
             old_w, old_h = info["width"], info["height"]
 
             if w != old_w or h != old_h:
-                # Size changed — recreate texture and image widget
                 if dpg.does_item_exist(info["img_tag"]):
                     dpg.delete_item(info["img_tag"])
                 if dpg.does_item_exist(info["tex_tag"]):
                     dpg.delete_item(info["tex_tag"])
 
-                ts          = int(time.time() * 1000)
-                new_tex_tag = f"mpl_fig_tex_{fig_num}_{ts}"
-                new_img_tag = f"mpl_fig_img_{fig_num}_{ts}"
+                ts      = int(time.time() * 1000)
+                new_tex = f"mpl_fig_tex_{fig_num}_{ts}"
+                new_img = f"mpl_fig_img_{fig_num}_{ts}"
 
                 dpg.add_raw_texture(
-                    width=w, height=h,
-                    default_value=rgba_flat,
-                    tag=new_tex_tag,
-                    format=dpg.mvFormat_Float_rgba,
+                    width=w, height=h, default_value=flat,
+                    tag=new_tex, format=dpg.mvFormat_Float_rgba,
                     parent=_TEX_REGISTRY_TAG,
                 )
-                dpg.add_image(
-                    new_tex_tag, tag=new_img_tag,
-                    width=w, height=h,
-                    parent=info["win_tag"],
-                )
-                info.update(tex_tag=new_tex_tag, img_tag=new_img_tag,
-                            width=w, height=h)
+                dpg.add_image(new_tex, tag=new_img, width=w, height=h,
+                              parent=info["win_tag"])
+                info.update(tex_tag=new_tex, img_tag=new_img, width=w, height=h)
+
             else:
-                # Same size — stream new pixels into the existing texture (fast)
-                dpg.set_value(info["tex_tag"], rgba_flat)
+                # Same size — stream pixels into existing texture (fast path)
+                dpg.set_value(info["tex_tag"], flat)
 
     @classmethod
     def _on_window_close(cls, fig_num: int) -> None:
-        """DPG on_close callback — clean up orphaned texture."""
+        """DPG on_close callback — remove tracking and clean up texture."""
         info = cls._figure_windows.pop(fig_num, None)
+        cls._pending.pop(fig_num, None)
         if info:
             try:
                 if dpg.does_item_exist(info["tex_tag"]):
@@ -306,4 +350,6 @@ class MatplotlibDPGBridge:
             except Exception as exc:
                 print(f"[MPL-DPG] Error destroying Figure {fig_num}: {exc}")
         cls._figure_windows.clear()
+        # Note: do NOT clear _pending here. Renders captured after close_all()
+        # was called carry a newer generation and must be kept for display.
         print("[MPL-DPG] All DPG matplotlib windows destroyed.")

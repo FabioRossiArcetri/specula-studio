@@ -621,9 +621,9 @@ class SpeculaEditor:
             
             # Load new font
             with dpg.font_registry():
-                medium_fs = render_scale.SCALE_DEFS["MEDIUM"]["font_size"]
-                self._font_handle = dpg.add_font(font_path, medium_fs)
-                print(f"[FONT] Loaded font from {font_path} at {medium_fs} px")
+                current_fs = render_scale.font_size()
+                self._font_handle = dpg.add_font(font_path, current_fs)
+                print(f"[FONT] Loaded font from {font_path} at {current_fs} px")
             
             # Bind the new font
             dpg.bind_font(self._font_handle)
@@ -644,7 +644,7 @@ class SpeculaEditor:
         self.preferences['render_size'] = new_size
         render_scale.set_size(new_size)
 
-        scale = render_scale.global_font_scale()
+        scale = 1.0 # render_scale.global_font_scale()
         dpg.set_global_font_scale(scale)
         print(f"[RENDER] Global font scale → {scale}  (size: {new_size})")
 
@@ -677,14 +677,14 @@ class SpeculaEditor:
         
         if os.path.exists(font_path):
             with dpg.font_registry():
-                medium_fs = render_scale.SCALE_DEFS["MEDIUM"]["font_size"]  # 18
-                self._font_handle = dpg.add_font(font_path, medium_fs)
-                print(f"[FONT] Loaded font from {font_path} at {medium_fs} px (handle={self._font_handle})")
+                current_fs = render_scale.font_size()
+                self._font_handle = dpg.add_font(font_path, current_fs)
+                print(f"[FONT] Loaded font from {font_path} at {current_fs} px (handle={self._font_handle})")
             dpg.bind_font(self._font_handle)
         else:
             print(f"[FONT] Font path not found: {font_path}, using default")
 
-        initial_scale = render_scale.global_font_scale()
+        initial_scale = 1.0 # render_scale.global_font_scale()
         dpg.set_global_font_scale(initial_scale)
         print(f"[FONT] Initial global font scale: {initial_scale} ({self.preferences['render_size']})")
 
