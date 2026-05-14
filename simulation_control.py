@@ -246,7 +246,7 @@ class SimulationControl:
                         dpg.add_input_int(
                             label="Steps",
                             tag="sim_advance_n_steps",
-                            default_value=1,
+                            default_value=100,
                             min_value=1,
                             width=140,
                         )

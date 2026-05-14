@@ -848,20 +848,13 @@ class InProcessBackend(SimulationBackend):
     # ------------------------------------------------------------------
     # Matplotlib handling — delegate entirely to MatplotlibDPGBridge
     # ------------------------------------------------------------------
-
     def _patch_matplotlib(self) -> None:
         """
         Install the matplotlib → DPG bridge.
 
         Switches matplotlib to the non-interactive 'Agg' backend (no OS
-        windows, no sys.exit calls) and patches plt.show() to render
-        figures into DearPyGui windows via MatplotlibDPGBridge.
-
-        This completely replaces the previous TkAgg + sys.exit-patching
-        approach, which was the root cause of the abort-kills-app bug:
-        TkAgg windows created from a background thread cannot be closed
-        safely without risking Tk root destruction or os._exit() calls
-        that bypass any sys.exit patch.
+        windows, no sys.exit calls) and patches FigureCanvasAgg.draw to
+        render figures into DearPyGui windows via MatplotlibDPGBridge.
         """
         if self._matplotlib_patched:
             return
@@ -875,29 +868,28 @@ class InProcessBackend(SimulationBackend):
 
     def _cleanup_matplotlib(self) -> None:
         """
-        Close all open DPG matplotlib windows and free in-memory figures.
+        Free in-memory matplotlib figures.
 
-        Called from _run_direct's finally block after each simulation run.
-        With the Agg backend this is fully safe to call from the simulation
-        thread — plt.close('all') only frees memory, no OS windows are
-        involved.  The DPG window teardown is queued and executed on the
-        main thread by MatplotlibDPGBridge.tick().
+        ONLY releases Python/C memory (plt.close('all')).
+        Does NOT close DPG windows, does NOT touch the bridge generation
+        counter.  Closing DPG windows is the responsibility of abort()
+        (immediate) and _run_direct() start (previous-run leftovers).
+
+        This method is called from finally blocks on the simulation thread,
+        which may run concurrently with a newly started simulation.
+        Touching the bridge here would cause the generation-counter race
+        that makes windows invisible after abort+restart.
         """
         try:
-            from matplotlib_dpg_bridge import MatplotlibDPGBridge
-            MatplotlibDPGBridge.close_all()
-        except Exception as exc:
-            print(f"[In-Process] Warning: matplotlib cleanup error: {exc}")
+            import matplotlib.pyplot as plt
+            plt.close('all')
+        except Exception:
+            pass
 
     def _restore_sys_exit(self) -> None:
-        """
-        No-op — sys.exit is no longer patched by _patch_matplotlib.
-
-        The Agg backend never calls sys.exit() or os._exit(), so no
-        patching (and therefore no restoration) is needed.  This method
-        is kept for call-site compatibility only.
-        """
+        """No-op — kept for call-site compatibility."""
         pass
+
 
     def start(self, yaml_path, cmd_args, append_terminal, on_port_found, on_finished):
         try:
@@ -973,13 +965,11 @@ class InProcessBackend(SimulationBackend):
             import specula
 
             if self._monitor_bus is not None:
-                # ── Direct probe monitoring: bypass Socket.IO ─────────────
                 self._run_direct(
                     yaml_path, nsimul, cpu, target, precision, stepping,
                     append_terminal,
                 )
             else:
-                # ── Legacy: DisplayServer + Socket.IO ─────────────────────
                 specula.main_simul(
                     yml_files=[yaml_path],
                     nsimul=nsimul,
@@ -1000,32 +990,45 @@ class InProcessBackend(SimulationBackend):
             self._probe_queue = None
             self._probe_state = None
             self._close_step_pipe()
-            # Belt-and-suspenders: close any matplotlib DPG windows that
-            # specula may have opened during its own teardown sequence
-            # (i.e. after _run_direct's per-run finally already ran).
-            # Calling close_all() twice is harmless — the second call finds
-            # _figure_windows empty and is a no-op.
-            self._cleanup_matplotlib()
+            # Do NOT call _cleanup_matplotlib() here.
+            # This finally block runs on the old simulation thread, potentially
+            # concurrently with a new simulation that has already started on a
+            # new thread.  Calling plt.close('all') here would destroy figures
+            # that the new simulation just created, making its windows go blank.
+            # Matplotlib figure cleanup is handled at the start of _run_direct()
+            # for the next run, and per-run inside _run_direct's own finally.
             on_finished()
             append_terminal("\n--- Finished (in-process) ---\n")
-
 
     # ------------------------------------------------------------------
     # Direct probe-monitoring path
     # ------------------------------------------------------------------
+
     def _run_direct(self, yaml_path, nsimul, cpu, target, precision, stepping, append_terminal):
         import importlib
         import sys
 
-        # ── Patch matplotlib to prevent exit on window close ──────────────────
+        # ── Close leftover windows and figures from the previous run ─────────
+        # Safe here: the new simulation has not created any figures yet.
+        try:
+            from matplotlib_dpg_bridge import MatplotlibDPGBridge as _Bridge
+            _Bridge.close_all()
+        except Exception:
+            pass
+        try:
+            import matplotlib.pyplot as _plt
+            _plt.close('all')
+        except Exception:
+            pass
+
+        # ── Install the bridge (idempotent) ───────────────────────────────────
         self._patch_matplotlib()
-        
+
         target_device_idx = -1 if cpu else target
 
         import specula
         specula.init(target_device_idx, precision=int(precision))
 
-        # Force-reload the modules that captured specula globals at import time.
         for mod_name in ('specula.base_time_obj', 'specula.base_data_obj',
                          'specula.base_processing_obj', 'specula.loop_control',
                          'specula.simul'):
@@ -1037,7 +1040,6 @@ class InProcessBackend(SimulationBackend):
 
         monitor_bus = self._monitor_bus
 
-        # ── Shared mutable state ──────────────────────────────────────────────
         _pending_probes: collections.deque = collections.deque()
         _active_probes:  dict              = {}
         _abort_requested: list = [False]
@@ -1097,7 +1099,7 @@ class InProcessBackend(SimulationBackend):
         def _patched_iter(lc_self) -> None:
             if _abort_requested[0]:
                 raise KeyboardInterrupt("Simulation aborted by user")
-            
+
             while _pending_probes:
                 try:
                     topic, probe = _pending_probes.popleft()
@@ -1117,7 +1119,7 @@ class InProcessBackend(SimulationBackend):
                 if _abort_requested[0]:
                     append_terminal("[In-Process] Simulation aborted by user.\n")
                     break
-                
+
                 _active_probes.clear()
                 _state["registry"].clear()
                 _state["loop_control"] = None
@@ -1125,16 +1127,16 @@ class InProcessBackend(SimulationBackend):
                 append_terminal(
                     f"[In-Process] Starting run {simul_idx + 1}/{nsimul} …\n"
                 )
-                
+
                 try:
                     Simul(
-                        yaml_path,                    
+                        yaml_path,
                         simul_idx=simul_idx,
                         stepping=stepping,
                     ).run()
-                except KeyboardInterrupt as e:
+                except KeyboardInterrupt:
                     if _abort_requested[0]:
-                        append_terminal(f"[In-Process] Simulation aborted by user.\n")
+                        append_terminal("[In-Process] Simulation aborted by user.\n")
                         break
                     else:
                         raise
@@ -1142,13 +1144,13 @@ class InProcessBackend(SimulationBackend):
                     append_terminal(f"[In-Process] Error in run {simul_idx + 1}: {type(e).__name__}: {e}\n")
                     raise
                 finally:
+                    # Safe: free figures from this completed run.
+                    # The old thread cannot be running concurrently here
+                    # because we are still inside _run_direct (same thread).
                     self._cleanup_matplotlib()
         finally:
             LoopControl.run  = original_run
             LoopControl.iter = original_iter
-            # Keep sys.exit patched - don't restore it here
-            # It will be restored when the thread exits naturally
-
 
     # ------------------------------------------------------------------
     # Dynamic probe management (called from the GUI thread)
