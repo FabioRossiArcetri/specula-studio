@@ -830,6 +830,68 @@ class InProcessBackend(SimulationBackend):
     # ------------------------------------------------------------------
     # SimulationBackend interface
     # ------------------------------------------------------------------
+    def __init__(self, monitor_bus=None) -> None:
+        self._running = False
+        self._thread: threading.Thread | None = None
+        self._step_read_file:  io.TextIOWrapper | None = None
+        self._step_write_file: io.TextIOWrapper | None = None
+        self._monitor_bus = monitor_bus
+        self._probe_queue: collections.deque | None = None
+        self._probe_state: dict | None = None
+        self._matplotlib_patched = False
+
+    # ------------------------------------------------------------------
+    # Matplotlib handling (prevent crashes on window close)
+    # ------------------------------------------------------------------
+
+    def _patch_matplotlib(self) -> None:
+        """Patch matplotlib to prevent sys.exit() on window close."""
+        if self._matplotlib_patched:
+            return
+        
+        try:
+            import matplotlib
+            import matplotlib.pyplot as plt
+            import sys
+            
+            # Set non-blocking backend
+            try:
+                matplotlib.use('TkAgg', force=True)
+            except Exception:
+                pass
+            
+            # Override sys.exit to be a no-op
+            original_exit = sys.exit
+            def _patched_exit(code=0):
+                print(f"[In-Process] Suppressed sys.exit({code}) call from matplotlib")
+                # Don't actually exit
+                pass
+            sys.exit = _patched_exit
+            
+            # Patch matplotlib's show() to not block
+            original_show = plt.show
+            def _patched_show(*args, **kwargs):
+                # Call show with block=False to prevent blocking the thread
+                kwargs['block'] = False
+                try:
+                    original_show(*args, **kwargs)
+                except Exception as e:
+                    print(f"[In-Process] Warning: plt.show() failed: {e}")
+            plt.show = _patched_show
+            
+            self._matplotlib_patched = True
+            print("[In-Process] Matplotlib patched to prevent exit on window close")
+        except ImportError:
+            pass  # matplotlib not installed
+
+    def _cleanup_matplotlib(self) -> None:
+        """Clean up matplotlib figures and resources."""
+        try:
+            import matplotlib.pyplot as plt
+            # Close all figures to free memory
+            plt.close('all')
+        except Exception:
+            pass
 
     def start(self, yaml_path, cmd_args, append_terminal, on_port_found, on_finished):
         try:
@@ -938,25 +1000,19 @@ class InProcessBackend(SimulationBackend):
     # ------------------------------------------------------------------
     # Direct probe-monitoring path
     # ------------------------------------------------------------------
-
     def _run_direct(self, yaml_path, nsimul, cpu, target, precision, stepping, append_terminal):
-        # specula.init() must be called BEFORE any specula submodule is imported.
-        # base_time_obj.py does a module-level:
-        #   from specula import global_precision, default_target_device_idx
-        # which binds those names at import time.  If specula submodules are already
-        # cached in sys.modules from a previous run, the names are stale.
-        # The only safe fix is to call init() first, then force-reload the affected
-        # modules so their module-level names are rebound.
         import importlib
         import sys
 
+        # ── Patch matplotlib BEFORE any imports that might use it ────────────
+        self._patch_matplotlib()
+        
         target_device_idx = -1 if cpu else target
 
         import specula
         specula.init(target_device_idx, precision=int(precision))
 
         # Force-reload the modules that captured specula globals at import time.
-        # This rebinds their module-level names to the values just set by init().
         for mod_name in ('specula.base_time_obj', 'specula.base_data_obj',
                          'specula.base_processing_obj', 'specula.loop_control',
                          'specula.simul'):
@@ -971,11 +1027,13 @@ class InProcessBackend(SimulationBackend):
         # ── Shared mutable state ──────────────────────────────────────────────
         _pending_probes: collections.deque = collections.deque()
         _active_probes:  dict              = {}
+        _abort_requested: list = [False]
         _state: dict = {
             "registry":       {},
             "loop_control":   None,
             "probe_priority": 99999,
             "active_probes":  _active_probes,
+            "abort_requested": _abort_requested,
         }
         self._probe_queue = _pending_probes
         self._probe_state = _state
@@ -1024,6 +1082,9 @@ class InProcessBackend(SimulationBackend):
             original_run(lc_self, run_time, dt, t0=t0, speed_report=speed_report)
 
         def _patched_iter(lc_self) -> None:
+            if _abort_requested[0]:
+                raise KeyboardInterrupt("Simulation aborted by user")
+            
             while _pending_probes:
                 try:
                     topic, probe = _pending_probes.popleft()
@@ -1040,6 +1101,10 @@ class InProcessBackend(SimulationBackend):
 
         try:
             for simul_idx in range(nsimul):
+                if _abort_requested[0]:
+                    append_terminal("[In-Process] Simulation aborted by user.\n")
+                    break
+                
                 _active_probes.clear()
                 _state["registry"].clear()
                 _state["loop_control"] = None
@@ -1047,14 +1112,32 @@ class InProcessBackend(SimulationBackend):
                 append_terminal(
                     f"[In-Process] Starting run {simul_idx + 1}/{nsimul} …\n"
                 )
-                Simul(
-                    yaml_path,                    
-                    simul_idx=simul_idx,
-                    stepping=stepping,
-                ).run()
+                
+                try:
+                    Simul(
+                        yaml_path,                    
+                        simul_idx=simul_idx,
+                        stepping=stepping,
+                    ).run()
+                except (KeyboardInterrupt, SystemExit) as e:
+                    # Catch window close or abort signals
+                    if isinstance(e, SystemExit):
+                        append_terminal(f"[In-Process] Caught SystemExit during run {simul_idx + 1}\n")
+                    else:
+                        append_terminal(f"[In-Process] Simulation interrupted: {e}\n")
+                    if _abort_requested[0]:
+                        break
+                except Exception as e:
+                    append_terminal(f"[In-Process] Error in run {simul_idx + 1}: {e}\n")
+                    raise
+                finally:
+                    # Clean up matplotlib figures between runs
+                    self._cleanup_matplotlib()
         finally:
             LoopControl.run  = original_run
             LoopControl.iter = original_iter
+            # Final matplotlib cleanup
+            self._cleanup_matplotlib()
 
     # ------------------------------------------------------------------
     # Dynamic probe management (called from the GUI thread)
@@ -1139,19 +1222,28 @@ class InProcessBackend(SimulationBackend):
                 pass
 
     def abort(self) -> None:
-        """Abort the simulation.
+        """Abort the simulation gracefully.
 
-        In stepping mode: closes the write end of the pipe, causing specula's
-        ``input()`` call to receive EOF and raise ``EOFError``.
-
-        In non-stepping mode: marks ``is_running`` as False immediately.
+        Sets the abort flag which is checked at the start of each iteration
+        and between runs. In stepping mode, also closes the pipe.
         """
+        print("[In-Process] Abort requested")
         self._running = False
+        
+        # Set abort flag for _run_direct mode
+        if self._probe_state is not None:
+            abort_flag = self._probe_state.get("abort_requested")
+            if abort_flag is not None:
+                abort_flag[0] = True
+                print("[In-Process] Abort flag set")
+        
+        # Close pipe for stepping mode
         if self._step_write_file and not self._step_write_file.closed:
             try:
                 self._step_write_file.close()
-            except Exception:
-                pass
+                print("[In-Process] Step pipe closed")
+            except Exception as e:
+                print(f"[In-Process] Error closing pipe: {e}")
 
     @property
     def is_running(self) -> bool:
