@@ -50,17 +50,17 @@ SCALE_DEFS: dict = {
     },
     "LARGE": {
         # ~180 % of MEDIUM
-        "font_size":                   24,   # same base; display scaled by 1.8
+        "font_size":                   22,   # same base; display scaled by 1.8
         "node_header_spacer_width":   360,   # 200 × 1.8
         "node_output_spacer_width":   180,   # 100 × 1.8
-        "layout_horizontal_spacing":  120,   # 330 × 1.8
-        "layout_vertical_spacing":     80,   # 220 × 1.8
-        "auto_layout_base_x":          70,   #  30 × 1.8
-        "auto_layout_base_y":          70,
+        "layout_horizontal_spacing":  126,   # 70 × 1.8
+        "layout_vertical_spacing":     83,   # 46 × 1.8
+        "auto_layout_base_x":          90,   # 50 × 1.8
+        "auto_layout_base_y":          90,   # 50 × 1.8
     },
     "SMALL": {
         # ~70 % of MEDIUM
-        "font_size":                   14,   # same base; display scaled by 0.7
+        "font_size":                   15,   # same base; display scaled by 0.7
         "node_header_spacer_width":   140,   # 200 × 0.7
         "node_output_spacer_width":    70,   # 100 × 0.7
         "layout_horizontal_spacing":   46,   # 330 × 0.7
