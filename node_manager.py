@@ -1046,8 +1046,7 @@ class NodeManager:
         try:
             dpg.configure_item("property_panel", width=0, show=False)
             dpg.delete_item("property_panel", children_only=True)
-            dpg.configure_item("specula_editor_parent", width=-1)
-            self._log("Property panel hidden")
+            dpg.configure_item("specula_editor_parent", width=-1)            
         except Exception as e:
             self._log(f"Error hiding property panel: {e}")
 

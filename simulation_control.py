@@ -176,7 +176,7 @@ class SimulationControl:
                         label="Execution Mode",
                         items=["Remote", "In-Process"],
                         tag="sim_backend",
-                        default_value="Remote",
+                        default_value="In-Process",
                         callback=self._on_backend_mode_changed,
                     )
                     

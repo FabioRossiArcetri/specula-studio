@@ -839,59 +839,102 @@ class InProcessBackend(SimulationBackend):
         self._probe_queue: collections.deque | None = None
         self._probe_state: dict | None = None
         self._matplotlib_patched = False
+        self._original_exit = None
+        self._abort_in_progress = False
 
     # ------------------------------------------------------------------
     # Matplotlib handling (prevent crashes on window close)
     # ------------------------------------------------------------------
 
     def _patch_matplotlib(self) -> None:
-        """Patch matplotlib to prevent sys.exit() on window close."""
+        """Patch matplotlib to prevent sys.exit() on window close while keeping windows visible."""
         if self._matplotlib_patched:
             return
         
         try:
-            import matplotlib
-            import matplotlib.pyplot as plt
             import sys
+            import atexit
+            import matplotlib
             
-            # Set non-blocking backend
+            # Store original sys.exit before patching
+            self._original_exit = sys.exit
+            
+            # Create a closure to capture self
+            backend_self = self
+            
+            # Replace sys.exit with a safe version that respects abort state
+            def _safe_exit(code=0):
+                print(f"[In-Process] sys.exit({code}) called, suppressing it")
+                if code != 0:
+                    print(f"[In-Process] (exit code was {code}, but continuing anyway)")
+            
+            sys.exit = _safe_exit
+            
+            # Clear any existing atexit handlers that might call sys.exit
+            original_atexit_register = atexit.register
+            
+            def _safe_atexit_register(func, *args, **kwargs):
+                """Only register non-exit functions"""
+                func_name = getattr(func, '__name__', str(func))
+                if 'exit' not in func_name.lower():
+                    original_atexit_register(func, *args, **kwargs)
+                else:
+                    print(f"[In-Process] Skipped atexit handler: {func_name}")
+                return func
+            
+            atexit.register = _safe_atexit_register
+            
+            # Now set the interactive backend
             try:
                 matplotlib.use('TkAgg', force=True)
-            except Exception:
-                pass
+                print("[In-Process] Set matplotlib backend to 'TkAgg'")
+            except Exception as e:
+                print(f"[In-Process] Warning: Could not set TkAgg: {e}")
+                try:
+                    matplotlib.use('Qt5Agg', force=True)
+                    print("[In-Process] Set matplotlib backend to 'Qt5Agg'")
+                except Exception:
+                    pass
             
-            # Override sys.exit to be a no-op
-            original_exit = sys.exit
-            def _patched_exit(code=0):
-                print(f"[In-Process] Suppressed sys.exit({code}) call from matplotlib")
-                # Don't actually exit
-                pass
-            sys.exit = _patched_exit
+            # Import pyplot after backend is set
+            import matplotlib.pyplot as plt
             
-            # Patch matplotlib's show() to not block
+            # Disable blocking behavior
+            plt.ioff()
+            print("[In-Process] Disabled matplotlib blocking mode")
+            
+            # Patch plt.show to not block
             original_show = plt.show
             def _patched_show(*args, **kwargs):
-                # Call show with block=False to prevent blocking the thread
                 kwargs['block'] = False
                 try:
                     original_show(*args, **kwargs)
                 except Exception as e:
-                    print(f"[In-Process] Warning: plt.show() failed: {e}")
+                    print(f"[In-Process] Warning: plt.show() error: {e}")
+            
             plt.show = _patched_show
             
             self._matplotlib_patched = True
-            print("[In-Process] Matplotlib patched to prevent exit on window close")
-        except ImportError:
-            pass  # matplotlib not installed
+            print("[In-Process] Matplotlib patching complete")
+        except Exception as e:
+            print(f"[In-Process] Warning: Could not patch matplotlib: {e}")
 
     def _cleanup_matplotlib(self) -> None:
-        """Clean up matplotlib figures and resources."""
+        """Clean up matplotlib figures between runs."""
         try:
             import matplotlib.pyplot as plt
-            # Close all figures to free memory
             plt.close('all')
+            print("[In-Process] Closed all matplotlib figures")
         except Exception:
             pass
+
+    def _restore_sys_exit(self) -> None:
+        """Restore original sys.exit ONLY when truly done."""
+        if self._original_exit is not None:
+            import sys
+            sys.exit = self._original_exit
+            self._original_exit = None
+            print("[In-Process] Restored original sys.exit")
 
     def start(self, yaml_path, cmd_args, append_terminal, on_port_found, on_finished):
         try:
@@ -1004,7 +1047,7 @@ class InProcessBackend(SimulationBackend):
         import importlib
         import sys
 
-        # ── Patch matplotlib BEFORE any imports that might use it ────────────
+        # ── Patch matplotlib to prevent exit on window close ──────────────────
         self._patch_matplotlib()
         
         target_device_idx = -1 if cpu else target
@@ -1119,25 +1162,23 @@ class InProcessBackend(SimulationBackend):
                         simul_idx=simul_idx,
                         stepping=stepping,
                     ).run()
-                except (KeyboardInterrupt, SystemExit) as e:
-                    # Catch window close or abort signals
-                    if isinstance(e, SystemExit):
-                        append_terminal(f"[In-Process] Caught SystemExit during run {simul_idx + 1}\n")
-                    else:
-                        append_terminal(f"[In-Process] Simulation interrupted: {e}\n")
+                except KeyboardInterrupt as e:
                     if _abort_requested[0]:
+                        append_terminal(f"[In-Process] Simulation aborted by user.\n")
                         break
+                    else:
+                        raise
                 except Exception as e:
-                    append_terminal(f"[In-Process] Error in run {simul_idx + 1}: {e}\n")
+                    append_terminal(f"[In-Process] Error in run {simul_idx + 1}: {type(e).__name__}: {e}\n")
                     raise
                 finally:
-                    # Clean up matplotlib figures between runs
                     self._cleanup_matplotlib()
         finally:
             LoopControl.run  = original_run
             LoopControl.iter = original_iter
-            # Final matplotlib cleanup
-            self._cleanup_matplotlib()
+            # Keep sys.exit patched - don't restore it here
+            # It will be restored when the thread exits naturally
+
 
     # ------------------------------------------------------------------
     # Dynamic probe management (called from the GUI thread)
@@ -1221,14 +1262,17 @@ class InProcessBackend(SimulationBackend):
             except Exception:
                 pass
 
+
     def abort(self) -> None:
-        """Abort the simulation gracefully.
+        """Abort the simulation gracefully without exiting or crashing.
 
         Sets the abort flag which is checked at the start of each iteration
-        and between runs. In stepping mode, also closes the pipe.
+        and between runs. Does NOT restore sys.exit - that stays patched
+        to prevent any exit calls from specula or matplotlib.
         """
-        print("[In-Process] Abort requested")
+        print("[In-Process] Abort requested - setting flag")
         self._running = False
+        self._abort_in_progress = True
         
         # Set abort flag for _run_direct mode
         if self._probe_state is not None:
@@ -1244,6 +1288,9 @@ class InProcessBackend(SimulationBackend):
                 print("[In-Process] Step pipe closed")
             except Exception as e:
                 print(f"[In-Process] Error closing pipe: {e}")
+        
+        print("[In-Process] Abort complete - simulation will stop gracefully")
+
 
     @property
     def is_running(self) -> bool:
