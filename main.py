@@ -647,6 +647,7 @@ class SpeculaEditor:
         scale = 1.0 # render_scale.global_font_scale()
         dpg.set_global_font_scale(scale)
         print(f"[RENDER] Global font scale → {scale}  (size: {new_size})")
+        self._reload_font()
 
         if self.nm.graph.nodes:
             self.nm.rebuild_all_nodes_ui()
