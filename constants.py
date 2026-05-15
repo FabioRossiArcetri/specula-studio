@@ -10,7 +10,7 @@ MAX_QUEUE_ITEMS_PER_FRAME = 5
 
 # Note: FONT_SIZE, LAYOUT_HORIZONTAL_SPACING and LAYOUT_VERTICAL_SPACING have
 # been moved to render_scale.py so they can be varied at runtime via the
-# Preferences → Render Size option (SMALL / MEDIUM / LARGE).
+# Preferences → Render Size option (MICRO / SMALL / MEDIUM / LARGE).
 
 # Pin shapes for data inputs
 DATA_SHAPE_EMPTY         = dpg.mvNode_PinShape_Triangle        # empty  triangle – unconnected single input

@@ -73,6 +73,7 @@ class SpeculaEditor:
             'include_defaults': False,
             'render_size': DEFAULT_RENDER_SIZE,
             'font_path': FONT_PATH,
+            'recent_files': [],  # List of recent file paths (max 3)
         }
 
         # 5. Load persisted settings (overrides defaults)
@@ -118,6 +119,102 @@ class SpeculaEditor:
         except Exception as e:
             print(f"[SETTINGS] Could not save settings: {e}")
 
+    # ── Recent files management ────────────────────────────────────────────────
+
+    def _add_to_recent_files(self, file_path: str):
+        """Add a file to the recent files list (max 3)."""
+        if not file_path:
+            return
+        
+        # Resolve to absolute path for consistency
+        abs_path = str(pathlib.Path(file_path).resolve())
+        
+        recent = self.preferences.get('recent_files', [])
+        
+        # Remove if already in list (to re-insert at top)
+        if abs_path in recent:
+            recent.remove(abs_path)
+        
+        # Add to beginning of list
+        recent.insert(0, abs_path)
+        
+        # Keep only last 3
+        recent = recent[:3]
+        self.preferences['recent_files'] = recent
+        self._save_settings()
+        
+        # Update the menu
+        self._refresh_recent_files_menu()
+
+    def _refresh_recent_files_menu(self):
+        """Rebuild the Load Recent submenu with current recent files."""
+        if not dpg.does_item_exist("file_menu"):
+            return
+        
+        # Remove old recent items if they exist
+        for i in range(3):
+            tag = f"_recent_file_item_{i}"
+            if dpg.does_item_exist(tag):
+                dpg.delete_item(tag)
+        
+        recent_files = self.preferences.get('recent_files', [])
+        
+        # Only show submenu if there are recent files
+        if not recent_files:
+            if dpg.does_item_exist("load_recent_submenu"):
+                dpg.hide_item("load_recent_submenu")
+            return
+        
+        # Make sure submenu is visible
+        if dpg.does_item_exist("load_recent_submenu"):
+            dpg.show_item("load_recent_submenu")
+            
+            # Add menu items for each recent file
+            for i, afile_path in enumerate(recent_files):
+                if i >= 3:  # Limit to 3 items
+                    break
+                print(afile_path)
+                file_name = pathlib.Path(afile_path).name
+                tag = f"_recent_file_item_{i}"
+                dpg.add_menu_item(
+                    label=file_name,
+                    tag=afile_path,
+                    parent="load_recent_submenu",
+                    callback= lambda file_path=afile_path: self._on_load_recent_file(file_path)
+                )
+
+
+    def _on_load_recent_file(self, file_path: str):
+        """Load a recent file by path."""
+        if file_path is None:
+            print("[RECENT] File path is None")
+            return
+        if not os.path.exists(file_path):
+            # File doesn't exist - remove from recent list
+            recent = self.preferences.get('recent_files', [])
+            if file_path in recent:
+                recent.remove(file_path)
+                self.preferences['recent_files'] = recent
+                self._save_settings()
+                self._refresh_recent_files_menu()
+            print(f"[RECENT] File not found: {file_path}")
+            return
+        
+        # Load the simulation
+        self.fh.load_simulation(file_path)
+        try:
+            self.current_simulation_path = file_path
+            self.current_simulation_name = pathlib.Path(file_path).stem
+        except Exception:
+            pass
+        self._update_status_bar()
+        
+        # Update recent files (this will move it to the top)
+        self._add_to_recent_files(file_path)
+        
+        if dpg.does_item_exist("startup_dialog"):
+            dpg.hide_item("startup_dialog")
+
     # ── Template loading ──────────────────────────────────────────────────────
 
     def load_templates(self, folder):
@@ -131,7 +228,7 @@ class SpeculaEditor:
                             templates.update(data)
         return templates
 
-    # ── Input handlers ────────────────────────────────────────────────────────
+    # ── Input handlers ───────────────────────────────────────────────────────
 
     def _setup_custom_handlers(self):
         """Register handlers without the automatic Delete key handler."""
@@ -155,7 +252,7 @@ class SpeculaEditor:
             except SystemError:
                 pass
   
-    # ── Status Bar ────────────────────────────────────────────────────────────
+    # ── Status Bar ─────────────────────────────────────────────────────────
     def _update_property_panel_visibility(self):
         """Show property panel only when a single node is selected."""
         if dpg.does_item_exist("property_panel"):
@@ -178,7 +275,7 @@ class SpeculaEditor:
         if dpg.does_item_exist("status_bar_text"):
             dpg.set_value("status_bar_text", status_text)
 
-    # ── New Simulation ────────────────────────────────────────────────────────
+    # ── New Simulation ───────────────────────────────────────────────────────
 
     def _on_new_simulation_clicked(self):
         if self.current_simulation_name is None:
@@ -204,6 +301,7 @@ class SpeculaEditor:
         self.current_simulation_path = path
         self.current_simulation_name = pathlib.Path(path).stem
         self._update_status_bar()
+        self._add_to_recent_files(path)
         self._show_startup_dialog()
 
     def _on_new_simulation_discard(self):
@@ -258,7 +356,7 @@ class SpeculaEditor:
         self.pending_deletion_items = []
         self.pending_deletion_type  = None
 
-    # ── Exit ──────────────────────────────────────────────────────────────────
+    # ── Exit ───────────────────────────────────────────────────────────
     
     def _on_exit_requested(self):
         self._center_dialog("exit_confirmation_dialog")
@@ -283,6 +381,7 @@ class SpeculaEditor:
         self.current_simulation_path = path
         self.current_simulation_name = pathlib.Path(path).stem
         self._update_status_bar()
+        self._add_to_recent_files(path)
         dpg.stop_dearpygui()
     
     def _on_exit_cancel(self):
@@ -484,7 +583,7 @@ class SpeculaEditor:
             )
             dpg.add_text(
                 "Controls font size and node dimensions.\n"
-                "SMALL = 50 %,  MEDIUM = 100 %,  LARGE = 180 %.\n"
+                "MICRO, SMALL,  MEDIUM, LARGE .\n"
                 "All text and nodes are updated immediately.",
                 color=[150, 150, 150],
                 wrap=490,
@@ -665,7 +764,7 @@ class SpeculaEditor:
         self._save_settings()
         print(f"[PREFERENCES] Include Defaults set to: {app_data}")
 
-    # ── UI creation ───────────────────────────────────────────────────────────
+    # ── UI creation ────────────────────────────────────────────────────────
     def create_ui(self):
         self.export_include_defaults = False
         dpg.create_context()
@@ -692,9 +791,15 @@ class SpeculaEditor:
         # ── Main Window ───────────────────────────────────────────────────────
         with dpg.window(label="SPECULA Editor", tag='main_window', on_close=self._on_exit_requested):
             with dpg.menu_bar():
-                with dpg.menu(label="File"):
+                with dpg.menu(label="File", tag="file_menu"):
                     dpg.add_menu_item(label="New Simulation",    callback=self._on_new_simulation_clicked)
                     dpg.add_menu_item(label="Load Simulation",   callback=lambda: dpg.show_item("load_simulation_dialog"))
+                    
+                    # Load Recent submenu
+                    with dpg.menu(label="Load Recent", tag="load_recent_submenu"):
+                        # Items will be added dynamically by _refresh_recent_files_menu()
+                        pass
+                    
                     dpg.add_separator()
                     dpg.add_menu_item(label="Save Simulation",   callback=self._on_save_simulation_clicked)
                     dpg.add_menu_item(label="Save Simulation As",callback=lambda: dpg.show_item("save_simulation_dialog"))
@@ -756,6 +861,10 @@ class SpeculaEditor:
         dpg.set_viewport_resize_callback(self._resize_callback)
 
         self.setup_dialogs()
+        
+        # Initialize the recent files menu
+        self._refresh_recent_files_menu()
+        
         self._show_startup_dialog()
 
         dpg.setup_dearpygui()
@@ -776,8 +885,7 @@ class SpeculaEditor:
         dpg.set_item_height("specula_editor_parent", new_height)
         dpg.set_item_height("property_panel", new_height)
 
-
-        
+         
     def setup_dialogs(self):
         with dpg.file_dialog(label="Save Simulation", show=False, callback=self._save_simulation_cb,
                              id="save_simulation_dialog", width=700, height=400):
@@ -818,7 +926,7 @@ class SpeculaEditor:
                 dpg.add_button(label="Discard",           width=100, callback=self._on_new_simulation_discard)
                 dpg.add_button(label="Cancel",            width=100, callback=self._on_new_simulation_cancel)
 
-    # ── Startup dialog ────────────────────────────────────────────────────────
+    # ── Startup dialog ───────────────────────────────────────────────────────
 
     def _show_startup_dialog(self):
         if dpg.does_item_exist("startup_dialog"):
@@ -871,7 +979,7 @@ class SpeculaEditor:
         if dpg.does_item_exist("startup_dialog"):
             dpg.hide_item("startup_dialog")
 
-    # ── Menu callbacks ────────────────────────────────────────────────────────
+    # ── Menu callbacks ───────────────────────────────────────────────────────
 
     def _on_menu_create(self, sender, app_data, user_data):
         node_uuid = self.nm.create_node(node_type=user_data)
@@ -892,6 +1000,7 @@ class SpeculaEditor:
         self.current_simulation_path = path
         self.current_simulation_name = pathlib.Path(path).stem
         self._update_status_bar()
+        self._add_to_recent_files(path)
         
     def _load_simulation_cb(self, s, a):
         path = pathlib.Path(a['file_path_name']).resolve()
@@ -902,6 +1011,7 @@ class SpeculaEditor:
         except Exception:
             pass
         self._update_status_bar()
+        self._add_to_recent_files(str(path))
         if dpg.does_item_exist("startup_dialog"):
             dpg.hide_item("startup_dialog")
 
@@ -973,7 +1083,7 @@ class SpeculaEditor:
             )
             self._override_item_tags.append(tag)
 
-    # ── Toggle / apply ────────────────────────────────────────────────────────
+    # ── Toggle / apply ───────────────────────────────────────────────────────
 
     def _on_override_toggled(self, path: str):
         """
@@ -991,7 +1101,7 @@ class SpeculaEditor:
                 not self.override_manager.has_base_snapshot():
             self._take_base_snapshot()
 
-        # ── 2. Toggle ─────────────────────────────────────────────────────────
+        # ── 2. Toggle ────────────────────────────────────────────────────────
         self.override_manager.toggle_override(path)
 
         # ── 3 / 4. Apply or restore ───────────────────────────────────────────
@@ -1124,7 +1234,7 @@ class SpeculaEditor:
 
         self._refresh_overrides_menu()
 
-    # ── Run loop ──────────────────────────────────────────────────────────────
+    # ── Run loop ─────────────────────────────────────────────────────────
     
     def run(self):
         # Cache the bridge reference once — avoids a module lookup every frame.
@@ -1144,9 +1254,10 @@ class SpeculaEditor:
                 dpg.render_dearpygui_frame()
         finally:
             dpg.destroy_context()
-     
-
+      
 
 if __name__ == "__main__":
     editor = SpeculaEditor(yaml_folder="specula_yaml_docs") 
     editor.run()
+
+

@@ -8,11 +8,11 @@ RandomGenerator:
       default: NORMAL
       kind: value
     amp:
-      type: list[float]
+      type: List[float]
       default: null
       kind: value
     constant:
-      type: list[float]
+      type: List[float]
       default: null
       kind: value
     seed:

@@ -8,27 +8,27 @@ WaveGenerator:
       default: SIN
       kind: value
     amp:
-      type: list[float]
+      type: List[float]
       default:
       - 0.0
       kind: value
     freq:
-      type: list[float]
+      type: List[float]
       default:
       - 0.0
       kind: value
     offset:
-      type: list[float]
+      type: List[float]
       default:
       - 0.0
       kind: value
     constant:
-      type: list[float]
+      type: List[float]
       default:
       - 0.0
       kind: value
     slope:
-      type: list[float]
+      type: List[float]
       default:
       - 0.0
       kind: value

@@ -25,7 +25,7 @@ Scale factors
   LARGE  → 1.80  (effective ~32 px)
 """
 
-RENDER_SIZES = ["SMALL", "MEDIUM", "LARGE"]
+RENDER_SIZES = ["MICRO", "SMALL", "MEDIUM", "LARGE"]
 DEFAULT_RENDER_SIZE = "MEDIUM"
 
 # ── Scale tables ──────────────────────────────────────────────────────────────
@@ -68,16 +68,17 @@ SCALE_DEFS: dict = {
         "auto_layout_base_x":          30,   #  30 × 0.7
         "auto_layout_base_y":          30,
     },
-}
+    "MICRO": {
+        # ~50 % of MEDIUM
+        "font_size":                   12,   # same base; display scaled by 0.5
+        "node_header_spacer_width":   90,   # 200 × 0.5
+        "node_output_spacer_width":    45,   # 100 × 0.5
+        "layout_horizontal_spacing":   30,   # 70 × 0.5
+        "layout_vertical_spacing":     25,   # 220 × 0.7
+        "auto_layout_base_x":          25,   #  30 × 0.7
+        "auto_layout_base_y":          25,
+    },
 
-# ── Global font scale factors ─────────────────────────────────────────────────
-# Applied via dpg.set_global_font_scale().  The base font is always loaded at
-# MEDIUM size (18 px); these factors scale it up or down at render time.
-
-_GLOBAL_FONT_SCALES: dict = {
-    "SMALL":  1.0,
-    "MEDIUM": 1.0,
-    "LARGE":  1.0,
 }
 
 # ── Active scale state ────────────────────────────────────────────────────────

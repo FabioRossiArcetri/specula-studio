@@ -4686,6 +4686,48 @@ PhaseScreenCube:
       default: null
       kind: value
       type: Any
+PhaseUnwrapper:
+  bases:
+  - BaseProcessingObj
+  class_name: PhaseUnwrapper
+  inputs:
+    in_pistons_1:
+      desc: ''
+      kind: single
+      type: (<class 'specula.base_value.BaseValue'>, 'Piston values at wavelength
+        lambda_1')
+    in_pistons_2:
+      desc: ''
+      kind: single
+      type: (<class 'specula.base_value.BaseValue'>, 'Piston values at wavelength
+        lambda_2')
+  output_names:
+  - out_pistons
+  outputs:
+  - desc: ''
+    name: out_pistons
+    type: (<class 'specula.base_value.BaseValue'>, 'Unwrapped piston values')
+  parameters:
+    lambda_1:
+      default: REQUIRED
+      kind: value
+      type: float
+    lambda_2:
+      default: REQUIRED
+      kind: value
+      type: float
+    max_capture:
+      default: null
+      kind: value
+      type: float
+    precision:
+      default: null
+      kind: value
+      type: Any
+    target_device_idx:
+      default: null
+      kind: value
+      type: Any
 Pixels:
   bases:
   - BaseDataObj
@@ -5488,11 +5530,11 @@ RandomGenerator:
     amp:
       default: null
       kind: value
-      type: list[float]
+      type: List[float]
     constant:
       default: null
       kind: value
-      type: list[float]
+      type: List[float]
     distribution:
       default: NORMAL
       kind: value
@@ -6677,22 +6719,22 @@ WaveGenerator:
       default:
       - 0.0
       kind: value
-      type: list[float]
+      type: List[float]
     constant:
       default:
       - 0.0
       kind: value
-      type: list[float]
+      type: List[float]
     freq:
       default:
       - 0.0
       kind: value
-      type: list[float]
+      type: List[float]
     offset:
       default:
       - 0.0
       kind: value
-      type: list[float]
+      type: List[float]
     output_size:
       default: 1
       kind: value
@@ -6705,7 +6747,7 @@ WaveGenerator:
       default:
       - 0.0
       kind: value
-      type: list[float]
+      type: List[float]
     target_device_idx:
       default: null
       kind: value
