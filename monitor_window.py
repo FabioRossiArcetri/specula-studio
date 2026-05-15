@@ -51,7 +51,8 @@ class StandaloneMonitor:
     Data arriving on the sio thread is placed in *data_queue* and consumed on
     the main thread, so DPG is never touched from a worker thread.
     """
-
+class StandaloneMonitor:
+    _TAG_VEC_MODE = "vector_display_mode"
     _TAG_WINDOW    = "monitor_main"
     _TAG_STATUS    = "status_text"
     _TAG_PLOT_CONTAINER = "plot_container"
@@ -301,6 +302,11 @@ class StandaloneMonitor:
         except Exception:
             pass
 
+    def _on_vector_mode_change(self, sender, app_data):
+        if self.dpg_plotter:
+            mode = 'history' if "History" in app_data else 'snapshot'
+            self.dpg_plotter.set_vector_mode(mode)
+        
     def _build_ui(self):
         dpg.create_context()
 
@@ -318,7 +324,19 @@ class StandaloneMonitor:
             height=self.window_height,
             on_close=lambda: self._stop_flag.set()
         ):
+            
+            with dpg.collapsing_header(label="Settings", default_open=True):
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Vector Mode:")
+                    dpg.add_radio_button(
+                        items=["Snapshot", "Time Series"], 
+                        default_value="Snapshot",
+                        horizontal=True,
+                        tag=self._TAG_VEC_MODE,
+                        callback=lambda s, a: self.dpg_plotter.set_vector_mode(a.lower().replace(" ", "_")) if self.dpg_plotter else None
+                    )
 
+            dpg.add_separator()
             # Header section - Connection info (collapsible)
             with dpg.collapsing_header(label="Connection", default_open=False):
                 dpg.add_text(
@@ -429,9 +447,11 @@ class StandaloneMonitor:
         shape      = payload.get("shape")
 
         if data_value is None:
-            print(f"[MONITOR] _raw_to_numpy: no 'data' key in payload, keys={list(payload.keys())}")
+            # Use a more descriptive message
+            msg = "Key missing" if "data" not in payload else "Value is null"
+            print(f"[MONITOR] _raw_to_numpy: {msg} for 'data', keys={list(payload.keys())}")
             return None
-
+        
         if data_type is None:
             print(f"[MONITOR] _raw_to_numpy: no 'type' key in payload, keys={list(payload.keys())}")
 
@@ -483,6 +503,9 @@ class StandaloneMonitor:
                 width=self.plot_width, 
                 height=self.plot_height
             )
+            # Sync initial mode from UI
+            mode_val = dpg.get_value(self._TAG_VEC_MODE)
+            self.dpg_plotter.set_vector_mode('history' if "History" in mode_val else 'snapshot')
 
         p    = self.dpg_plotter
         ndim = arr.ndim

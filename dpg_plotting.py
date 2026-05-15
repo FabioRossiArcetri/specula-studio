@@ -309,6 +309,10 @@ class DPGPlotter:
         self.current_mode = None  # 'history', 'vector', 'heatmap', 'image'
         self.current_shape = None
 
+        self.vector_history_buffer = None  # Will hold a 2D array (Time, VectorIndex)
+        self.vector_mode = "snapshot"     # "snapshot" or "time_series"
+        self.vector_line_tags = []        # Track tags for multi-line mode
+
         # Debug info
         self.debug = debug
 
@@ -328,6 +332,66 @@ class DPGPlotter:
             if data.shape[1] == 1:
                 return data[:, 0]
         return data.flatten()
+
+    def set_vector_mode(self, mode):
+        """Sets mode to 'snapshot' or 'time_series'."""
+        if mode != self.vector_mode:
+            self.vector_mode = mode
+            self.clear() # Clear to re-setup axes for the new coordinate system
+
+    def plot_vector(self, vector: np.ndarray, label: str = "Vector") -> bool:
+        try:
+            vector = self._ensure_1d(vector)
+            if vector is None or vector.size == 0: return False
+
+            if self.vector_mode == "time_series":
+                return self._plot_vector_time_series(vector, label)
+            
+            # Default: Snapshot mode
+            if self.current_mode != "vector":
+                self._clear_previous()
+                self.current_mode = "vector"
+            
+            self._create_or_update_line_plot(list(range(len(vector))), vector.tolist(), label)
+            return True
+        except Exception as e:
+            print(f"[DPGPlotter.plot_vector] Error: {e}")
+            return False
+
+    def _plot_vector_time_series(self, vector: np.ndarray, label: str) -> bool:
+        v_len = len(vector)
+        # Initialize or update the 2D history buffer
+        if self.vector_history_buffer is None or self.vector_history_buffer.shape[1] != v_len:
+            self.vector_history_buffer = vector.reshape(1, -1)
+        else:
+            self.vector_history_buffer = np.vstack([self.vector_history_buffer, vector])
+            if len(self.vector_history_buffer) > self.max_history:
+                self.vector_history_buffer = self.vector_history_buffer[1:]
+
+        if self.current_mode != "vector_history":
+            self._clear_previous()
+            self.current_mode = "vector_history"
+            self.vector_line_tags = []
+
+        history_len = len(self.vector_history_buffer)
+        x_axis_data = list(range(history_len))
+
+        if self.plot_tag is None or not dpg.does_item_exist(self.plot_tag):
+            with dpg.plot(label=label, parent=self.parent, height=self.current_height, width=self.current_width) as plot_id:
+                self.plot_tag = plot_id
+                dpg.add_plot_legend()
+                dpg.add_plot_axis(dpg.mvXAxis, label="Timestep")
+                with dpg.plot_axis(dpg.mvYAxis, label="Value") as y_axis:
+                    for i in range(v_len):
+                        tag = dpg.add_line_series(x_axis_data, self.vector_history_buffer[:, i].tolist(), 
+                                                label=f"Idx {i}", parent=y_axis)
+                        self.vector_line_tags.append(tag)
+        else:
+            # Update existing lines
+            for i, tag in enumerate(self.vector_line_tags):
+                if dpg.does_item_exist(tag):
+                    dpg.set_value(tag, [x_axis_data, self.vector_history_buffer[:, i].tolist()])
+        return True
 
     def _create_or_update_line_plot(self, x_data, y_data, label, series_factory=dpg.add_line_series):
         """Create a new DPG line-style plot or update the existing series."""
@@ -530,29 +594,7 @@ class DPGPlotter:
             print(f"[DPGPlotter.update_existing_plot] Error: {e}")
             traceback.print_exc()
             return False
-
-    def plot_vector(self, vector: np.ndarray, label: str = "Vector") -> bool:
-        """Plot a 1D vector as a line series."""
-        try:
-            vector = self._ensure_1d(vector)
-            if vector is None:
-                return False
-            if not len(vector):
-                print("[DPGPlotter] Warning: empty vector, substituting zero")
-                vector = np.array([0.0])
-            if self.current_mode != "vector":
-                self._clear_previous()
-                self._cleanup_image_resources()
-                self.current_mode = "vector"
-            self._create_or_update_line_plot(
-                list(range(len(vector))), vector.tolist(), label
-            )
-            return True
-        except Exception as e:
-            print(f"[DPGPlotter.plot_vector] Error: {e}")
-            traceback.print_exc()
-            return False
-
+        
     def plot_line(self, data: np.ndarray, label: str = "Line") -> bool:
         """Plot a 1D array as a line series (alias for plot_vector)."""
         return self.plot_vector(data, label)
