@@ -6,14 +6,15 @@ import render_scale
 def create_node_theme(
     node_background,
     node_outline,
-    node_background_selected=None,  # "complete" themes only
-    title_bar=None,                  # "incomplete" themes only
+    node_background_selected=None,
+    title_bar=None,
     title_bar_hovered=None,
     title_bar_selected=None,
-    pin=None,                        # "incomplete" themes only
+    pin=None,
     pin_hovered=None,
-    text=None,                       # "incomplete" themes only
-    use_category: bool = False,      # True for "complete" themes
+    text=None,
+    use_category: bool = False,
+    border_thickness: float = None,
 ):
     """
     Generic node theme factory.
@@ -21,6 +22,7 @@ def create_node_theme(
     Set use_category=True to pass category=dpg.mvThemeCat_Nodes on every
     color call (required by the "complete" data/proc themes).
     Components for pins and text are only emitted when their colors are given.
+    border_thickness, when provided, sets mvNodeStyleVar_NodeBorderThickness.
     """
     ckw = {"category": dpg.mvThemeCat_Nodes} if use_category else {}
 
@@ -36,6 +38,12 @@ def create_node_theme(
             if node_background_selected is not None:
                 dpg.add_theme_color(dpg.mvNodeCol_NodeBackgroundSelected, node_background_selected, **ckw)
             dpg.add_theme_color(dpg.mvNodeCol_NodeOutline, node_outline, **ckw)
+            if border_thickness is not None:
+                dpg.add_theme_style(
+                    dpg.mvNodeStyleVar_NodeBorderThickness,
+                    border_thickness,
+                    category=dpg.mvThemeCat_Nodes,
+                )
 
         if pin is not None or pin_hovered is not None:
             with dpg.theme_component(dpg.mvNodeAttribute):
@@ -49,34 +57,6 @@ def create_node_theme(
                 dpg.add_theme_color(dpg.mvThemeCol_Text, text, **ckw)
 
     return theme
-
-
-def create_data_node_theme_incomplete():
-    """Yellow theme for incomplete data nodes."""
-    return create_node_theme(
-        title_bar          = (200, 200, 100, 255),
-        title_bar_hovered  = (220, 220, 120, 255),
-        title_bar_selected = (240, 240, 140, 255),
-        node_background    = (30,  30,  30,  200),
-        node_outline       = (200, 200, 100, 128),
-        pin                = (220, 220, 120, 255),
-        pin_hovered        = (240, 240, 140, 255),
-        text               = (255, 255, 220, 255),
-    )
-
-
-def create_proc_node_theme_incomplete():
-    """Golden-yellow theme for incomplete processing nodes."""
-    return create_node_theme(
-        title_bar          = (220, 200,  80, 255),
-        title_bar_hovered  = (240, 220, 100, 255),
-        title_bar_selected = (255, 235, 120, 255),
-        node_background    = ( 40,  30,  20, 200),
-        node_outline       = (220, 200,  80, 128),
-        pin                = (230, 210,  90, 255),
-        pin_hovered        = (250, 230, 110, 255),
-        text               = (255, 240, 200, 255),
-    )
 
 
 def create_data_node_theme():
@@ -99,6 +79,34 @@ def create_proc_node_theme():
     )
 
 
+def create_data_node_theme_incomplete():
+    """
+    Identical to the complete data theme but with a red 2 px border.
+    No title-bar or text colour change — the only visual cue is the outline.
+    """
+    return create_node_theme(
+        node_background          = [60,  60,  60],
+        node_background_selected = [155, 70,   0],
+        node_outline             = [220, 50,  50, 255],
+        border_thickness         = 2.0,
+        use_category             = True,
+    )
+
+
+def create_proc_node_theme_incomplete():
+    """
+    Identical to the complete proc theme but with a red 2 px border.
+    No title-bar or text colour change — the only visual cue is the outline.
+    """
+    return create_node_theme(
+        node_background          = [40,  60,  90],
+        node_background_selected = [50, 105,  50],
+        node_outline             = [220, 50,  50, 255],
+        border_thickness         = 2.0,
+        use_category             = True,
+    )
+
+
 def apply_link_style(link_id: int, color: list, thickness: float = 1.0) -> None:
     """Apply a colour/thickness theme to a node link."""
     with dpg.theme() as link_theme:
@@ -113,11 +121,11 @@ def set_zebra_theme():
     """Fixes the file dialog alternating row colors."""
     with dpg.theme() as global_theme:
         with dpg.theme_component(dpg.mvAll):
-            # Table/File Dialog Fix
-            dpg.add_theme_color(dpg.mvThemeCol_TableRowBg, [45, 45, 45, 255])
+            dpg.add_theme_color(dpg.mvThemeCol_TableRowBg,    [45, 45, 45, 255])
             dpg.add_theme_color(dpg.mvThemeCol_TableRowBgAlt, [45, 45, 45, 255])
             dpg.add_theme_color(dpg.mvThemeCol_TableHeaderBg, [60, 60, 60, 255])
     dpg.bind_theme(global_theme)
+
 
 def auto_layout_nodes(graph, uuid_to_dpg, debug=False):
     """Organize nodes into a grid layout using actual node sizes to prevent overlap."""
@@ -175,7 +183,6 @@ def auto_layout_nodes(graph, uuid_to_dpg, debug=False):
         next_queue = deque()
         for _ in range(len(queue)):
             node = queue.popleft()
-            # Only set level if not already set (first-visit wins → shallowest level)
             if node not in levels:
                 levels[node] = level
             for neighbor in adj[node]:
@@ -192,12 +199,12 @@ def auto_layout_nodes(graph, uuid_to_dpg, debug=False):
                 print(f"[AUTO_LAYOUT] Node {node} unleveled (cycle/disconnected), assigning level 0")
 
     # --- Group by level ---
-    level_groups: dict[int, list] = {}
+    level_groups: dict = {}
     for node, lvl in levels.items():
         level_groups.setdefault(lvl, []).append(node)
 
     # --- Collect actual node sizes from DPG ---
-    node_sizes: dict[str, tuple[float, float]] = {}   # uuid → (w, h)
+    node_sizes: dict = {}
     fallback_w = render_scale.layout_horizontal_spacing()
     fallback_h = render_scale.layout_vertical_spacing()
 
@@ -206,7 +213,6 @@ def auto_layout_nodes(graph, uuid_to_dpg, debug=False):
         if dpg_id and dpg.does_item_exist(dpg_id):
             try:
                 w, h = dpg.get_item_rect_size(dpg_id)
-                # Guard against zero sizes (node not yet rendered)
                 node_sizes[node_id] = (w if w > 0 else fallback_w,
                                        h if h > 0 else fallback_h)
             except Exception:
@@ -214,23 +220,23 @@ def auto_layout_nodes(graph, uuid_to_dpg, debug=False):
         else:
             node_sizes[node_id] = (fallback_w, fallback_h)
 
-    # --- Spacing constants (padding between nodes, not total step) ---
-    pad_x  = render_scale.layout_horizontal_spacing()   # horizontal gap between columns
-    pad_y  = render_scale.layout_vertical_spacing()   # vertical gap between nodes
+    # --- Spacing constants ---
+    pad_x  = render_scale.layout_horizontal_spacing()
+    pad_y  = render_scale.layout_vertical_spacing()
     base_x = render_scale.auto_layout_base_x()
     base_y = render_scale.auto_layout_base_y()
 
-    # --- Compute column x-positions based on the widest node per column ---
+    # --- Compute column x-positions ---
     sorted_levels = sorted(level_groups.keys())
 
-    col_x: dict[int, float] = {}   # level → left-edge x
+    col_x: dict = {}
     cursor_x = base_x
     for lvl in sorted_levels:
         col_x[lvl] = cursor_x
         max_w = max(node_sizes[n][0] for n in level_groups[lvl])
         cursor_x += max_w + pad_x
 
-    # --- Position each node, stacking vertically with actual heights ---
+    # --- Position each node ---
     positioned = 0
     for lvl in sorted_levels:
         nodes_in_level = level_groups[lvl]
@@ -256,4 +262,3 @@ def auto_layout_nodes(graph, uuid_to_dpg, debug=False):
 
     if debug:
         print(f"[AUTO_LAYOUT] Done. Positioned {positioned}/{len(nodes)} nodes across {len(sorted_levels)} columns")
-
