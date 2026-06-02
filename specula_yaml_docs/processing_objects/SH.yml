@@ -50,7 +50,7 @@ SH:
     laser_launch_tel:
       type: LaserLaunchTelescope
       default: null
-      kind: reference
+      kind: object
     subap_rows_slice:
       type: Any
       default: null
@@ -86,3 +86,4 @@ SH:
     desc: Output Shack-Hartmann focal-plane intensity image
   output_names:
   - out_i
+  is_data_obj: false

@@ -43,6 +43,7 @@ FourQuadrantCoronagraph:
   outputs:
   - name: out_ef
     type: ElectricField
-    desc: Output electric field after four-quadrant coronagraph mask application
+    desc: Output electric field after coronagraph mask application
   output_names:
   - out_ef
+  is_data_obj: false

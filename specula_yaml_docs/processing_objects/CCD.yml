@@ -10,7 +10,7 @@ CCD:
     size:
       type: list
       default: REQUIRED
-      kind: value
+      kind: data
     dt:
       type: float
       default: REQUIRED
@@ -134,3 +134,4 @@ CCD:
   output_names:
   - out_pixels
   - integrated_i
+  is_data_obj: false

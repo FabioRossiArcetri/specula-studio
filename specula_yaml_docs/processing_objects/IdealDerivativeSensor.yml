@@ -10,7 +10,7 @@ IdealDerivativeSensor:
     subapdata:
       type: SubapData
       default: REQUIRED
-      kind: reference
+      kind: object
     fov:
       type: float
       default: REQUIRED
@@ -34,3 +34,4 @@ IdealDerivativeSensor:
     desc: Computed wavefront slopes from the ideal derivative sensor
   output_names:
   - out_slopes
+  is_data_obj: false

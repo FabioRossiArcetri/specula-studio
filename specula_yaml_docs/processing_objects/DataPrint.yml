@@ -10,7 +10,7 @@ DataPrint:
     range_slice:
       type: tuple
       default: null
-      kind: value
+      kind: data
     prefix:
       type: str
       default: ''
@@ -33,3 +33,4 @@ DataPrint:
       kind: single
       desc: Input value to print
   outputs: []
+  is_data_obj: false

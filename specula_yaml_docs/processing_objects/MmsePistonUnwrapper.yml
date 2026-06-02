@@ -1,0 +1,45 @@
+MmsePistonUnwrapper:
+  class_name: MmsePistonUnwrapper
+  bases:
+  - BaseProcessingObj
+  parameters:
+    recmat_list:
+      type: List[Recmat]
+      default: REQUIRED
+      kind: reference
+    gain:
+      type: float
+      default: 1.0
+      kind: value
+    start_time:
+      type: float
+      default: 0.0
+      kind: value
+    interval_time:
+      type: float
+      default: 0.0
+      kind: value
+    target_device_idx:
+      type: Any
+      default: null
+      kind: value
+    precision:
+      type: Any
+      default: null
+      kind: value
+  inputs:
+    in_comm:
+      type: BaseValue
+      kind: single
+      desc: Input command vector from integrators
+  outputs:
+  - name: out_comm
+    type: BaseValue
+    desc: Cleaned command vector for the DM
+  - name: out_ost
+    type: BaseValue
+    desc: State correction vector for the IirFilter
+  output_names:
+  - out_comm
+  - out_ost
+  is_data_obj: false

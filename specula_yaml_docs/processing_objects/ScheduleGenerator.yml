@@ -6,15 +6,15 @@ ScheduleGenerator:
     scheduled_values:
       type: list
       default: REQUIRED
-      kind: value
+      kind: data
     scheduled_times:
       type: list
       default: REQUIRED
-      kind: value
+      kind: data
     modes_per_group:
       type: list
       default: REQUIRED
-      kind: value
+      kind: data
     target_device_idx:
       type: int
       default: null
@@ -30,3 +30,4 @@ ScheduleGenerator:
     desc: Generated output signal
   output_names:
   - output
+  is_data_obj: false

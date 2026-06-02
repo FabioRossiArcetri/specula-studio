@@ -54,7 +54,7 @@ DistributedSH:
     laser_launch_tel:
       type: LaserLaunchTelescope
       default: null
-      kind: reference
+      kind: object
     target_device_idx:
       type: int
       default: null
@@ -68,9 +68,18 @@ DistributedSH:
       type: ElectricField
       kind: single
       desc: Input electric field from the telescope pupil
+    sodium_altitude:
+      type: BaseValue
+      kind: single
+      desc: Sodium layer altitude profile (optional)
+    sodium_intensity:
+      type: BaseValue
+      kind: single
+      desc: Sodium layer intensity profile (optional)
   outputs:
   - name: out_i
     type: Intensity
-    desc: Output intensity on the detector (Shack-Hartmann spot pattern)
+    desc: Output Shack-Hartmann focal-plane intensity image
   output_names:
   - out_i
+  is_data_obj: false

@@ -6,7 +6,7 @@ SpotMonitor:
     subapdata:
       type: SubapData
       default: REQUIRED
-      kind: reference
+      kind: object
     initial_alpha:
       type: float
       default: 2.0
@@ -59,3 +59,4 @@ SpotMonitor:
   - out_model_pixels
   - out_residual_pixels
   - out_params
+  is_data_obj: false

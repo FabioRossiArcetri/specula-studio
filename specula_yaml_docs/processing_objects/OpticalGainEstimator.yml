@@ -38,3 +38,4 @@ OpticalGainEstimator:
   output_names:
   - optical_gain
   - output
+  is_data_obj: false

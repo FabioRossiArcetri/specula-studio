@@ -1,27 +1,23 @@
-IirFilterData:
-  class_name: IirFilterData
+Phasescreen:
+  class_name: Phasescreen
   bases:
   - BaseDataObj
   parameters:
-    ordnum:
-      type: list
-      default: REQUIRED
-      kind: data
-    ordden:
-      type: list
-      default: REQUIRED
-      kind: data
-    num:
-      type: Any
+    dimx:
+      type: int
       default: REQUIRED
       kind: value
-    den:
-      type: Any
+    dimy:
+      type: int
       default: REQUIRED
       kind: value
-    n_modes:
-      type: Any
-      default: null
+    L0:
+      type: float
+      default: REQUIRED
+      kind: value
+    seed:
+      type: int
+      default: REQUIRED
       kind: value
     target_device_idx:
       type: int

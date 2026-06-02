@@ -130,3 +130,4 @@ PsfCoronagraph:
   - out_coronagraph_psf_profile
   - out_int_coronagraph_psf_profile
   - out_std_coronagraph_psf_profile
+  is_data_obj: false

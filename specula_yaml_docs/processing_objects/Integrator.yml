@@ -3,22 +3,18 @@ Integrator:
   bases:
   - IirFilter
   parameters:
-    simul_params:
-      type: SimulParams
-      default: REQUIRED
-      kind: reference
     int_gain:
       type: list
       default: REQUIRED
-      kind: value
+      kind: data
     ff:
       type: list
       default: null
-      kind: value
+      kind: data
     n_modes:
       type: list
       default: null
-      kind: value
+      kind: data
     delay:
       type: float
       default: 0
@@ -44,6 +40,10 @@ Integrator:
       type: BaseValue
       kind: single
       desc: Optional gain modulation vector (optional)
+    in_ost:
+      type: BaseValue
+      kind: single
+      desc: State update to subtract from integrators (optional)
   outputs:
   - name: out_comm
     type: BaseValue
@@ -54,3 +54,4 @@ Integrator:
   output_names:
   - out_comm
   - out_comm_no_delay
+  is_data_obj: false

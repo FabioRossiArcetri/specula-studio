@@ -29,23 +29,23 @@ DynamicDarkCalibrator:
       kind: single
       desc: Input pixel frame to be dark-subtracted
     in_trigger:
-      type: BaseValue
+      type: IntValue
       kind: single
       desc: Trigger signal to start dark frame acquisition (optional)
     in_nframes:
-      type: BaseValue
+      type: IntValue
       kind: single
       desc: Dynamically updates the number of integration frames (optional)
     in_load:
-      type: BaseValue
+      type: StringValue
       kind: single
       desc: Filename of a dark frame to load from disk (optional)
     in_save:
-      type: BaseValue
+      type: StringValue
       kind: single
       desc: Filename to save the current dark frame to disk (optional)
     in_reset:
-      type: BaseValue
+      type: IntValue
       kind: single
       desc: Resets the current dark frame to zero (optional)
   outputs:
@@ -58,3 +58,4 @@ DynamicDarkCalibrator:
   output_names:
   - out_darkframe
   - out_subtracted_pixels
+  is_data_obj: false

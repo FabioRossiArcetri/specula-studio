@@ -6,7 +6,7 @@ PupilstopController:
     pupilstop:
       type: Pupilstop
       default: REQUIRED
-      kind: object
+      kind: reference
     threshold_mask:
       type: bool
       default: true
@@ -42,3 +42,4 @@ PupilstopController:
     desc: Updated pupilstop layer
   output_names:
   - out_layer
+  is_data_obj: false

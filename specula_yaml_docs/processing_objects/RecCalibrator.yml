@@ -14,7 +14,7 @@ RecCalibrator:
     rec_tag:
       type: str
       default: REQUIRED
-      kind: value
+      kind: tag
     first_mode:
       type: int
       default: 0
@@ -22,7 +22,7 @@ RecCalibrator:
     pupdata_tag:
       type: str
       default: null
-      kind: value
+      kind: tag
     overwrite:
       type: bool
       default: false
@@ -61,3 +61,4 @@ RecCalibrator:
       kind: single
       desc: Input interaction matrix to invert
   outputs: []
+  is_data_obj: false

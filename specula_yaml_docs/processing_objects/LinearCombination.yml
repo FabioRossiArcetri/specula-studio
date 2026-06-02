@@ -26,7 +26,7 @@ LinearCombination:
     start_modes:
       type: list
       default: []
-      kind: value
+      kind: data
     plate_scale_idx:
       type: int
       default: null
@@ -50,3 +50,4 @@ LinearCombination:
     desc: Output combined command vector
   output_names:
   - out_vector
+  is_data_obj: false

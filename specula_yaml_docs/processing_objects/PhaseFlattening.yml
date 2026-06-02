@@ -22,3 +22,4 @@ PhaseFlattening:
     desc: Output electric field with flattened (mean-removed) phase
   output_names:
   - out_ef
+  is_data_obj: false

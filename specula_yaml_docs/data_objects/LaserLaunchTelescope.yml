@@ -14,7 +14,7 @@ LaserLaunchTelescope:
     tel_position:
       type: list
       default: []
-      kind: value
+      kind: data
     beacon_focus:
       type: float
       default: 90000.0
@@ -24,7 +24,7 @@ LaserLaunchTelescope:
       default:
       - 0.0
       - 0.0
-      kind: value
+      kind: data
     target_device_idx:
       type: int
       default: null
@@ -35,3 +35,4 @@ LaserLaunchTelescope:
       kind: value
   inputs: {}
   outputs: []
+  is_data_obj: true

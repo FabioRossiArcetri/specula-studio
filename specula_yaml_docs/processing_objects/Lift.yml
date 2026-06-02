@@ -23,10 +23,6 @@ Lift:
       type: float
       default: REQUIRED
       kind: value
-    npix_side:
-      type: int
-      default: REQUIRED
-      kind: value
     cropped_size:
       type: int
       default: REQUIRED
@@ -38,6 +34,14 @@ Lift:
     ref_zern_amp:
       type: Any
       default: REQUIRED
+      kind: value
+    npix_side:
+      type: int
+      default: null
+      kind: value
+    ron:
+      type: float
+      default: 0.0
       kind: value
     n_iter:
       type: int
@@ -74,3 +78,4 @@ Lift:
   output_names:
   - out_pistons
   - out_zern
+  is_data_obj: false

@@ -38,6 +38,7 @@ SimulParams:
     add_modules:
       type: List[str]
       default: []
-      kind: value
+      kind: data
   inputs: {}
   outputs: []
+  is_data_obj: true

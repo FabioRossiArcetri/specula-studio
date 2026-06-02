@@ -6,7 +6,7 @@ DataSource:
     outputs:
       type: list
       default: REQUIRED
-      kind: value
+      kind: data
     store_dir:
       type: str
       default: REQUIRED
@@ -22,3 +22,4 @@ DataSource:
   inputs: {}
   outputs:
   - k
+  is_data_obj: false

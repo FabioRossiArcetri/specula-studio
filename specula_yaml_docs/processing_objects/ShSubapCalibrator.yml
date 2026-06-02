@@ -18,7 +18,7 @@ ShSubapCalibrator:
     output_tag:
       type: str
       default: REQUIRED
-      kind: value
+      kind: tag
     overwrite:
       type: bool
       default: false
@@ -41,3 +41,4 @@ ShSubapCalibrator:
       kind: single
       desc: Input pixel image (optional)
   outputs: []
+  is_data_obj: false

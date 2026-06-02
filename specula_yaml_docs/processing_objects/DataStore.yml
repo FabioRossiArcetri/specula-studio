@@ -40,3 +40,4 @@ DataStore:
       type: Any
       kind: variadic
   outputs: []
+  is_data_obj: false

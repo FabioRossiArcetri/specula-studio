@@ -33,3 +33,4 @@ SsrFilterData:
       kind: value
   inputs: {}
   outputs: []
+  is_data_obj: true

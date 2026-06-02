@@ -30,11 +30,11 @@ ExtendedSource:
     layer_height:
       type: Optional[List[float]]
       default: null
-      kind: value
+      kind: data
     intensity_profile:
       type: Optional[List[float]]
       default: null
-      kind: value
+      kind: data
     focus_height:
       type: Optional[float]
       default: null
@@ -42,7 +42,7 @@ ExtendedSource:
     tt_profile:
       type: Optional[np.ndarray]
       default: null
-      kind: value
+      kind: data
     n_rings:
       type: Optional[int]
       default: null
@@ -54,7 +54,7 @@ ExtendedSource:
     initial_psf:
       type: Optional[np.ndarray]
       default: null
-      kind: value
+      kind: data
     pixel_scale_psf:
       type: Optional[float]
       default: null
@@ -82,3 +82,4 @@ ExtendedSource:
     desc: Extended source coefficients as a column-stacked array
   output_names:
   - coeff
+  is_data_obj: false

@@ -21,7 +21,7 @@ InfinitePhaseScreen:
       kind: value
     random_seed:
       type: Any
-      default: null
+      default: REQUIRED
       kind: value
     stencil_size_factor:
       type: Any
@@ -41,3 +41,4 @@ InfinitePhaseScreen:
       kind: value
   inputs: {}
   outputs: []
+  is_data_obj: true

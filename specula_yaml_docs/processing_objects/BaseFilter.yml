@@ -3,10 +3,6 @@ BaseFilter:
   bases:
   - BaseProcessingObj
   parameters:
-    simul_params:
-      type: SimulParams
-      default: REQUIRED
-      kind: reference
     nfilter:
       type: int
       default: REQUIRED
@@ -42,3 +38,4 @@ BaseFilter:
   output_names:
   - out_comm
   - out_comm_no_delay
+  is_data_obj: false

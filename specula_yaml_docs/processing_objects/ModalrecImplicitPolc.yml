@@ -14,7 +14,7 @@ ModalrecImplicitPolc:
     intmat:
       type: Intmat
       default: REQUIRED
-      kind: reference
+      kind: object
     target_device_idx:
       type: int
       default: null
@@ -46,3 +46,4 @@ ModalrecImplicitPolc:
     desc: Reconstructed modal command vector
   output_names:
   - out_modes
+  is_data_obj: false

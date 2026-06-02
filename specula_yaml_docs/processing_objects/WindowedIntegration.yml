@@ -42,3 +42,4 @@ WindowedIntegration:
     desc: Windowed time-integrated output signal
   output_names:
   - output
+  is_data_obj: false

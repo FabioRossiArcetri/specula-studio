@@ -8,10 +8,6 @@ from collections import OrderedDict
 
 
 # ── Custom YAML dumper ────────────────────────────────────────────────────────
-# Serialises OrderedDict as a plain YAML mapping so that the output file
-# contains no !!python/… tags and is readable by any standard YAML parser
-# (including SPECULA's yaml.safe_load).
-
 class _CleanDumper(yaml.Dumper):
     pass
 
@@ -23,17 +19,14 @@ _CleanDumper.add_representer(
 )
 
 
-# ── FileHandler ───────────────────────────────────────────────────────────────
-
 class FileHandler:
     def __init__(self, node_manager):
-        self.nm = node_manager
+        self.nm     = node_manager
         self.editor = None  # Set by SpeculaEditor after construction
 
     # ── Override metadata helpers ─────────────────────────────────────────────
 
     def _add_overrides_metadata(self, yaml_data: dict):
-        """Embed override manager state in export data."""
         if hasattr(self, 'editor') and self.editor is not None and \
                 hasattr(self.editor, 'override_manager'):
             meta = self.editor.override_manager.to_dict()
@@ -42,10 +35,6 @@ class FileHandler:
         return yaml_data
 
     def _load_overrides_metadata(self, yaml_data: dict):
-        """
-        Extract and restore override manager state from loaded data.
-        Pops the key so it is not treated as a simulation node.
-        """
         if '_overrides_metadata' in yaml_data and \
                 hasattr(self, 'editor') and self.editor is not None:
             meta = yaml_data.pop('_overrides_metadata')
@@ -56,7 +45,6 @@ class FileHandler:
     @staticmethod
     def ordered_load(stream, Loader=yaml.SafeLoader,
                      object_pairs_hook=OrderedDict):
-        """Load YAML preserving insertion order."""
         class OrderedLoader(Loader):
             pass
 
@@ -84,7 +72,6 @@ class FileHandler:
     # ── YAML loading helpers ──────────────────────────────────────────────────
 
     def _load_yaml_file(self, file_path):
-        """Load and validate YAML file. Returns OrderedDict or None."""
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 data = self.ordered_load(f)
@@ -102,7 +89,15 @@ class FileHandler:
     def _populate_graph_from_yaml(self, yaml_data):
         """
         Pass 1 — create graph nodes from YAML data.
-        Returns dict mapping node names to UUIDs.
+
+        Handles these SPECULA YAML key suffixes:
+          _ref        → reference link (handled in pass 3)
+          _object     → restore BaseDataObj from file; sets param_modes[p]='object'
+          _data       → load array from file; stored as param_data key
+          _tag / tag  → CalibManager tag; stored as plain string value
+          _list_ref   → list of ref links (pass 3)
+          _dict_ref   → dict of ref links (pass 3)
+          (none)      → plain scalar / list parameter value
         """
         name_to_uuid = {}
 
@@ -116,44 +111,68 @@ class FileHandler:
                       f"missing 'class' key")
                 continue
 
-            node_type = content.get('class')
-            u = str(uuid.uuid4())[:8]
+            node_type    = content.get('class')
+            u            = str(uuid.uuid4())[:8]
             name_to_uuid[node_name] = u
 
             self.nm.graph.add_node(u, node_type)
             node_data = self.nm.graph.nodes[u]
-            node_data['name'] = node_name
+            node_data['name']         = node_name
             node_data['outputs_extra'] = []
-            node_data['suffixes'] = set()
-            node_data['values'] = {}
+            node_data['suffixes']      = set()
+            node_data['values']        = {}
+            node_data['param_modes']   = {}    # NEW: tracks ref vs object mode per param
 
             if 'gui_pos' in content:
                 node_data['gui_pos'] = content['gui_pos']
 
-            template = self.nm.all_templates.get(node_type, {})
+            template        = self.nm.all_templates.get(node_type, {})
             template_params = template.get('parameters', {})
 
             for key, value in content.items():
                 if key in ('class', 'inputs', 'outputs', 'gui_pos'):
                     continue
+                # ref / layer_list links are handled in pass 3
                 if key.endswith('_ref') or key == 'layer_list':
                     continue
 
+                # ── _object suffix ────────────────────────────────────────────
                 if key.endswith('_object'):
-                    base_key = key[:-7]
-                    if base_key in template_params:
-                        param_meta = template_params[base_key]
-                        if param_meta.get('kind', 'value') == 'object' \
-                                or key.endswith('_object'):
-                            node_data['suffixes'].add(base_key)
-                            node_data['values'][base_key] = value
-                        else:
-                            node_data['values'][base_key] = value
-                    else:
-                        node_data['suffixes'].add(base_key)
-                        node_data['values'][base_key] = value
+                    base_key = key[:-7]   # strip "_object"
+                    node_data['suffixes'].add(base_key)
+                    node_data['values'][base_key]           = value
+                    node_data['values'][f"{base_key}_object"] = value
+                    # Mark this param as file-mode so the pin is hidden on load
+                    node_data['param_modes'][base_key] = 'object'
+                    continue
 
-                elif key in template_params:
+                # ── _data suffix ──────────────────────────────────────────────
+                if key.endswith('_data'):
+                    base_key = key[:-5]   # strip "_data"
+                    node_data['values'][f"{base_key}_data"] = value
+                    # Keep the plain param name empty (no inline value)
+                    node_data['values'].setdefault(base_key, None)
+                    continue
+
+                # ── bare "tag" key (top-level object restore) ─────────────────
+                # SPECULA's simul.py treats a bare "tag:" as CalibManager restore
+                if key == 'tag':
+                    node_data['values']['tag'] = value
+                    continue
+
+                # ── named _tag parameters (im_tag, rec_tag, pupdata_tag, …) ───
+                if key.endswith('_tag'):
+                    node_data['values'][key] = value
+                    continue
+
+                # ── _list_object and _dict_object suffixes ────────────────────
+                # Stored verbatim; simul.py will restore the list/dict from disk
+                if key.endswith('_list_object') or key.endswith('_dict_object'):
+                    node_data['values'][key] = value
+                    continue
+
+                # ── plain template parameter ──────────────────────────────────
+                if key in template_params:
                     param_meta = template_params[key]
                     if param_meta.get('kind', 'value') == 'object':
                         node_data['suffixes'].add(key)
@@ -161,6 +180,7 @@ class FileHandler:
                     else:
                         node_data['values'][key] = value
                 else:
+                    # Unknown key — store as-is
                     node_data['values'][key] = value
 
         return name_to_uuid
@@ -168,14 +188,10 @@ class FileHandler:
     # ── Pass 2: create UI nodes ───────────────────────────────────────────────
 
     def _create_ui_nodes(self, yaml_data, name_to_uuid):
-        """
-        Pass 2 — create DPG node elements.
-        Ends with two split_frame() so attribute IDs are ready for Pass 3.
-        """
         for node_name, content in yaml_data.items():
             if node_name not in name_to_uuid:
                 continue
-            u = name_to_uuid[node_name]
+            u   = name_to_uuid[node_name]
             pos = content.get('gui_pos', [100, 100])
             self.nm.create_node(content['class'], pos=pos,
                                 existing_uuid=u, name_override=node_name)
@@ -185,9 +201,6 @@ class FileHandler:
     # ── Pass 3: create connections ────────────────────────────────────────────
 
     def _create_connections(self, yaml_data, name_to_uuid):
-        """
-        Pass 3 — wire up all connections from inputs and *_ref / layer_list keys.
-        """
         connections_to_create = []
 
         for node_name, content in yaml_data.items():

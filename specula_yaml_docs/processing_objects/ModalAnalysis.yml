@@ -19,10 +19,6 @@ ModalAnalysis:
       type: int
       default: null
       kind: value
-    nzern:
-      type: int
-      default: null
-      kind: value
     obsratio:
       type: float
       default: null
@@ -34,7 +30,7 @@ ModalAnalysis:
     pupilstop:
       type: Pupilstop
       default: null
-      kind: object
+      kind: reference
     nmodes:
       type: int
       default: null
@@ -50,6 +46,10 @@ ModalAnalysis:
     n_inputs:
       type: int
       default: 1
+      kind: value
+    remove_piston:
+      type: bool
+      default: true
       kind: value
     target_device_idx:
       type: int
@@ -82,3 +82,4 @@ ModalAnalysis:
   - out_modes
   - rms
   - out_modes_list
+  is_data_obj: false

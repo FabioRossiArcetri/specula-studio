@@ -14,7 +14,7 @@ ModalrecExplicitPolc:
     intmat:
       type: Intmat
       default: null
-      kind: reference
+      kind: object
     nSlopesToBeDiscarded:
       type: int
       default: null
@@ -54,3 +54,4 @@ ModalrecExplicitPolc:
   output_names:
   - out_modes
   - out_pseudo_ol_modes
+  is_data_obj: false

@@ -70,3 +70,4 @@ ImShSynimGenerator:
   output_names:
   - out_intmat
   - out_recmat
+  is_data_obj: false

@@ -6,11 +6,11 @@ PolyChromSH:
     wavelengthInNm:
       type: list
       default: REQUIRED
-      kind: value
+      kind: data
     flux_factor:
       type: list
       default: REQUIRED
-      kind: value
+      kind: data
     subap_wanted_fov:
       type: float
       default: REQUIRED
@@ -54,7 +54,7 @@ PolyChromSH:
     laser_launch_tel:
       type: LaserLaunchTelescope
       default: null
-      kind: reference
+      kind: object
     subap_rows_slice:
       type: Any
       default: null
@@ -62,7 +62,7 @@ PolyChromSH:
     xy_tilts_in_arcsec:
       type: list
       default: null
-      kind: value
+      kind: data
     target_device_idx:
       type: int
       default: null
@@ -82,3 +82,4 @@ PolyChromSH:
     desc: Output intensity on the detector
   output_names:
   - out_i
+  is_data_obj: false

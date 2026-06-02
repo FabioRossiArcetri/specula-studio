@@ -54,7 +54,7 @@ DM:
     pupilstop:
       type: Pupilstop
       default: null
-      kind: object
+      kind: reference
     sign:
       type: int
       default: -1
@@ -78,3 +78,4 @@ DM:
     desc: Output wavefront layer produced by the DM
   output_names:
   - out_layer
+  is_data_obj: false

@@ -30,3 +30,4 @@ BaseSlicer:
     desc: Output sliced vector
   output_names:
   - out_value
+  is_data_obj: false

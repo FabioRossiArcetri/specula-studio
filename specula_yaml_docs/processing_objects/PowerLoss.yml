@@ -42,3 +42,4 @@ PowerLoss:
     desc: Output power loss in dB
   output_names:
   - out_power_loss
+  is_data_obj: false

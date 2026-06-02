@@ -18,11 +18,11 @@ MultiImCalibrator:
     im_tag:
       type: str
       default: null
-      kind: value
+      kind: tag
     full_im_tag:
       type: str
       default: null
-      kind: value
+      kind: tag
     overwrite:
       type: bool
       default: false
@@ -30,11 +30,11 @@ MultiImCalibrator:
     pupilstop:
       type: Pupilstop
       default: null
-      kind: object
+      kind: reference
     source_dict:
       type: list
       default: null
-      kind: value
+      kind: data
     dm:
       type: DM
       default: null
@@ -42,11 +42,11 @@ MultiImCalibrator:
     sensor_dict:
       type: list
       default: null
-      kind: value
+      kind: data
     slopec_dict:
       type: list
       default: null
-      kind: value
+      kind: data
     target_device_idx:
       type: int
       default: null
@@ -74,3 +74,4 @@ MultiImCalibrator:
   output_names:
   - out_intmat_list
   - out_intmat_full
+  is_data_obj: false

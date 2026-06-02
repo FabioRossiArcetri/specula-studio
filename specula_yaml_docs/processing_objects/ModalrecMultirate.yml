@@ -10,7 +10,7 @@ ModalrecMultirate:
     validity_masks:
       type: List[List[bool]]
       default: REQUIRED
-      kind: value
+      kind: data
     n_modes_total:
       type: int
       default: REQUIRED
@@ -34,3 +34,4 @@ ModalrecMultirate:
     desc: Output modal vector for sensor index [sensor_idx]
   output_names:
   - out_modes_{sensor_idx}
+  is_data_obj: false

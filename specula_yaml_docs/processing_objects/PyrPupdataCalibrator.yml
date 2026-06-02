@@ -30,7 +30,7 @@ PyrPupdataCalibrator:
     output_tag:
       type: str
       default: null
-      kind: value
+      kind: tag
     auto_detect_obstruction:
       type: bool
       default: true
@@ -74,3 +74,4 @@ PyrPupdataCalibrator:
     desc: Calibrated pupil data with subaperture geometry
   output_names:
   - out_pupdata
+  is_data_obj: false

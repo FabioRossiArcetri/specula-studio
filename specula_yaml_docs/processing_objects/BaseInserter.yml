@@ -34,3 +34,4 @@ BaseInserter:
     desc: Output vector with inserted values
   output_names:
   - out_value
+  is_data_obj: false

@@ -22,3 +22,4 @@ AVC:
     desc: Output correction command
   output_names:
   - out_comm
+  is_data_obj: false

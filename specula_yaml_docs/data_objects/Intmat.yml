@@ -18,19 +18,19 @@ Intmat:
     slope_mm:
       type: list
       default: null
-      kind: value
+      kind: data
     slope_rms:
       type: list
       default: null
-      kind: value
+      kind: data
     pupdata_tag:
       type: str
       default: ''
-      kind: value
+      kind: tag
     subapdata_tag:
       type: str
       default: ''
-      kind: value
+      kind: tag
     norm_factor:
       type: float
       default: 0.0
@@ -45,3 +45,4 @@ Intmat:
       kind: value
   inputs: {}
   outputs: []
+  is_data_obj: true

@@ -22,3 +22,4 @@ BaseGenerator:
     desc: Generated output signal
   output_names:
   - output
+  is_data_obj: false

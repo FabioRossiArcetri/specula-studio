@@ -10,15 +10,15 @@ AtmoEvolution:
     L0:
       type: list
       default: REQUIRED
-      kind: value
+      kind: data
     heights:
       type: list
       default: REQUIRED
-      kind: value
+      kind: data
     Cn2:
       type: list
       default: REQUIRED
-      kind: value
+      kind: data
     data_dir:
       type: str
       default: ''
@@ -48,7 +48,7 @@ AtmoEvolution:
       default:
       - 0
       - 0
-      kind: value
+      kind: data
     target_device_idx:
       type: int
       default: null
@@ -76,3 +76,4 @@ AtmoEvolution:
     desc: List of atmospheric phase screen layers
   output_names:
   - layer_list
+  is_data_obj: false

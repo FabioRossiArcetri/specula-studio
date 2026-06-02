@@ -10,7 +10,7 @@ DoubleRoofSlopec:
     sn:
       type: Slopes
       default: null
-      kind: object
+      kind: reference
     shlike:
       type: bool
       default: false
@@ -39,7 +39,7 @@ DoubleRoofSlopec:
     in_pixels:
       type: Pixels
       kind: single
-      desc: Input pixel data from the double-roof wavefront sensor detector
+      desc: Input pixel data from detector
   outputs:
   - name: out_slopes
     type: Slopes
@@ -62,3 +62,4 @@ DoubleRoofSlopec:
   - out_total_counts
   - out_subap_counts
   - out_pupdata
+  is_data_obj: false

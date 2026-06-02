@@ -50,7 +50,7 @@ BaseOperation:
     value2_remap:
       type: list
       default: null
-      kind: value
+      kind: data
     target_device_idx:
       type: int
       default: null
@@ -74,3 +74,4 @@ BaseOperation:
     desc: Output value vector after applying the operation
   output_names:
   - out_value
+  is_data_obj: false

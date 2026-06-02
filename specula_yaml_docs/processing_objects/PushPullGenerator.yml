@@ -28,11 +28,11 @@ PushPullGenerator:
       default:
       - 1
       - -1
-      kind: value
+      kind: data
     vect_amplitude:
       type: list
       default: null
-      kind: value
+      kind: data
     ncycles:
       type: int
       default: 1
@@ -64,3 +64,4 @@ PushPullGenerator:
     desc: Generated output signal
   output_names:
   - output
+  is_data_obj: false

@@ -6,11 +6,11 @@ ShSlopec:
     subapdata:
       type: SubapData
       default: REQUIRED
-      kind: reference
+      kind: object
     sn:
       type: Slopes
       default: null
-      kind: object
+      kind: reference
     thr_value:
       type: float
       default: -1
@@ -46,7 +46,7 @@ ShSlopec:
     vecWeiPixRadT:
       type: list
       default: null
-      kind: value
+      kind: data
     interleave:
       type: bool
       default: false
@@ -86,3 +86,4 @@ ShSlopec:
   - out_total_counts
   - out_subap_counts
   - out_subapdata
+  is_data_obj: false

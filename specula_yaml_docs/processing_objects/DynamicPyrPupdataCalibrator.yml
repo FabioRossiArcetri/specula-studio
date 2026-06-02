@@ -30,7 +30,7 @@ DynamicPyrPupdataCalibrator:
     output_tag:
       type: str
       default: null
-      kind: value
+      kind: tag
     auto_detect_obstruction:
       type: bool
       default: true
@@ -63,29 +63,29 @@ DynamicPyrPupdataCalibrator:
     in_i:
       type: Intensity
       kind: single
-      desc: Input intensity from the pyramid WFS detector (optional)
+      desc: Input intensity image (optional)
     in_pixels:
       type: Pixels
       kind: single
-      desc: Input pixel data from the detector (optional)
+      desc: Input pixel image (optional)
     in_save:
-      type: BaseValue
+      type: IntValue
       kind: single
       desc: Trigger to save the current calibration data (optional)
     in_dt:
-      type: BaseValue
+      type: FloatValue
       kind: single
       desc: Dynamically update the time step in seconds (optional)
     in_thr1:
-      type: BaseValue
+      type: FloatValue
       kind: single
       desc: Dynamically update the first threshold (optional)
     in_thr2:
-      type: BaseValue
+      type: FloatValue
       kind: single
       desc: Dynamically update the second threshold (optional)
     in_output_tag:
-      type: BaseValue
+      type: StringValue
       kind: single
       desc: Dynamically update the output tag (optional)
   outputs:
@@ -93,8 +93,9 @@ DynamicPyrPupdataCalibrator:
     type: PupData
     desc: Calibrated pupil data with subaperture geometry
   - name: out_params
-    type: BaseValue
+    type: StringValue
     desc: Dictionary with current calibration parameters and status
   output_names:
   - out_pupdata
   - out_params
+  is_data_obj: false

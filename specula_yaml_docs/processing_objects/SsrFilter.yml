@@ -3,14 +3,10 @@ SsrFilter:
   bases:
   - BaseFilter
   parameters:
-    simul_params:
-      type: SimulParams
-      default: REQUIRED
-      kind: reference
     ssr_filter_data:
       type: SsrFilterData
       default: REQUIRED
-      kind: reference
+      kind: object
     delay:
       type: float
       default: 0
@@ -46,3 +42,4 @@ SsrFilter:
   output_names:
   - out_comm
   - out_comm_no_delay
+  is_data_obj: false

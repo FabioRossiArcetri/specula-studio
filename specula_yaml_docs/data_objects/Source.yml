@@ -6,7 +6,7 @@ Source:
     polar_coordinates:
       type: list
       default: REQUIRED
-      kind: value
+      kind: data
     magnitude:
       type: float
       default: REQUIRED
@@ -32,7 +32,7 @@ Source:
       default:
       - 0.0
       - 0.0
-      kind: value
+      kind: data
     target_device_idx:
       type: int
       default: null
@@ -43,3 +43,4 @@ Source:
       kind: value
   inputs: {}
   outputs: []
+  is_data_obj: true

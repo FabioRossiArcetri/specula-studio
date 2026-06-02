@@ -6,11 +6,11 @@ PolyCromPyramid:
     wavelengthInNm:
       type: list
       default: REQUIRED
-      kind: value
+      kind: data
     flux_factor:
       type: list
       default: REQUIRED
-      kind: value
+      kind: data
     simul_params:
       type: SimulParams
       default: REQUIRED
@@ -104,7 +104,7 @@ PolyCromPyramid:
     xy_tilts_in_arcsec:
       type: list
       default: null
-      kind: value
+      kind: data
     target_device_idx:
       type: int
       default: null
@@ -124,3 +124,4 @@ PolyCromPyramid:
     desc: Output intensity on the detector
   output_names:
   - out_i
+  is_data_obj: false

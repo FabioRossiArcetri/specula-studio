@@ -10,7 +10,7 @@ PyrSlopec:
     sn:
       type: Slopes
       default: null
-      kind: object
+      kind: reference
     shlike:
       type: bool
       default: false
@@ -62,3 +62,4 @@ PyrSlopec:
   - out_total_counts
   - out_subap_counts
   - out_pupdata
+  is_data_obj: false

@@ -29,7 +29,7 @@ ConvolutionKernel:
       - 0.0
       - 0.0
       - 0.0
-      kind: value
+      kind: data
     seeing:
       type: float
       default: 0.0
@@ -47,7 +47,7 @@ ConvolutionKernel:
       default:
       - 0.0
       - 0.0
-      kind: value
+      kind: data
     airmass:
       type: float
       default: 1.0
@@ -78,3 +78,4 @@ ConvolutionKernel:
       kind: value
   inputs: {}
   outputs: []
+  is_data_obj: true

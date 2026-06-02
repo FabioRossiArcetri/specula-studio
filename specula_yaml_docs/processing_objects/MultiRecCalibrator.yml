@@ -14,11 +14,11 @@ MultiRecCalibrator:
     rec_tag:
       type: str
       default: null
-      kind: value
+      kind: tag
     full_rec_tag:
       type: str
       default: null
-      kind: value
+      kind: tag
     overwrite:
       type: bool
       default: false
@@ -41,3 +41,4 @@ MultiRecCalibrator:
       kind: single
       desc: Full combined interaction matrix to invert
   outputs: []
+  is_data_obj: false

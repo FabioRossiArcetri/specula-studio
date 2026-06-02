@@ -26,11 +26,11 @@ SprintShSynim:
     modes_index:
       type: list
       default: REQUIRED
-      kind: value
+      kind: data
     carrier_frequencies:
       type: list
       default: REQUIRED
-      kind: value
+      kind: data
     enable_wpup_magn_xy:
       type: Any
       default: false
@@ -50,7 +50,7 @@ SprintShSynim:
     initial_misreg:
       type: list
       default: null
-      kind: value
+      kind: data
     apply_absolute_slopes:
       type: bool
       default: false
@@ -90,3 +90,4 @@ SprintShSynim:
   - out_intmat
   - out_misreg_params
   - out_convergence_error
+  is_data_obj: false

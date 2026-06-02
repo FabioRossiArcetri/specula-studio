@@ -62,3 +62,4 @@ APPCoronagraph:
     desc: Output electric field after coronagraph mask application
   output_names:
   - out_ef
+  is_data_obj: false

@@ -30,3 +30,4 @@ ElectricFieldCombinator:
     desc: Combined output electric field
   output_names:
   - out_ef
+  is_data_obj: false

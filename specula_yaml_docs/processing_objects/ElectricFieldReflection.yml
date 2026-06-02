@@ -22,3 +22,4 @@ ElectricFieldReflection:
     desc: Output electric field with reflected (sign-inverted) phase
   output_names:
   - out_ef
+  is_data_obj: false

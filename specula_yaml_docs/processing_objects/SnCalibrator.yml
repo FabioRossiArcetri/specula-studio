@@ -10,7 +10,7 @@ SnCalibrator:
     output_tag:
       type: str
       default: REQUIRED
-      kind: value
+      kind: tag
     overwrite:
       type: bool
       default: false
@@ -29,3 +29,4 @@ SnCalibrator:
       kind: single
       desc: Input slopes to average into a slope null
   outputs: []
+  is_data_obj: false

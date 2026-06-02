@@ -59,8 +59,8 @@ AtmoPropagation:
     atmo_layer_list:
       type: Layer
       kind: single
-      desc: List of atmospheric turbulence layers (optional). Altitudes scaled by
-        airmass.
+      desc: List of atmospheric turbulence layers (optional). Altitudes will be scaled
+        by airmass.
     common_layer_list:
       type: Layer
       kind: variadic
@@ -71,3 +71,4 @@ AtmoPropagation:
     desc: Output electric field for source channel [source_name]
   output_names:
   - out_{source_name}_ef
+  is_data_obj: false

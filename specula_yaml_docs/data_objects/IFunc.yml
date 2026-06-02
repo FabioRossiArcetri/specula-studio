@@ -60,7 +60,7 @@ IFunc:
       default:
       - 0.31
       - 0.05
-      kind: value
+      kind: data
     do_slaving:
       type: bool
       default: false
@@ -83,3 +83,4 @@ IFunc:
       kind: value
   inputs: {}
   outputs: []
+  is_data_obj: true

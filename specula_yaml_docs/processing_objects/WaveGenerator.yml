@@ -11,27 +11,27 @@ WaveGenerator:
       type: List[float]
       default:
       - 0.0
-      kind: value
+      kind: data
     freq:
       type: List[float]
       default:
       - 0.0
-      kind: value
+      kind: data
     offset:
       type: List[float]
       default:
       - 0.0
-      kind: value
+      kind: data
     constant:
       type: List[float]
       default:
       - 0.0
-      kind: value
+      kind: data
     slope:
       type: List[float]
       default:
       - 0.0
-      kind: value
+      kind: data
     output_size:
       type: int
       default: 1
@@ -51,3 +51,4 @@ WaveGenerator:
     desc: Generated output signal
   output_names:
   - output
+  is_data_obj: false

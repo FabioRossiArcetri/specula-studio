@@ -38,3 +38,4 @@ Modalrec:
     desc: Reconstructed modal command vector
   output_names:
   - out_modes
+  is_data_obj: false

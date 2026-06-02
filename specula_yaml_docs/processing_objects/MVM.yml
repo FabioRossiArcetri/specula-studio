@@ -26,3 +26,4 @@ MVM:
     desc: Output vector after matrix-vector multiplication
   output_names:
   - out_vector
+  is_data_obj: false

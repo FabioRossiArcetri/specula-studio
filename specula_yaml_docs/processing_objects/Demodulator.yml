@@ -10,11 +10,11 @@ Demodulator:
     mode_numbers:
       type: list
       default: REQUIRED
-      kind: value
+      kind: data
     carrier_frequencies:
       type: list
       default: REQUIRED
-      kind: value
+      kind: data
     demod_dt:
       type: float
       default: REQUIRED
@@ -38,3 +38,4 @@ Demodulator:
     desc: Demodulated modal amplitude output
   output_names:
   - output
+  is_data_obj: false

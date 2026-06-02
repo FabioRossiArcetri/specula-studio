@@ -6,7 +6,7 @@ Slopec:
     sn:
       type: Slopes
       default: null
-      kind: object
+      kind: reference
     recmat:
       type: Recmat
       default: null
@@ -14,7 +14,7 @@ Slopec:
     filt_intmat:
       type: Intmat
       default: null
-      kind: reference
+      kind: object
     filt_recmat:
       type: Recmat
       default: null
@@ -62,3 +62,4 @@ Slopec:
   - out_flux_per_subaperture
   - out_total_counts
   - out_subap_counts
+  is_data_obj: false

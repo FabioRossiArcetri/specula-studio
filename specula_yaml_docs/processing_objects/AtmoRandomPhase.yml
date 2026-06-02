@@ -68,3 +68,4 @@ AtmoRandomPhase:
   output_names:
   - out_{source_name_}layer
   - out_{source_name_}ef
+  is_data_obj: false

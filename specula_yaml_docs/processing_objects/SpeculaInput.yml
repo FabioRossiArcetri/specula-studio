@@ -6,7 +6,7 @@ SpeculaInput:
     output_list:
       type: list
       default: REQUIRED
-      kind: value
+      kind: data
     target_device_idx:
       type: int
       default: null
@@ -17,4 +17,5 @@ SpeculaInput:
       kind: value
   inputs: {}
   outputs:
-  - name
+  - real_name
+  is_data_obj: false

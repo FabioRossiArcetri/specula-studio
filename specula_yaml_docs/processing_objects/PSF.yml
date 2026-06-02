@@ -102,3 +102,4 @@ PSF:
   - out_int_psf_fwhm
   - out_int_encircled_energy
   - out_int_encircled_energy_at_radius
+  is_data_obj: false

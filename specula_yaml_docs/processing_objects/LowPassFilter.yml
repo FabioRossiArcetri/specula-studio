@@ -40,6 +40,10 @@ LowPassFilter:
       type: BaseValue
       kind: single
       desc: Optional gain modulation vector (optional)
+    in_ost:
+      type: BaseValue
+      kind: single
+      desc: State update to subtract from integrators (optional)
   outputs:
   - name: out_comm
     type: BaseValue
@@ -50,3 +54,4 @@ LowPassFilter:
   output_names:
   - out_comm
   - out_comm_no_delay
+  is_data_obj: false

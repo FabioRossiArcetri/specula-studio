@@ -76,3 +76,4 @@ CiaoCiaoSensor:
     desc: Output interference intensity pattern
   output_names:
   - out_i
+  is_data_obj: false

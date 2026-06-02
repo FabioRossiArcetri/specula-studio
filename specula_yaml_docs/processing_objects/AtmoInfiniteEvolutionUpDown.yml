@@ -11,17 +11,17 @@ AtmoInfiniteEvolutionUpDown:
       type: list
       default:
       - 1.0
-      kind: value
+      kind: data
     heights:
       type: list
       default:
       - 0.0
-      kind: value
+      kind: data
     Cn2:
       type: list
       default:
       - 1.0
-      kind: value
+      kind: data
     extra_delta_time_down:
       type: float
       default: 0
@@ -47,7 +47,7 @@ AtmoInfiniteEvolutionUpDown:
       default:
       - 0
       - 0
-      kind: value
+      kind: data
     target_device_idx:
       type: int
       default: null
@@ -83,3 +83,4 @@ AtmoInfiniteEvolutionUpDown:
   - layer_list
   - layer_list_down
   - layer_list_up
+  is_data_obj: false

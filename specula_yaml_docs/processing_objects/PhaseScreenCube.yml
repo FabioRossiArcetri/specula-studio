@@ -10,7 +10,7 @@ PhaseScreenCube:
     cube:
       type: SpatioTempArray
       default: REQUIRED
-      kind: reference
+      kind: object
     pixel_scale:
       type: float
       default: REQUIRED
@@ -46,3 +46,4 @@ PhaseScreenCube:
   output_names:
   - out_layer
   - out_ef
+  is_data_obj: false

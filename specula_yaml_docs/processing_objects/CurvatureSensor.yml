@@ -50,3 +50,4 @@ CurvatureSensor:
   output_names:
   - out_i1
   - out_i2
+  is_data_obj: false

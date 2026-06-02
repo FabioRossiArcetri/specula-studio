@@ -22,7 +22,7 @@ CiaoCiaoSlopec:
     pupil_mask:
       type: Pupilstop
       default: REQUIRED
-      kind: object
+      kind: reference
     diffRotAngleInDeg:
       type: float
       default: 0.0
@@ -34,7 +34,7 @@ CiaoCiaoSlopec:
     sn:
       type: Slopes
       default: null
-      kind: object
+      kind: reference
     target_device_idx:
       type: int
       default: null
@@ -47,14 +47,14 @@ CiaoCiaoSlopec:
     in_pixels:
       type: Pixels
       kind: single
-      desc: Input interferogram pixel data from detector
+      desc: Input pixel data from detector
   outputs:
   - name: out_slopes
     type: Slopes
-    desc: Computed OPD map as a flattened slope vector
+    desc: Computed wavefront slopes
   - name: out_flux_per_subaperture
     type: BaseValue
-    desc: Mean flux per pixel within the pupil mask
+    desc: Flux per subaperture
   - name: out_total_counts
     type: BaseValue
     desc: Total photon counts
@@ -66,3 +66,4 @@ CiaoCiaoSlopec:
   - out_flux_per_subaperture
   - out_total_counts
   - out_subap_counts
+  is_data_obj: false

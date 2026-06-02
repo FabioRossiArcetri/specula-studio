@@ -18,7 +18,7 @@ ZwfsSlopec:
     sn:
       type: Slopes
       default: null
-      kind: object
+      kind: reference
     target_device_idx:
       type: int
       default: null
@@ -58,3 +58,4 @@ ZwfsSlopec:
   - out_total_counts
   - out_subap_counts
   - out_pupdata
+  is_data_obj: false

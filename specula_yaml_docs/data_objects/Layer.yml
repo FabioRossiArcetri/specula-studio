@@ -24,7 +24,7 @@ Layer:
       default:
       - 0.0
       - 0.0
-      kind: value
+      kind: data
     rotInDeg:
       type: float
       default: 0.0
@@ -43,3 +43,4 @@ Layer:
       kind: value
   inputs: {}
   outputs: []
+  is_data_obj: true

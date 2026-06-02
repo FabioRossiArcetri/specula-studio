@@ -6,7 +6,7 @@ PolyChromWFS:
     wavelengthInNm:
       type: list
       default: REQUIRED
-      kind: value
+      kind: data
     ccd_side:
       type: int
       default: REQUIRED
@@ -14,11 +14,11 @@ PolyChromWFS:
     flux_factor:
       type: list
       default: REQUIRED
-      kind: value
+      kind: data
     xy_tilts_in_arcsec:
       type: list
       default: null
-      kind: value
+      kind: data
     target_device_idx:
       type: int
       default: null
@@ -38,3 +38,4 @@ PolyChromWFS:
     desc: Output intensity on the detector
   output_names:
   - out_i
+  is_data_obj: false

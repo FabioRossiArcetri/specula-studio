@@ -138,3 +138,4 @@ ExtSourcePyramid:
   - out_psf_bfm
   - out_transmission
   - out_flux_frac_inside_detector
+  is_data_obj: false
