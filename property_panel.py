@@ -58,6 +58,7 @@ try:
         get_input_tooltip,
         get_output_tooltip,
         get_class_tooltip,
+        get_param_unit,
     )
     _HELP_AVAILABLE = True
 except ImportError:
@@ -66,7 +67,7 @@ except ImportError:
     def get_input_tooltip(*_):  return ""
     def get_output_tooltip(*_): return ""
     def get_class_tooltip(*_):  return ""
-
+    def get_param_unit(*_):     return ""
 
 # ── colour constants ──────────────────────────────────────────────────────────
 _DEFAULT_PARAM_COLOR  = [110, 110, 110]
@@ -1164,10 +1165,15 @@ class PropertyPanel:
                         user_data=user_data,
                     )
 
-            # ── default hint (grey text to the right) ─────────────────────────
-            # Shown for every non-bool parameter so the user always knows the
-            # fallback.  Bool is self-documenting via the checkbox state.
+
+            # ── unit label + default hint (grey text to the right) ────────────
+            # Layout:  [widget]  unit  (default: X)
+            # For bool the checkbox state is self-documenting; skip both.
             if type_hint not in ("bool", "boolean"):
+                unit_str = get_param_unit(node_type, param_name) if _HELP_AVAILABLE else ""
+                if unit_str:
+                    dpg.add_text(f"[{unit_str}]", color=[120, 180, 120])   # muted green
+
                 hint_color = (
                     [255, 80, 80] if is_required and not has_value
                     else _DEFAULT_HINT_COLOR

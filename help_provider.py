@@ -11,8 +11,17 @@ Sources (in priority order):
 
 For parameters whose description is empty in the immediate class, the full
 MRO (Method Resolution Order) is walked upward until a non-empty description
-(and/or type) is found for that parameter name.  This means a parameter
-documented only in a base class is automatically surfaced for all subclasses.
+(and/or type) is found for that parameter name.
+
+Unit strings (e.g. "nm", "arcsec", "pixels") are parsed from the bracketed
+annotation in the docstring type field, e.g.::
+
+    wavelengthInNm : float [nm]
+        Wavelength in nanometres.
+
+The unit is stored as a ``"unit"`` key in each parameter dict and is shown
+in the property panel beside the input widget.  Dimensionless ``[1]``
+annotations are normalised to an empty string.
 
 Two parameters are special-cased with fixed standard descriptions that are
 applied unconditionally to every class:
@@ -38,12 +47,11 @@ _SPECULA_PACKAGES = [
 ]
 
 # ── Standard parameters present in every BaseProcessingObj subclass ───────────
-# These descriptions are applied as an unconditional fallback after the MRO
-# walk so they always appear even when the subclass docstring omits them.
 _STANDARD_PARAMS: dict = {
     "target_device_idx": {
         "type":    "int",
         "default": "null",
+        "unit":    "",
         "desc": (
             "Target device index for computation.  "
             "Pass -1 for CPU, 0 for the first GPU, 1 for the second GPU, etc.  "
@@ -53,6 +61,7 @@ _STANDARD_PARAMS: dict = {
     "precision": {
         "type":    "int",
         "default": "null",
+        "unit":    "",
         "desc": (
             "Numerical precision.  "
             "Pass 0 for double precision, 1 for single precision.  "
@@ -61,15 +70,13 @@ _STANDARD_PARAMS: dict = {
     },
 }
 
-# NumPy-style section header: "Parameters\n----------" or "Parameters\n=========="
+# NumPy-style section header
 _SECTION_HEADER_RE = re.compile(
     r"^[ \t]*(?P<title>[A-Za-z][A-Za-z0-9 _]*?)\s*\n[ \t]*[-=]{3,}\s*$",
     re.MULTILINE,
 )
 
-# One parameter entry inside a Parameters section:
-#   name : type [unit], optional
-#       Description text, possibly multiple lines.
+# One parameter entry inside a Parameters section
 _PARAM_ENTRY_RE = re.compile(
     r"^(?P<pname>\w+)"
     r"(?:\s*:\s*(?P<ptype>[^\n]+?))?"
@@ -78,11 +85,40 @@ _PARAM_ENTRY_RE = re.compile(
     re.MULTILINE,
 )
 
+# Matches the bracketed unit annotation, e.g.  [nm]  [arcsec/pixel]  [1]
+_UNIT_RE = re.compile(r"\[([^\]]+)\]")
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _dedent(text: str) -> str:
     return textwrap.dedent(text or "").strip()
+
+
+def _extract_unit(raw_type: str) -> tuple[str, str]:
+    """
+    Split a raw type annotation into (clean_type, unit).
+
+    Examples
+    --------
+    "float [nm]"          →  ("float", "nm")
+    "int [pixels]"        →  ("int", "pixels")
+    "float [arcsec/pix]"  →  ("float", "arcsec/pix")
+    "int [1]"             →  ("int", "")      ← dimensionless suppressed
+    "bool"                →  ("bool", "")
+    """
+    m = _UNIT_RE.search(raw_type)
+    if not m:
+        clean = raw_type.replace(", optional", "").strip()
+        return clean, ""
+
+    unit = m.group(1).strip()
+    # Suppress dimensionless marker
+    if unit == "1":
+        unit = ""
+
+    clean = _UNIT_RE.sub("", raw_type).replace(", optional", "").strip()
+    return clean, unit
 
 
 def _parse_numpy_sections(docstring: str) -> dict:
@@ -100,32 +136,39 @@ def _parse_numpy_sections(docstring: str) -> dict:
         out["Summary"] = preamble
 
     for i, m in enumerate(hits):
-        title = m.group("title").strip()
+        title      = m.group("title").strip()
         body_start = m.end()
-        body_end = hits[i + 1].start() if i + 1 < len(hits) else len(text)
+        body_end   = hits[i + 1].start() if i + 1 < len(hits) else len(text)
         out[title] = text[body_start:body_end].strip()
 
     return out
 
 
 def _parse_param_section(body: str) -> dict:
-    """Parse a 'Parameters' section body → {name: (type_str, desc_str)}."""
+    """
+    Parse a 'Parameters' section body.
+
+    Returns
+    -------
+    dict : name → (type_str, desc_str, unit_str)
+        *type_str* has the ``[unit]`` bracket removed.
+        *unit_str* is the content of the bracket, or ``""`` if absent /
+        dimensionless (``[1]``).
+    """
     result: dict = {}
     for m in _PARAM_ENTRY_RE.finditer((body or "") + "\n"):
-        pname = m.group("pname").strip()
-        ptype = (m.group("ptype") or "").strip()
-        # Strip [unit] and 'optional' annotations from type string for brevity
-        ptype_clean = re.sub(r"\s*\[.*?\]", "", ptype).replace(", optional", "").strip()
-        pdesc = _dedent(m.group("pdesc") or "")
-        result[pname] = (ptype_clean, pdesc)
+        pname        = m.group("pname").strip()
+        raw_type     = (m.group("ptype") or "").strip()
+        pdesc        = _dedent(m.group("pdesc") or "")
+        clean, unit  = _extract_unit(raw_type)
+        result[pname] = (clean, pdesc, unit)
     return result
 
 
 def _extract_doc_params(klass) -> dict:
     """
-    Return {param_name: (type_str, desc_str)} parsed from the docstrings of
-    *klass* alone (class-level doc first, then __init__ doc).  Does NOT walk
-    the MRO — that is done by the caller.
+    Return {param_name: (type_str, desc_str, unit_str)} parsed from the
+    docstrings of *klass* alone.  Does NOT walk the MRO.
     """
     class_doc = inspect.getdoc(klass) or ""
     init_doc  = (
@@ -143,7 +186,6 @@ def _extract_doc_params(klass) -> dict:
             doc_params = _parse_param_section(sections[sec_key])
             break
 
-    # If class doc had no Parameters section, try __init__ doc separately
     if not doc_params and init_doc and init_doc != primary_doc:
         init_secs = _parse_numpy_sections(init_doc)
         for sec_key in ("Parameters", "Args", "Arguments"):
@@ -155,7 +197,6 @@ def _extract_doc_params(klass) -> dict:
 
 
 def _type_name(obj) -> str:
-    """Return a short readable type name from a class or annotation."""
     if obj is None or obj is inspect.Parameter.empty:
         return ""
     if hasattr(obj, "__name__"):
@@ -167,7 +208,6 @@ def _type_name(obj) -> str:
 
 @lru_cache(maxsize=256)
 def _find_class(class_name: str):
-    """Locate and return the class object in the SPECULA packages, or None."""
     for pkg_name in _SPECULA_PACKAGES:
         try:
             pkg = importlib.import_module(pkg_name)
@@ -187,47 +227,25 @@ def _find_class(class_name: str):
 
 def _fill_from_mro(klass, params: dict) -> None:
     """
-    For every parameter in *params* whose ``desc`` (and optionally ``type``)
-    is empty, walk up ``klass.__mro__`` (skipping the class itself and
-    ``object``) and try to fill the gap from an ancestor's docstring.
-
-    *params* is mutated in-place.
-
-    Walk strategy
-    -------------
-    For each ancestor (in MRO order, so most-specific first):
-      1. Parse the ancestor's own docstrings (class + __init__) for a
-         Parameters section.
-      2. If the ancestor's __init__ signature contains the parameter, also
-         pick up the type annotation as a fallback type.
-      3. Stop walking for a given parameter as soon as both ``type`` and
-         ``desc`` are non-empty.
+    Walk ``klass.__mro__`` to fill empty ``desc``, ``type``, and ``unit``
+    fields in *params*.  Mutates *params* in-place.
     """
-    needs_desc = {
-        pname
-        for pname, pmeta in params.items()
-        if not pmeta.get("desc", "").strip()
-    }
-    needs_type = {
-        pname
-        for pname, pmeta in params.items()
-        if not pmeta.get("type", "").strip()
-    }
+    needs_desc = {p for p, m in params.items() if not m.get("desc", "").strip()}
+    needs_type = {p for p, m in params.items() if not m.get("type", "").strip()}
+    needs_unit = {p for p, m in params.items() if not m.get("unit", "").strip()}
 
-    if not needs_desc and not needs_type:
+    if not needs_desc and not needs_type and not needs_unit:
         return
 
-    # Walk ancestors (skip [0] == klass itself, skip object at the end)
     for ancestor in klass.__mro__[1:]:
         if ancestor is object:
             continue
-        if not needs_desc and not needs_type:
+        if not needs_desc and not needs_type and not needs_unit:
             break
 
-        # ── Parse ancestor docstring ──────────────────────────────────────────
         anc_doc_params = _extract_doc_params(ancestor)
 
-        # ── Parse ancestor __init__ signature for type annotations ────────────
+        # Ancestor signature for type fallback
         anc_sig_types: dict = {}
         try:
             if ancestor.__init__ is not object.__init__:
@@ -240,20 +258,22 @@ def _fill_from_mro(klass, params: dict) -> None:
         except (ValueError, TypeError):
             pass
 
-        # ── Fill gaps ─────────────────────────────────────────────────────────
         filled_desc = set()
         filled_type = set()
+        filled_unit = set()
 
         for pname in list(needs_desc):
             if pname in anc_doc_params:
-                anc_type, anc_desc = anc_doc_params[pname]
+                anc_type, anc_desc, anc_unit = anc_doc_params[pname]
                 if anc_desc.strip():
                     params[pname]["desc"] = anc_desc
                     filled_desc.add(pname)
-                # Opportunistically fill type too if empty
                 if pname in needs_type and anc_type.strip():
                     params[pname]["type"] = anc_type
                     filled_type.add(pname)
+                if pname in needs_unit and anc_unit.strip():
+                    params[pname]["unit"] = anc_unit
+                    filled_unit.add(pname)
 
         for pname in list(needs_type):
             if pname in filled_type:
@@ -265,34 +285,32 @@ def _fill_from_mro(klass, params: dict) -> None:
                 params[pname]["type"] = anc_doc_params[pname][0]
                 filled_type.add(pname)
 
+        for pname in list(needs_unit):
+            if pname in filled_unit:
+                continue
+            if pname in anc_doc_params and anc_doc_params[pname][2].strip():
+                params[pname]["unit"] = anc_doc_params[pname][2]
+                filled_unit.add(pname)
+
         needs_desc -= filled_desc
         needs_type -= filled_type
+        needs_unit -= filled_unit
 
 
 def _apply_standard_params(params: dict) -> None:
     """
     Unconditionally ensure ``target_device_idx`` and ``precision`` appear in
-    *params* with their canonical descriptions.
-
-    Rules
-    -----
-    * If the parameter is already present (picked up from the signature),
-      only the ``desc`` and ``type`` fields are overwritten — the ``default``
-      value that was read from the actual signature is preserved.
-    * If the parameter is absent entirely (e.g. a data-object class that does
-      not expose these arguments), it is inserted with the standard default
-      of ``"null"``.
-
-    *params* is mutated in-place.
+    *params* with their canonical descriptions.  The ``default`` actually read
+    from the signature is preserved; only ``desc``, ``type``, and ``unit``
+    are overwritten.
     """
     for pname, standard in _STANDARD_PARAMS.items():
         if pname in params:
-            # Keep the signature default; replace desc and type
             params[pname]["desc"] = standard["desc"]
             params[pname]["type"] = standard["type"]
+            params[pname]["unit"] = standard["unit"]
         else:
-            # Insert the full entry (class does not declare this param)
-            params[pname] = dict(standard)  # shallow copy
+            params[pname] = dict(standard)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -305,10 +323,10 @@ def get_class_help(class_name: str) -> dict:
     Keys
     ----
     class_name : str
-    summary    : str   – first line of the class docstring
-    full_doc   : str   – complete cleaned docstring
-    category   : str   – "processing_objects" | "data_objects" | "unknown"
-    parameters : dict  name → {"type": str, "default": str, "desc": str}
+    summary    : str
+    full_doc   : str
+    category   : str
+    parameters : dict  name → {"type": str, "default": str, "unit": str, "desc": str}
     inputs     : dict  name → {"type": str, "desc": str}
     outputs    : dict  name → {"type": str, "desc": str}
     error      : str | None
@@ -332,14 +350,14 @@ def get_class_help(class_name: str) -> dict:
         )
         return result
 
-    # ── Category from module path ─────────────────────────────────────────────
+    # Category
     mod = klass.__module__ or ""
     if "processing_objects" in mod:
         result["category"] = "processing_objects"
     elif "data_objects" in mod:
         result["category"] = "data_objects"
 
-    # ── Docstrings ────────────────────────────────────────────────────────────
+    # Docstrings
     class_doc   = inspect.getdoc(klass) or ""
     init_doc    = (
         inspect.getdoc(klass.__init__)
@@ -353,13 +371,9 @@ def get_class_help(class_name: str) -> dict:
     result["full_doc"] = primary_doc
     result["summary"]  = (sections.get("Summary", "") or "").split("\n")[0].strip()
 
-    # Parameter descriptions extracted from the immediate class's docstring
     doc_params: dict = _extract_doc_params(klass)
 
-    # ── __init__ signature → parameters ──────────────────────────────────────
-    # NOTE: target_device_idx and precision are NO LONGER excluded here so
-    # that their actual default values are read from the real signature.
-    # Their descriptions are overwritten by _apply_standard_params() below.
+    # __init__ signature → parameters
     try:
         sig = inspect.signature(klass.__init__)
     except (ValueError, TypeError):
@@ -383,22 +397,23 @@ def get_class_help(class_name: str) -> dict:
             else:
                 default_str = str(param.default)
 
-            doc_type, doc_desc = doc_params.get(pname, ("", ""))
+            # _extract_doc_params now returns 3-tuples
+            doc_type, doc_desc, doc_unit = doc_params.get(pname, ("", "", ""))
             result["parameters"][pname] = {
                 "type":    doc_type or ann_type,
                 "default": default_str,
+                "unit":    doc_unit,
                 "desc":    doc_desc,
             }
 
-    # ── MRO walk: fill empty desc / type from ancestors ───────────────────────
+    # MRO walk
     if result["parameters"]:
         _fill_from_mro(klass, result["parameters"])
 
-    # ── Standard params: unconditional canonical descriptions ─────────────────
-    # Applied AFTER the MRO walk so they always win for these two names.
+    # Standard params (target_device_idx, precision)
     _apply_standard_params(result["parameters"])
 
-    # ── input_names() → inputs ────────────────────────────────────────────────
+    # input_names()
     if hasattr(klass, "input_names") and callable(klass.input_names):
         try:
             for iname, idesc in (klass.input_names() or {}).items():
@@ -409,7 +424,7 @@ def get_class_help(class_name: str) -> dict:
         except Exception:
             pass
 
-    # ── output_names() → outputs ──────────────────────────────────────────────
+    # output_names()
     if hasattr(klass, "output_names") and callable(klass.output_names):
         try:
             for oname, odesc in (klass.output_names() or {}).items():
@@ -423,10 +438,10 @@ def get_class_help(class_name: str) -> dict:
     return result
 
 
-# ── Tooltip helpers (one-liners for use in the property panel) ────────────────
+# ── Tooltip helpers ───────────────────────────────────────────────────────────
 
 def get_param_tooltip(class_name: str, param_name: str) -> str:
-    """Short tooltip text for *param_name*.  Empty string if nothing found."""
+    """Short tooltip text for *param_name*.  Includes unit when available."""
     info  = get_class_help(class_name)
     if info.get("error"):
         return ""
@@ -435,7 +450,10 @@ def get_param_tooltip(class_name: str, param_name: str) -> str:
         return ""
     parts = []
     if param["type"]:
-        parts.append(f"type: {param['type']}")
+        type_str = param["type"]
+        if param.get("unit"):
+            type_str += f" [{param['unit']}]"
+        parts.append(f"type: {type_str}")
     if param["default"] not in ("", "REQUIRED"):
         parts.append(f"default: {param['default']}")
     if param["desc"]:
@@ -474,7 +492,6 @@ def get_output_tooltip(class_name: str, output_name: str) -> str:
 
 
 def get_class_tooltip(class_name: str) -> str:
-    """Short tooltip for the class name itself."""
     info = get_class_help(class_name)
     if info.get("error"):
         return f"{class_name} (SPECULA class — no doc available)"
@@ -487,52 +504,54 @@ def get_class_tooltip(class_name: str) -> str:
         parts.append(summary)
     return "  |  ".join(parts)
 
+
+def get_param_unit(class_name: str, param_name: str) -> str:
+    """
+    Return the unit string for *param_name*, e.g. ``"nm"``, ``"arcsec"``.
+    Returns ``""`` when no unit is available or it is dimensionless.
+    """
+    info = get_class_help(class_name)
+    if info.get("error"):
+        return ""
+    param = info["parameters"].get(param_name)
+    if not param:
+        return ""
+    return param.get("unit", "")
+
+
 @lru_cache(maxsize=512)
 def is_input_optional(class_name: str, input_name: str) -> bool:
     """
     Return True if *input_name* is optional for *class_name*.
 
     Strategy (in order of reliability):
-    1. Instantiate the class with dummy arguments and read the .optional
-       attribute directly from the InputValue/InputList object in self.inputs.
-       This is the ground truth — it reads the exact flag set in __init__.
-    2. If instantiation fails (requires non-trivial args), fall back to
-       parsing the desc string returned by input_names(): if it contains
-       the word "optional" the input is considered optional.
-    3. If input_names() is not defined or the name is absent, default to
-       False (treat as required — conservative / safer).
+    1. Instantiate the class with all-None kwargs and read .optional directly.
+    2. Parse desc string from input_names() for the word "optional".
+    3. Default False (conservative).
     """
     klass = _find_class(class_name)
     if klass is None:
         return False
 
-    # ── Strategy 1: try a no-arg (or None-arg) instantiation ─────────────────
-    # Many SPECULA processing objects accept all-None __init__ args.
+    # Strategy 1
     try:
-        sig     = inspect.signature(klass.__init__)
-        kwargs  = {
-            p: None
-            for p in sig.parameters
-            if p != "self"
-        }
-        obj = klass(**kwargs)
+        sig    = inspect.signature(klass.__init__)
+        kwargs = {p: None for p in sig.parameters if p != "self"}
+        obj    = klass(**kwargs)
         inputs = getattr(obj, "inputs", {})
         if input_name in inputs:
-            inp = inputs[input_name]
-            return bool(getattr(inp, "optional", False))
+            return bool(getattr(inputs[input_name], "optional", False))
     except Exception:
-        pass  # fall through to strategy 2
+        pass
 
-    # ── Strategy 2: parse desc string from input_names() ─────────────────────
+    # Strategy 2
     if hasattr(klass, "input_names") and callable(klass.input_names):
         try:
             inames = klass.input_names() or {}
             if input_name in inames:
                 desc = getattr(inames[input_name], "desc", "") or ""
-                # Convention: optional inputs say "(optional)" in the desc
                 return "optional" in desc.lower()
         except Exception:
             pass
 
-    # ── Strategy 3: conservative default ─────────────────────────────────────
     return False
