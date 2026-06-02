@@ -28,13 +28,19 @@ knows what the code will use.  "null" defaults are shown as "(default: null)".
 Required parameters show "(REQUIRED)" in red.
 
 Folder resolution for file dialogs
------------------------------------
+------------------------------------
 The browse dialog opens in  <root_dir>/<folder_name>  where root_dir comes
 from the linked SimulParams node and folder_name equals the parameter name
 with one hard-coded exception:  recmat → rec  (CalibManager uses 'rec' as the
 on-disk sub-directory for reconstruction matrices).  All other parameter names
-map to themselves, after stripping any trailing _tag / _data / _object suffix
-that was part of the widget-tag string but not the actual folder name.
+map to themselves, after stripping any trailing _tag / _data / _object suffix.
+
+Tooltips
+--------
+When the mouse hovers over a parameter name, input name, output name, or the
+class name line, a tooltip is shown with type, default and description text
+extracted live from the installed SPECULA package via help_provider.py.
+Tooltips degrade silently to nothing if SPECULA or help_provider is absent.
 """
 
 import ast
@@ -45,11 +51,28 @@ import dearpygui.dearpygui as dpg
 
 from dpg_utils import apply_link_style
 
+# ── Documentation helpers (gracefully absent if SPECULA not installed) ─────────
+try:
+    from help_provider import (
+        get_param_tooltip,
+        get_input_tooltip,
+        get_output_tooltip,
+        get_class_tooltip,
+    )
+    _HELP_AVAILABLE = True
+except ImportError:
+    _HELP_AVAILABLE = False
+    def get_param_tooltip(*_):  return ""
+    def get_input_tooltip(*_):  return ""
+    def get_output_tooltip(*_): return ""
+    def get_class_tooltip(*_):  return ""
+
 
 # ── colour constants ──────────────────────────────────────────────────────────
 _DEFAULT_PARAM_COLOR  = [110, 110, 110]
 _MODIFIED_PARAM_COLOR = [240, 240, 240]
 _DEFAULT_HINT_COLOR   = [90,  90,  90]   # dark-grey hint text beside inputs
+_TOOLTIP_COLOR        = [220, 220, 180]  # warm-white tooltip text
 
 # Type hints that indicate a list/array value
 _ARRAY_TYPE_HINTS = frozenset(
@@ -59,11 +82,8 @@ _ARRAY_TYPE_HINTS = frozenset(
 # The ONE known folder-name exception: parameter 'recmat' lives under 'rec/'
 # in the CalibManager directory tree.  Add more pairs here if more exceptions
 # are discovered in future SPECULA releases.
-_PARAM_FOLDER_OVERRIDES: dict[str, str] = {
+_PARAM_FOLDER_OVERRIDES: dict = {
     "recmat": "rec",
-    "pupdata": "pupils",
-    "ifunc_inv": "ifunc",
-
 }
 
 
@@ -83,6 +103,13 @@ def _folder_for_param(param_name: str) -> str:
     return _PARAM_FOLDER_OVERRIDES.get(bare, bare)
 
 
+def _add_tooltip(parent_id, text: str):
+    """Attach a tooltip to *parent_id* if *text* is non-empty."""
+    if text:
+        with dpg.tooltip(parent=parent_id):
+            dpg.add_text(text, color=_TOOLTIP_COLOR, wrap=400)
+
+
 class PropertyPanel:
     """Renders the inspector panel for selected nodes and connections."""
 
@@ -95,11 +122,11 @@ class PropertyPanel:
         delink_callback,
         refresh_node_theme,
     ):
-        self.graph             = graph
-        self.all_templates     = all_templates
-        self.registry          = registry
-        self.monitors          = monitor_manager
-        self._delink_callback  = delink_callback
+        self.graph              = graph
+        self.all_templates      = all_templates
+        self.registry           = registry
+        self.monitors           = monitor_manager
+        self._delink_callback   = delink_callback
         self._refresh_node_theme = refresh_node_theme
 
     # =========================================================================
@@ -131,7 +158,11 @@ class PropertyPanel:
                 callback=self._update_node_name,
                 user_data=node_uuid,
             )
-        dpg.add_text(f"Class: {node_type}", color=[150, 150, 150], parent=panel_tag)
+
+        # Class name with tooltip showing summary
+        cls_lbl = dpg.add_text(f"Class: {node_type}", color=[150, 150, 150], parent=panel_tag)
+        _add_tooltip(cls_lbl, get_class_tooltip(node_type))
+
         dpg.add_separator(parent=panel_tag)
 
         rendered_params: set = set()
@@ -206,7 +237,8 @@ class PropertyPanel:
 
                 if is_data_class:
                     with dpg.group(horizontal=True, parent=panel_tag):
-                        dpg.add_text(f"{param_name}:", color=[150, 200, 255])
+                        lbl = dpg.add_text(f"{param_name}:", color=[150, 200, 255])
+                        _add_tooltip(lbl, get_param_tooltip(node_type, param_name))
                         input_tag = f"{node_uuid}_{param_name}_object"
                         dpg.add_input_text(
                             tag=input_tag,
@@ -224,7 +256,8 @@ class PropertyPanel:
                         )
                 else:
                     with dpg.group(horizontal=True, parent=panel_tag):
-                        dpg.add_text(f"{param_name}:", color=[200, 200, 200])
+                        lbl = dpg.add_text(f"{param_name}:", color=[200, 200, 200])
+                        _add_tooltip(lbl, get_param_tooltip(node_type, param_name))
                         dpg.add_text(str(val), color=[200, 200, 150])
                     rendered_params.add(param_name)
 
@@ -253,7 +286,8 @@ class PropertyPanel:
                         node_uuid, conn["src_node"], src_attr
                     )
                     with dpg.group(horizontal=True, parent=panel_tag):
-                        dpg.add_text(f"  + {dst_attr}: ", color=[200, 200, 200])
+                        lbl = dpg.add_text(f"  + {dst_attr}: ", color=[200, 200, 200])
+                        _add_tooltip(lbl, get_input_tooltip(node_type, dst_attr))
                         dpg.add_text(
                             f"{filename}-{src_name}.{src_attr}", color=[150, 255, 150]
                         )
@@ -267,7 +301,8 @@ class PropertyPanel:
                         )
                 else:
                     with dpg.group(horizontal=True, parent=panel_tag):
-                        dpg.add_text(f"  + {dst_attr}: ", color=[200, 200, 200])
+                        lbl = dpg.add_text(f"  + {dst_attr}: ", color=[200, 200, 200])
+                        _add_tooltip(lbl, get_input_tooltip(node_type, dst_attr))
                         dpg.add_text(f"{src_name}.{src_attr}", color=[150, 255, 150])
 
         if reference_inputs:
@@ -281,7 +316,8 @@ class PropertyPanel:
                 src_attr = conn["src_attr"]
                 dst_attr = conn["dst_attr"]
                 with dpg.group(horizontal=True, parent=panel_tag):
-                    dpg.add_text(f"  + {dst_attr}: ", color=[200, 200, 200])
+                    lbl = dpg.add_text(f"  + {dst_attr}: ", color=[200, 200, 200])
+                    _add_tooltip(lbl, get_input_tooltip(node_type, dst_attr))
                     if src_attr == "ref":
                         dpg.add_text(f"{src_name}", color=[100, 255, 100])
                     else:
@@ -298,7 +334,8 @@ class PropertyPanel:
                 src_attr = conn["src_attr"]
                 dst_attr = conn["dst_attr"]
                 with dpg.group(horizontal=True, parent=panel_tag):
-                    dpg.add_text(f"  + {src_attr} -> ", color=[200, 200, 200])
+                    lbl = dpg.add_text(f"  + {src_attr} -> ", color=[200, 200, 200])
+                    _add_tooltip(lbl, get_output_tooltip(node_type, src_attr))
                     dpg.add_text(f"{dst_name}.{dst_attr}", color=[150, 255, 150])
 
         if not incoming and not outgoing:
@@ -329,7 +366,8 @@ class PropertyPanel:
             for output_name in sorted(all_outputs):
                 is_open = self.monitors.is_monitor_open(node_uuid, output_name)
                 with dpg.group(horizontal=True, parent=panel_tag):
-                    dpg.add_text(f"  + {output_name}: ", color=[200, 200, 200])
+                    lbl = dpg.add_text(f"  + {output_name}: ", color=[200, 200, 200])
+                    _add_tooltip(lbl, get_output_tooltip(node_type, output_name))
                     if not is_open:
                         dpg.add_button(
                             label="Open Monitor",
@@ -457,6 +495,7 @@ class PropertyPanel:
         Handles both kind:"reference" (new templates) and kind:"object"
         (legacy templates).  The logic and layout are identical for both.
         """
+        node_type   = node_data.get("type", "")
         param_modes = node_data.setdefault("param_modes", {})
 
         # Infer _object mode from YAML data already loaded
@@ -474,7 +513,8 @@ class PropertyPanel:
             "_object (file)" if current_mode == "object" else "_ref (link)"
         )
         with dpg.group(horizontal=True, parent=panel_tag):
-            dpg.add_text(f"{param_name}:", color=[150, 200, 255])
+            lbl = dpg.add_text(f"{param_name}:", color=[150, 200, 255])
+            _add_tooltip(lbl, get_param_tooltip(node_type, param_name))
             dpg.add_combo(
                 items=mode_items,
                 default_value=current_mode_label,
@@ -667,8 +707,8 @@ class PropertyPanel:
 
         if filename:
             node_data.setdefault("suffixes", set()).add(param_name)
-            values[param_name]               = filename
-            values[f"{param_name}_object"]   = filename
+            values[param_name]             = filename
+            values[f"{param_name}_object"] = filename
         else:
             # Empty → revert to ref mode
             values.pop(f"{param_name}_object", None)
@@ -726,8 +766,8 @@ class PropertyPanel:
         """
         Open a file-browser for a data-object / _data / _tag / _object parameter.
 
-        The browse dialog opens in  <root_dir>/<folder_name>  where:
-        - root_dir  comes from the SimulParams node (values['root_dir'])
+        Browse dialog opens in  <root_dir>/<folder_name>  where:
+        - root_dir   comes from the SimulParams node (values['root_dir'])
         - folder_name = _folder_for_param(param_name)
 
         The only hard-coded folder exception is  recmat → rec.
@@ -972,14 +1012,15 @@ class PropertyPanel:
         ------
         param_name:  [  input widget  ]  (default: X)
 
-        The input widget is ALWAYS initialised with the current stored value
+        The input widget is always initialised with the current stored value
         when one exists, or left empty when the parameter is not set in the
-        YAML.  It is NEVER pre-filled with the template default — that value is
+        YAML.  It is never pre-filled with the template default — that value is
         shown as grey hint text to the right so the user knows what the code
         will fall back to.
         """
         node_data  = self.graph.nodes.get(node_uuid, {})
-        template   = self.all_templates.get(node_data.get("type", ""), {})
+        node_type  = node_data.get("type", "")
+        template   = self.all_templates.get(node_type, {})
         param_meta = template.get("parameters", {}).get(param_name, {})
         param_kind = (
             param_meta.get("kind", "value") if isinstance(param_meta, dict) else "value"
@@ -988,7 +1029,8 @@ class PropertyPanel:
         # Legacy safety: reference/object params should not reach here, but guard
         if param_kind in ("reference", "object") and val is not None:
             with dpg.group(horizontal=True, parent=parent):
-                dpg.add_text(f"{param_name}:", color=[150, 255, 150])
+                lbl = dpg.add_text(f"{param_name}:", color=[150, 255, 150])
+                _add_tooltip(lbl, get_param_tooltip(node_type, param_name))
                 dpg.add_text(f"{val}", color=[100, 255, 100])
             return
 
@@ -1026,8 +1068,12 @@ class PropertyPanel:
         input_tag  = f"{node_uuid}_{param_name}_object"
         is_tag_param = (param_name == "tag" or param_name.endswith("_tag"))
 
+        # Tooltip text for this parameter (empty string → no tooltip)
+        param_tip = get_param_tooltip(node_type, param_name)
+
         with dpg.group(horizontal=True, parent=parent):
-            dpg.add_text(f"{param_name}:", color=label_color)
+            lbl = dpg.add_text(f"{param_name}:", color=label_color)
+            _add_tooltip(lbl, param_tip)
 
             if type_hint in ("bool", "boolean"):
                 bool_val = bool(val) if val is not None else False
@@ -1038,12 +1084,6 @@ class PropertyPanel:
                 )
 
             elif type_hint in ("int", "integer"):
-                # For int we still use input_int but show hint separately
-                try:
-                    int_val = int(val) if val is not None else 0
-                except (ValueError, TypeError):
-                    int_val = 0
-                # Use input_text so the field can be left empty
                 dpg.add_input_text(
                     default_value=display_val,
                     width=100,
@@ -1128,7 +1168,10 @@ class PropertyPanel:
             # Shown for every non-bool parameter so the user always knows the
             # fallback.  Bool is self-documenting via the checkbox state.
             if type_hint not in ("bool", "boolean"):
-                hint_color = [255, 80, 80] if is_required and not has_value else _DEFAULT_HINT_COLOR
+                hint_color = (
+                    [255, 80, 80] if is_required and not has_value
+                    else _DEFAULT_HINT_COLOR
+                )
                 dpg.add_text(hint_text, color=hint_color)
 
         # ── _data file row (below, for array params that are not objects) ─────

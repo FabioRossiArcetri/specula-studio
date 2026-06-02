@@ -12,6 +12,12 @@ from file_handler import FileHandler, auto_layout_nodes
 from graph_manager import GraphManager
 import dpg_utils
 from override_manager import OverrideManager
+try:
+    from help_window import show_help_window
+    _HELP_AVAILABLE = True
+except ImportError:
+    _HELP_AVAILABLE = False
+    def show_help_window(*_): pass
 
 # Font path via matplotlib
 import matplotlib
@@ -237,7 +243,12 @@ class SpeculaEditor:
             dpg.add_key_press_handler(key=dpg.mvKey_D, callback=self.nm.delete_selected_link)
             dpg.add_mouse_double_click_handler(callback=self.nm._on_canvas_double_click)
             dpg.add_mouse_move_handler(callback=self.nm._on_mouse_move)
-    
+            # H key → show help for currently selected node
+            dpg.add_key_press_handler(
+                key=dpg.mvKey_H,
+                callback=lambda s, a: self._show_help_for_selected(),
+            )
+
     def _center_dialog(self, dialog_tag):
         """Center a dialog window on the viewport."""
         if dpg.does_item_exist(dialog_tag):
@@ -838,6 +849,17 @@ class SpeculaEditor:
                     dpg.add_menu_item(label="Debug Info",
                                       callback=lambda: print(f"Nodes: {len(self.nm.graph.nodes)}, "
                                                              f"Connections: {len(self.nm.graph.connections)}"))
+                with dpg.menu(label="Help"):
+                    dpg.add_menu_item(
+                        label="Selected Object          [H]",
+                        tag="help_menu_item_selected",
+                        callback=self._show_help_for_selected,
+                    )
+                    dpg.add_separator()
+                    dpg.add_menu_item(
+                        label="About SPECULA Studio",
+                        callback=self._show_about_dialog,
+                    )
 
             with dpg.group(horizontal=False):
                 with dpg.group(horizontal=True, tag="editor_group"):
@@ -1235,7 +1257,64 @@ class SpeculaEditor:
         self._refresh_overrides_menu()
 
     # ── Run loop ─────────────────────────────────────────────────────────
-    
+        # ── Help window ──────────────────────────────────────────────────────────
+
+    def _show_help_for_selected(self):
+        """
+        Show the full-help popup for the currently selected node (H key / menu).
+
+        If exactly one node is selected its class and instance name are used.
+        If no node is selected but the property panel is showing a node, use that.
+        """
+        if not _HELP_AVAILABLE:
+            print("[HELP] help_window.py or help_provider.py not available.")
+            return
+
+        # Prefer the node whose panel is currently displayed
+        selected = self.nm.get_selected_nodes()
+        node_uuid = selected[0] if len(selected) == 1 else None
+
+        # Fallback: if the property panel is visible it tracks the last selection
+        if node_uuid is None and hasattr(self.nm, "_last_selected_node"):
+            node_uuid = self.nm._last_selected_node
+
+        if node_uuid is None or node_uuid not in self.nm.graph.nodes:
+            print("[HELP] No node selected — select a node first.")
+            return
+
+        node_data  = self.nm.graph.nodes[node_uuid]
+        class_name = node_data.get("type", "")
+        node_name  = node_data.get("name", class_name)
+
+        if not class_name:
+            print("[HELP] Selected node has no type information.")
+            return
+
+        show_help_window(class_name, node_name)
+
+    def _show_about_dialog(self):
+        tag = "about_specula_dialog"
+        if dpg.does_item_exist(tag):
+            dpg.show_item(tag)
+            self._center_dialog(tag)
+            return
+        with dpg.window(
+            label="About SPECULA Studio", tag=tag,
+            modal=True, show=True, width=440, height=200, no_resize=True,
+        ):
+            dpg.add_text("SPECULA Studio", color=[100, 200, 255])
+            dpg.add_text("Visual node editor for the SPECULA AO simulation framework.",
+                         color=[200, 200, 200], wrap=400)
+            dpg.add_spacer(height=8)
+            dpg.add_text("Documentation is extracted live from the installed SPECULA package.",
+                         color=[150, 150, 150], wrap=400)
+            dpg.add_spacer(height=12)
+            dpg.add_button(
+                label="Close", width=-1,
+                callback=lambda: dpg.hide_item(tag),
+            )
+        self._center_dialog(tag)
+        
     def run(self):
         # Cache the bridge reference once — avoids a module lookup every frame.
         try:
