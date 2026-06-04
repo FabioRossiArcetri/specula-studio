@@ -61,6 +61,17 @@ InProcessBackend
     -----------
     * specula must be installed (``pip install specula``).
     * ``abort()`` is reliable only in stepping mode.
+
+Changes vs. previous version
+-----------------------------
+* ``InProcessBackend.__init__`` defined exactly once (Issue 4).
+* ``MonitorProbeObj.check_ready`` no longer fires on every step when
+  ``generation_time`` is None/negative; those cases are treated as
+  "not yet computed" (False) instead of "always ready" (Issue 5).
+* ``_extract_cpu_array`` accepts an optional ``output_name`` hint and tries
+  ``get_value(output_name)`` before falling back to the attribute scan, so
+  objects with multiple arrays (e.g. both ``slopes`` and ``value``) return
+  the correct one (Issue 10).
 """
 
 from __future__ import annotations
@@ -79,6 +90,7 @@ from abc import ABC, abstractmethod
 import numpy as np
 import yaml
 
+
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
@@ -95,7 +107,6 @@ _PORT_KW_RE = re.compile(
 
 
 def _extract_port(line: str) -> int | None:
-    """Return the first valid port number found in *line*, or None."""
     for pattern in (_URL_RE, _PORT_KW_RE):
         m = pattern.search(line)
         if m:
@@ -106,18 +117,13 @@ def _extract_port(line: str) -> int | None:
 
 
 def _extract_display_server_port_from_yaml(yaml_path: str) -> int | None:
-    """
-    Return the first valid DisplayServer ``port`` found in *yaml_path*, or None.
-    """
     try:
         with open(yaml_path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
     except Exception:
         return None
-
     if not isinstance(data, dict):
         return None
-
     for _node_name, node_dict in data.items():
         if not isinstance(node_dict, dict):
             continue
@@ -130,90 +136,65 @@ def _extract_display_server_port_from_yaml(yaml_path: str) -> int | None:
             continue
         if 1024 <= port <= 65535:
             return port
-
     return None
 
+
 def _resolve_remote_hostname(hostname: str) -> str:
-    """
-    Resolve a remote hostname to its IP address.
-    
-    This is used to convert hostnames (like 'gandalf') that are only resolvable
-    on the remote network into IP addresses that the local client can connect to.
-    
-    Uses SSH to run 'hostname -I' on the remote server and extract the primary IP.
-    Falls back to the original hostname if resolution fails.
-    
-    Parameters
-    ----------
-    hostname : str
-        The remote hostname or IP address
-        
-    Returns
-    -------
-    str
-        The resolved IP address, or the original hostname if resolution fails
-    """
-    import subprocess
-    
-    # If it's already an IP address (contains dots), return as-is
+    """Resolve a remote hostname to an IP address reachable from this machine."""
     if hostname.replace(".", "").replace(":", "").isalnum():
         try:
-            # Try to parse as IP to validate
             import socket as sock_module
             sock_module.inet_aton(hostname)
-            return hostname  # Valid IP address
-        except (sock_module.error, ValueError):
+            return hostname
+        except (socket.error, ValueError):
             pass
-    
-    # Try to resolve via SSH
+
     try:
-        # Run 'hostname -I' on the remote server to get its IP address
         result = subprocess.run(
             ["ssh", hostname, "hostname -I"],
-            capture_output=True,
-            text=True,
-            timeout=5,
+            capture_output=True, text=True, timeout=5,
         )
         if result.returncode == 0:
             ips = result.stdout.strip().split()
             if ips:
-                ip = ips[0]  # Take the first IP
+                ip = ips[0]
                 print(f"[REMOTE] Resolved '{hostname}' → {ip}")
                 return ip
     except Exception as e:
         print(f"[REMOTE] Could not resolve '{hostname}' via SSH: {e}")
-    
-    # Fallback: try standard DNS resolution
+
     try:
         import socket as sock_module
         ip = sock_module.gethostbyname(hostname)
         print(f"[REMOTE] Resolved '{hostname}' (DNS) → {ip}")
         return ip
-    except Exception as e:
-        print(f"[REMOTE] Could not resolve '{hostname}' via DNS: {e}")
-    
-    # Final fallback: return original hostname
+    except Exception:
+        pass
+
     print(f"[REMOTE] Warning: Could not resolve '{hostname}', using as-is")
     return hostname
 
 
-def _extract_cpu_array(out_obj) -> np.ndarray | None:
+def _extract_cpu_array(out_obj, output_name: str = "") -> np.ndarray | None:
     """
     Extract a CPU float32 numpy array from a SPECULA output data object.
 
-    SPECULA output objects are ``BaseDataObj`` subclasses.  The actual numeric
-    array can be retrieved in several ways depending on the concrete type:
+    Parameters
+    ----------
+    out_obj     : BaseDataObj subclass instance.
+    output_name : The short output key (e.g. "out_slopes").  When provided,
+                  it is tried as an explicit attribute name *before* the
+                  generic scan, reducing the chance of returning the wrong
+                  array from objects that expose multiple arrays (Issue 10).
 
-    1. ``out_obj.get_value()``  — standard ``BaseDataObj`` API used by the
-       MPI send path; most objects implement this.
-    2. Common attribute names used by the most frequently seen data objects
-       (Slopes, Pixels, Layer, generic Value wrappers, …).
-    3. First numpy / cupy array attribute found by scanning instance ``__dict__``.
-
-    The result is always a CPU ``float32`` numpy array, so it is safe to read
-    from the DPG render thread without any GPU-synchronisation concerns.
+    Strategy
+    --------
+    1. ``out_obj.get_value(output_name)`` — standard API with name hint.
+    2. ``out_obj.get_value()``            — standard API without hint.
+    3. Direct attribute access by ``output_name`` (strip ``out_`` prefix).
+    4. Known common attribute names (conservative ordered list).
+    5. First numpy/cupy array found in ``vars(out_obj)`` (last resort).
     """
-    # Resolve cupy lazily so the function works even when cupy is absent
     try:
         import specula as _sp
         _cp = _sp.cp
@@ -222,8 +203,19 @@ def _extract_cpu_array(out_obj) -> np.ndarray | None:
 
     arr = None
 
-    # ── 1. Standard BaseDataObj API ──────────────────────────────────────────
-    if hasattr(out_obj, "get_value"):
+    # ── 1. get_value with output name hint ────────────────────────────────────
+    if output_name and hasattr(out_obj, "get_value"):
+        try:
+            v = out_obj.get_value(output_name)
+            if v is not None:
+                arr = v
+        except TypeError:
+            pass  # get_value doesn't accept a name arg — fall through
+        except Exception:
+            pass
+
+    # ── 2. get_value without hint ─────────────────────────────────────────────
+    if arr is None and hasattr(out_obj, "get_value"):
         try:
             v = out_obj.get_value()
             if v is not None:
@@ -231,7 +223,16 @@ def _extract_cpu_array(out_obj) -> np.ndarray | None:
         except Exception:
             pass
 
-    # ── 2. Common named attributes ───────────────────────────────────────────
+    # ── 3. Direct attribute by output_name ────────────────────────────────────
+    if arr is None and output_name:
+        # e.g. "out_slopes" → try "out_slopes" then "slopes"
+        for candidate in (output_name, output_name.removeprefix("out_")):
+            v = getattr(out_obj, candidate, None)
+            if v is not None and hasattr(v, "__len__"):
+                arr = v
+                break
+
+    # ── 4. Known common attribute names ──────────────────────────────────────
     if arr is None:
         for attr in (
             "slopes", "value", "values",
@@ -243,7 +244,7 @@ def _extract_cpu_array(out_obj) -> np.ndarray | None:
                 arr = v
                 break
 
-    # ── 3. Generic array scan (last resort) ──────────────────────────────────
+    # ── 5. Generic array scan (last resort) ───────────────────────────────────
     if arr is None:
         for attr, v in vars(out_obj).items():
             if attr.startswith("_"):
@@ -258,9 +259,9 @@ def _extract_cpu_array(out_obj) -> np.ndarray | None:
     if arr is None:
         return None
 
-    # ── Move GPU arrays to CPU ────────────────────────────────────────────────
+    # ── Move GPU arrays to CPU ─────────────────────────────────────────────────
     if _cp is not None and isinstance(arr, _cp.ndarray):
-        arr = arr.get()   # cupy → numpy
+        arr = arr.get()
 
     if not isinstance(arr, np.ndarray):
         try:
@@ -280,171 +281,103 @@ def _extract_cpu_array(out_obj) -> np.ndarray | None:
 
 
 class SimulationBackend(ABC):
-    """Abstract base class for simulation execution strategies."""
 
     @abstractmethod
-    def start(
-        self,
-        yaml_path: str,
-        cmd_args: dict,
-        append_terminal,
-        on_port_found,
-        on_finished,
-    ) -> None:
-        """Start the simulation (non-blocking)."""
+    def start(self, yaml_path, cmd_args, append_terminal, on_port_found, on_finished):
+        pass
 
     @abstractmethod
     def step(self) -> None:
-        """Advance one step in stepping mode (no-op if not applicable)."""
+        pass
 
     @abstractmethod
     def abort(self) -> None:
-        """Abort the running simulation."""
+        pass
 
     @property
     @abstractmethod
     def is_running(self) -> bool:
-        """True while the simulation is active."""
+        pass
 
 
 # ---------------------------------------------------------------------------
-# RemoteBackend — unified local/remote execution with DisplayServer
+# RemoteBackend
 # ---------------------------------------------------------------------------
 
 
 class RemoteBackend(SimulationBackend):
-    """
-    Unified backend for running specula locally or on a remote server via SSH.
-    
-    If remote_ip is 'localhost', '127.0.0.1', or empty, the simulation runs
-    locally with DisplayServer (equivalent to old DisplayServerBackend).
-    
-    For remote execution:
-    - Transfers YAML file to remote server via scp
-    - Executes specula on remote server via ssh
-    - Remote DisplayServer binds to 0.0.0.0 so it's accessible from the client
-    - Supports stepping mode via ssh stdin
-    
-    The simulation YAML is expected to already contain a ``DisplayServer``
-    node injected by ``SimulationControl._prepare_simulation_yaml()``.
-    """
 
     def __init__(self, remote_ip: str = "localhost", remote_user: str = "") -> None:
-        """
-        Parameters
-        ----------
-        remote_ip : str
-            IP address or hostname of remote server. 'localhost' or '127.0.0.1'
-            means local execution. Defaults to 'localhost'.
-        remote_user : str
-            SSH username. If empty, current user is assumed. Defaults to ''.
-        """
         self._process: subprocess.Popen | None = None
-        self._running = False
+        self._running  = False
         self.remote_ip = remote_ip.strip() if remote_ip else "localhost"
         self.remote_user = remote_user.strip() if remote_user else ""
-        self._resolved_ip: str | None = None  # ← ADD THIS: Store resolved IP
-        
-        # Determine if this is local or remote execution
+        self._resolved_ip: str | None = None
         self._is_localhost = self.remote_ip in ("localhost", "127.0.0.1", "")
 
     def set_resolved_ip(self, ip: str) -> None:
-        """Store the resolved IP address for remote connections."""
         self._resolved_ip = ip
-        print(f"[REMOTE] Stored resolved IP: {ip}")
 
     def _prepare_remote_yaml(self, yaml_path: str) -> None:
-        """
-        Prepare YAML for remote execution by ensuring DisplayServer binds to 0.0.0.0.
-        
-        When running on a remote server, the DisplayServer must bind to 0.0.0.0
-        (all interfaces) so it's accessible from the local machine.
-        For localhost execution, binding to 127.0.0.1 is fine.
-        """
         if self._is_localhost:
-            # For local execution, no changes needed
             return
-        
         try:
             with open(yaml_path, encoding="utf-8") as f:
                 yaml_data = yaml.safe_load(f)
-            
             if not isinstance(yaml_data, dict):
-                print("[REMOTE] YAML root is not a dict, skipping DisplayServer config")
                 return
-            
-            # Find and update DisplayServer node to bind to 0.0.0.0
             for node_name, node_dict in yaml_data.items():
                 if isinstance(node_dict, dict) and node_dict.get("class") == "DisplayServer":
                     old_host = node_dict.get("host", "127.0.0.1")
                     node_dict["host"] = "0.0.0.0"
-                    print(
-                        f"[REMOTE] Updated DisplayServer '{node_name}' binding: "
-                        f"{old_host} → 0.0.0.0"
-                    )
-            
+                    print(f"[REMOTE] DisplayServer '{node_name}': {old_host} → 0.0.0.0")
             with open(yaml_path, "w", encoding="utf-8") as f:
                 yaml.dump(yaml_data, f, sort_keys=False, default_flow_style=False)
-            
-            print(f"[REMOTE] Prepared remote YAML for binding to {self.remote_ip}")
         except Exception as e:
             print(f"[REMOTE] Warning: could not prepare remote YAML: {e}")
 
-
     def start(self, yaml_path, cmd_args, append_terminal, on_port_found, on_finished):
-        """Start the simulation either locally or on remote server."""
-        stepping     = cmd_args.get("stepping", False)
-        nsimul       = cmd_args.get("nsimul", 1)
-        cpu          = cmd_args.get("cpu", False)
-        target       = cmd_args.get("target", -1)
-        precision    = cmd_args.get("precision", "1")
-        log_level    = cmd_args.get("log_level", "INFO")
-        
-        # Extract resolved IP if available in cmd_args
+        stepping  = cmd_args.get("stepping", False)
+        nsimul    = cmd_args.get("nsimul", 1)
+        cpu       = cmd_args.get("cpu", False)
+        target    = cmd_args.get("target", -1)
+        precision = cmd_args.get("precision", "1")
+        log_level = cmd_args.get("log_level", "INFO")
+
         if "resolved_ip" in cmd_args:
             self.set_resolved_ip(cmd_args["resolved_ip"])
-        
-        # For remote execution, configure DisplayServer to bind to 0.0.0.0
+
         self._prepare_remote_yaml(yaml_path)
 
         if self._is_localhost:
-            # ── Local execution (DisplayServer mode) ──────────────────────────
             self._start_local(
                 yaml_path, stepping, nsimul, cpu, target, precision, log_level,
-                append_terminal, on_port_found, on_finished
+                append_terminal, on_port_found, on_finished,
             )
         else:
-            # ── Remote execution via SSH ──────────────────────────────────────
             self._start_remote(
                 yaml_path, stepping, nsimul, cpu, target, precision, log_level,
-                append_terminal, on_port_found, on_finished
+                append_terminal, on_port_found, on_finished,
             )
 
-
-    def _start_local(self, yaml_path, stepping, nsimul, cpu, target, precision, log_level,
-                     append_terminal, on_port_found, on_finished):
-        """Execute simulation locally (DisplayServer mode)."""
+    def _start_local(
+        self, yaml_path, stepping, nsimul, cpu, target, precision, log_level,
+        append_terminal, on_port_found, on_finished,
+    ):
         cmd = ["specula", yaml_path]
         if stepping:
             cmd.append("--stepping")
-        cmd.extend(["--nsimul", str(nsimul)])
+        cmd += ["--nsimul", str(nsimul)]
         if cpu:
             cmd.append("--cpu")
-        cmd.extend(["--target", str(target)])
-        cmd.extend(["--precision", str(precision)])
-        cmd.extend(["--log-level", log_level])
-
-        append_terminal(f"[Remote] Executing locally: {' '.join(cmd)}\n")
-        print(f"[REMOTE] Local command: {' '.join(cmd)}")
-
+        cmd += ["--target", str(target), "--precision", str(precision),
+                "--log-level", log_level]
+        append_terminal(f"[Remote] Local: {' '.join(cmd)}\n")
         try:
             self._process = subprocess.Popen(
                 cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                stdin=subprocess.PIPE,
-                text=True,
-                bufsize=1,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                stdin=subprocess.PIPE, text=True, bufsize=1,
             )
             self._running = True
             threading.Thread(
@@ -454,121 +387,67 @@ class RemoteBackend(SimulationBackend):
             ).start()
         except Exception as exc:
             append_terminal(f"[Remote] Launch Error: {exc}\n")
-            print(f"[REMOTE] Launch error: {exc}")
             traceback.print_exc()
             on_finished()
 
-    def _start_remote(self, yaml_path, stepping, nsimul, cpu, target, precision, log_level,
-                    append_terminal, on_port_found, on_finished):
-        """Execute simulation on remote server via SSH."""
+    def _start_remote(
+        self, yaml_path, stepping, nsimul, cpu, target, precision, log_level,
+        append_terminal, on_port_found, on_finished,
+    ):
         try:
-            # Note: remote_ip is already resolved by SimulationControl.start_sim()
-            # No resolution needed here
-            
-            # ── 1. Prepare remote command ──────────────────────────────────────
-            yaml_filename = os.path.basename(yaml_path)
+            yaml_filename    = os.path.basename(yaml_path)
             remote_yaml_path = f"/tmp/{yaml_filename}"
-            
+
             cmd_parts = ['bash -ic "specula', remote_yaml_path]
             if stepping:
                 cmd_parts.append("--stepping")
-            cmd_parts.extend(["--nsimul", str(nsimul)])
+            cmd_parts += ["--nsimul", str(nsimul)]
             if cpu:
                 cmd_parts.append("--cpu")
-            cmd_parts.extend(["--target", str(target)])
-            cmd_parts.extend(["--precision", str(precision)])
-            cmd_parts.extend(["--log-level", log_level])
-            remote_cmd = " ".join(cmd_parts)
-            remote_cmd += '"'
+            cmd_parts += ["--target", str(target), "--precision", str(precision),
+                          "--log-level", log_level]
+            remote_cmd = " ".join(cmd_parts) + '"'
 
-            # ── 2. Copy YAML file to remote server via scp ──────────────────────
-            if self.remote_user:
-                remote_target = f"{self.remote_user}@{self.remote_ip}:{remote_yaml_path}"
-            else:
-                remote_target = f"{self.remote_ip}:{remote_yaml_path}"
-
+            remote_target = (
+                f"{self.remote_user}@{self.remote_ip}:{remote_yaml_path}"
+                if self.remote_user
+                else f"{self.remote_ip}:{remote_yaml_path}"
+            )
             scp_cmd = ["scp", yaml_path, remote_target]
-
-            append_terminal(f"[Remote] Copying YAML file to {self.remote_ip}…\n")
-            print(f"[REMOTE] SCP command: {' '.join(scp_cmd)}")
-
-            try:
-                scp_process = subprocess.Popen(
-                    scp_cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                )
-                scp_stdout, scp_stderr = scp_process.communicate()
-                
-                if scp_process.returncode != 0:
-                    error_msg = scp_stderr if scp_stderr else scp_stdout
-                    append_terminal(f"[Remote] SCP Error (rc={scp_process.returncode}): {error_msg}\n")
-                    print(f"[REMOTE] SCP failed: {error_msg}")
-                    on_finished()
-                    return
-
-                append_terminal(f"[Remote] YAML file copied successfully.\n")
-                print(f"[REMOTE] SCP completed successfully")
-            except Exception as e:
-                append_terminal(f"[Remote] SCP Error: {e}\n")
-                print(f"[REMOTE] SCP error: {e}")
+            append_terminal(f"[Remote] Copying YAML to {self.remote_ip}…\n")
+            scp = subprocess.Popen(scp_cmd, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, text=True)
+            scp_out, scp_err = scp.communicate()
+            if scp.returncode != 0:
+                append_terminal(f"[Remote] SCP Error: {scp_err or scp_out}\n")
                 on_finished()
                 return
+            append_terminal("[Remote] YAML copied.\n")
 
-            # ── 3. Execute simulation on remote server via SSH ─────────────────
-            if self.remote_user:
-                ssh_target = f"{self.remote_user}@{self.remote_ip}"
-            else:
-                ssh_target = self.remote_ip
-
-            ssh_cmd = ["ssh", "-t", ssh_target, remote_cmd]
-
-            append_terminal(
-                f"[Remote] Executing on {self.remote_ip} as {self.remote_user or 'current user'}…\n"
+            ssh_target = (
+                f"{self.remote_user}@{self.remote_ip}"
+                if self.remote_user
+                else self.remote_ip
             )
-            append_terminal(f"[Remote] Command: {remote_cmd}\n")
-            print(f"[REMOTE] SSH command: {' '.join(ssh_cmd)}")
-
-
+            ssh_cmd = ["ssh", "-t", ssh_target, remote_cmd]
             self._process = subprocess.Popen(
                 ssh_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                stdin=subprocess.PIPE,
-                text=True,
-                bufsize=1,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                stdin=subprocess.PIPE, text=True, bufsize=1,
             )
             self._running = True
-            # Pass the resolved IP (if available) to _read_output
             ip_to_use = self._resolved_ip if self._resolved_ip else self.remote_ip
             threading.Thread(
                 target=self._read_output,
                 args=(append_terminal, on_port_found, on_finished, ip_to_use),
                 daemon=True,
             ).start()
-
         except Exception as exc:
             append_terminal(f"[Remote] Launch Error: {exc}\n")
-            print(f"[REMOTE] Launch error: {exc}")
             traceback.print_exc()
             on_finished()
 
     def _read_output(self, append_terminal, on_port_found, on_finished, remote_ip):
-        """Read and display output from the specula process.
-        
-        Parameters
-        ----------
-        append_terminal : callable
-            Function to append text to the simulation terminal
-        on_port_found : callable
-            Callback when DisplayServer port is detected; receives (port, remote_ip)
-        on_finished : callable
-            Callback when simulation process terminates
-        remote_ip : str or None
-            For remote execution, the resolved IP of the remote server.
-            For local execution, None.
-        """
         port_found = False
         try:
             while self._process and self._process.poll() is None:
@@ -579,16 +458,14 @@ class RemoteBackend(SimulationBackend):
                         port = _extract_port(line)
                         if port:
                             port_found = True
-                            # Use resolved IP if available, otherwise use what was passed
-                            ip_to_use = self._resolved_ip if self._resolved_ip else remote_ip
+                            ip_to_use  = self._resolved_ip if self._resolved_ip else remote_ip
                             on_port_found(port, ip_to_use)
         finally:
-            self._running = False
-            self._process = None
+            self._running  = False
+            self._process  = None
             on_finished()
 
     def step(self) -> None:
-        """Advance one step in stepping mode by sending newline to process stdin."""
         if self._process and self._process.poll() is None:
             try:
                 self._process.stdin.write("\n")
@@ -597,7 +474,6 @@ class RemoteBackend(SimulationBackend):
                 pass
 
     def abort(self) -> None:
-        """Abort the simulation by terminating the process."""
         if self._process:
             try:
                 self._process.terminate()
@@ -610,19 +486,14 @@ class RemoteBackend(SimulationBackend):
         return self._running
 
 
-# Backward compatibility alias (old name for local DisplayServer mode)
 class DisplayServerBackend(RemoteBackend):
-    """
-    Backward-compatibility alias for RemoteBackend with localhost.
-    Reproduces the original behaviour: specula is launched as a local child
-    process with DisplayServer injection.
-    """
+    """Backward-compatibility alias."""
     def __init__(self) -> None:
         super().__init__(remote_ip="localhost", remote_user="")
 
 
 # ---------------------------------------------------------------------------
-# MonitorProbeObj — lightweight duck-typed processing node for monitoring
+# MonitorProbeObj  (Issue 5 fix)
 # ---------------------------------------------------------------------------
 
 
@@ -630,39 +501,10 @@ class MonitorProbeObj:
     """
     Lightweight SPECULA-compatible processing object for monitoring one output.
 
-    This class is *not* a ``BaseProcessingObj`` subclass.  It deliberately
-    avoids the full SPECULA I/O wiring machinery (InputValue / InputList,
-    declared input/output names, CUDA-graph capture, …) so that the
-    simulation management (``Simul`` / YAML) never needs to know about it.
-
-    Instead it implements the minimal duck-typed interface that
-    ``LoopControl`` requires and is injected directly into
-    ``LoopControl.trigger_lists`` after the simulation graph has been built.
-
-    Data flow
-    ---------
-    * ``check_ready(t)`` returns True when
-      ``source_data_obj.generation_time >= t``, i.e. when the source was
-      actually computed in this iteration.
-    * ``trigger()`` extracts a CPU float32 array from the source via
-      ``_extract_cpu_array()`` and pushes a standard payload dict to the
-      ``MonitorBus``.  The bus delivers it to every ``InProcessMonitor``
-      that subscribed for this topic.
-    * ``post_trigger()`` resets ``inputs_changed``.
-    * All other LoopControl interface methods are harmless no-ops.
-
-    Thread safety
-    -------------
-    ``trigger()`` is called exclusively from the simulation thread.  The
-    ``MonitorBus.push()`` call fans out to ``InProcessMonitor._on_data()``
-    callbacks which enqueue the payload for the DPG main thread.
-
-    Parameters
-    ----------
-    name            : Unique name string (used in log messages).
-    source_data_obj : The ``BaseDataObj`` whose data is to be monitored.
-    topic           : Fully-qualified topic, e.g. ``"wfs.out_slopes"``.
-    monitor_bus     : ``MonitorBus`` instance that receives the payload.
+    Fix (Issue 5): ``check_ready`` now returns False when ``generation_time``
+    is None or negative, treating those cases as "not yet computed" rather than
+    "always ready".  This prevents flooding the bus with stale/zero data during
+    the simulation warm-up phase.
     """
 
     def __init__(
@@ -671,39 +513,44 @@ class MonitorProbeObj:
         source_data_obj,
         topic: str,
         monitor_bus,
+        output_name: str = "",
     ) -> None:
-        self.name            = name
-        self._source         = source_data_obj
-        self._topic          = topic
-        self._bus            = monitor_bus
-        self.inputs_changed  = False
-        self._current_time   = 0
-        self._enabled        = True
+        self.name           = name
+        self._source        = source_data_obj
+        self._topic         = topic
+        self._bus           = monitor_bus
+        self._output_name   = output_name   # hint for _extract_cpu_array (Issue 10)
+        self.inputs_changed = False
+        self._current_time  = 0
+        self._enabled       = True
 
-    # ------------------------------------------------------------------
-    # LoopControl interface — hot path
-    # ------------------------------------------------------------------
+    # ── LoopControl interface — hot path ──────────────────────────────────────
 
     def check_ready(self, t) -> bool:
         self._current_time = t
         if not self._enabled:
             self.inputs_changed = False
             return False
+
         gen_time = getattr(self._source, "generation_time", None)
+
+        # Issue 5: None or negative generation_time means the object has not
+        # been computed yet in this simulation — do NOT trigger.
         if gen_time is None or gen_time < 0:
-            self.inputs_changed = True
-        else:
-            self.inputs_changed = (gen_time >= t)
+            self.inputs_changed = False
+            return False
+
+        self.inputs_changed = (gen_time >= t)
         return self.inputs_changed
 
     def trigger(self) -> None:
         if not self.inputs_changed or not self._enabled:
             return
         try:
-            arr = _extract_cpu_array(self._source)
+            arr = _extract_cpu_array(self._source, self._output_name)
             if arr is None:
                 return
-            
+
             ndim = arr.ndim
             if ndim == 0 or (ndim == 1 and arr.size == 1):
                 dtype_str = "scalar"
@@ -713,9 +560,10 @@ class MonitorProbeObj:
                 dtype_str = "2d_array"
             else:
                 dtype_str = "nd_array"
+
             payload = {
                 "type":  dtype_str,
-                "data":  arr,           # CPU numpy array — no serialisation
+                "data":  arr,
                 "shape": list(arr.shape),
             }
             self._bus.push(self._topic, payload)
@@ -725,92 +573,50 @@ class MonitorProbeObj:
     def post_trigger(self) -> None:
         self.inputs_changed = False
 
-    # ------------------------------------------------------------------
-    # LoopControl interface — setup / teardown (all no-ops)
-    # ------------------------------------------------------------------
+    # ── LoopControl interface — setup / teardown (no-ops) ─────────────────────
 
-    def send_outputs(self, **kwargs) -> None:
-        pass   # no SPECULA outputs to send
-
-    def setup(self) -> None:
-        pass
-
-    def sanity_check(self) -> None:
-        pass
-
-    def finalize(self) -> None:
-        pass
-
-    def startMemUsageCount(self) -> None:
-        pass
-
-    def stopMemUsageCount(self) -> None:
-        pass
-
-    def printMemUsage(self) -> None:
-        pass
-
-    # ------------------------------------------------------------------
-    # Control helpers
-    # ------------------------------------------------------------------
+    def send_outputs(self, **kwargs) -> None: pass
+    def setup(self)         -> None: pass
+    def sanity_check(self)  -> None: pass
+    def finalize(self)      -> None: pass
+    def startMemUsageCount(self) -> None: pass
+    def stopMemUsageCount(self)  -> None: pass
+    def printMemUsage(self)      -> None: pass
 
     def disable(self) -> None:
-        """Disable probe — it stays in trigger_lists but does nothing."""
         self._enabled = False
 
     def enable(self) -> None:
-        """Re-enable a previously disabled probe."""
         self._enabled = True
 
 
 # ---------------------------------------------------------------------------
-# InProcessBackend — threaded specula with direct probe-based monitoring
+# InProcessBackend  (Issue 4 fix: single __init__)
 # ---------------------------------------------------------------------------
 
 
 class InProcessBackend(SimulationBackend):
-    """Runs specula inside a daemon thread using its Python API.
-
-    Direct monitoring via MonitorProbeObj (``monitor_bus`` is not None)
-    -------------------------------------------------------------------
-    A ``LoopControl.run`` patch injects ``MonitorProbeObj`` instances into
-    ``LoopControl.trigger_lists`` **after** ``Simul.run()`` has built the
-    simulation graph (so probes are injected with the correct priority) and
-    **before** ``LoopControl.start()`` calls ``setup()`` on all elements
-    (so probes are properly initialised).
-
-    The probes participate in every ``iter()`` call via the normal trigger
-    mechanism: ``check_ready`` compares ``generation_time`` of the source
-    data object against the current simulation time and returns True only
-    when the source was actually computed that step.
-
-    For monitors opened *after* the simulation has started, a minimal
-    ``LoopControl.iter`` patch drains a ``collections.deque`` of pending
-    probes at the beginning of each iteration and injects them with manual
-    ``setup()`` calls.
-
-    No Socket.IO, no HTTP, no ``DisplayServer``, no subprocess.
-
-    Legacy mode (``monitor_bus`` is None)
-    --------------------------------------
-    Falls back to ``specula.main_simul()``.  The YAML must contain a
-    ``DisplayServer`` node and the SocketIOClient must connect to it.
-    """
+    """Runs specula inside a daemon thread using its Python API."""
 
     def __init__(self, monitor_bus=None) -> None:
-        self._running = False
+        # ── All instance attributes defined exactly once ───────────────────────
+        self._running                = False
         self._thread: threading.Thread | None = None
+
+        # Stepping-mode pipe
         self._step_read_file:  io.TextIOWrapper | None = None
         self._step_write_file: io.TextIOWrapper | None = None
-        # MonitorBus reference — enables the direct probe monitoring path
-        self._monitor_bus = monitor_bus
-        # Set by _run_direct; used by attach_probe / detach_probe
-        self._probe_queue: collections.deque | None = None   # pending probes
-        self._probe_state: dict | None = None                # runtime state
 
-    # ------------------------------------------------------------------
-    # Pipe helpers (stepping mode)
-    # ------------------------------------------------------------------
+        # Direct probe-monitoring (Issue 4: was defined twice)
+        self._monitor_bus   = monitor_bus
+        self._probe_queue:  collections.deque | None = None
+        self._probe_state:  dict | None              = None
+
+        # Matplotlib bridge
+        self._matplotlib_patched   = False
+        self._abort_in_progress    = False
+
+    # ── Pipe helpers ──────────────────────────────────────────────────────────
 
     def _make_step_pipe(self) -> None:
         read_fd, write_fd = os.pipe()
@@ -827,69 +633,29 @@ class InProcessBackend(SimulationBackend):
         self._step_read_file  = None
         self._step_write_file = None
 
-    # ------------------------------------------------------------------
-    # SimulationBackend interface
-    # ------------------------------------------------------------------
-    def __init__(self, monitor_bus=None) -> None:
-        self._running = False
-        self._thread: threading.Thread | None = None
-        self._step_read_file:  io.TextIOWrapper | None = None
-        self._step_write_file: io.TextIOWrapper | None = None
-        self._monitor_bus = monitor_bus
-        self._probe_queue: collections.deque | None = None
-        self._probe_state: dict | None = None
-        self._matplotlib_patched = False
-        self._original_exit = None
-        self._abort_in_progress = False
+    # ── Matplotlib ────────────────────────────────────────────────────────────
 
-    # ------------------------------------------------------------------
-    # Matplotlib handling (prevent crashes on window close)
-    # ------------------------------------------------------------------
-    # ------------------------------------------------------------------
-    # Matplotlib handling — delegate entirely to MatplotlibDPGBridge
-    # ------------------------------------------------------------------
     def _patch_matplotlib(self) -> None:
-        """
-        Install the matplotlib → DPG bridge.
-
-        Switches matplotlib to the non-interactive 'Agg' backend (no OS
-        windows, no sys.exit calls) and patches FigureCanvasAgg.draw to
-        render figures into DearPyGui windows via MatplotlibDPGBridge.
-        """
         if self._matplotlib_patched:
             return
         try:
             from matplotlib_dpg_bridge import MatplotlibDPGBridge
             MatplotlibDPGBridge.install()
             self._matplotlib_patched = True
-            print("[In-Process] Matplotlib DPG bridge installed.")
         except Exception as exc:
-            print(f"[In-Process] Warning: could not install matplotlib DPG bridge: {exc}")
+            print(f"[In-Process] Warning: could not install matplotlib bridge: {exc}")
 
     def _cleanup_matplotlib(self) -> None:
-        """
-        Free in-memory matplotlib figures.
-
-        ONLY releases Python/C memory (plt.close('all')).
-        Does NOT close DPG windows, does NOT touch the bridge generation
-        counter.  Closing DPG windows is the responsibility of abort()
-        (immediate) and _run_direct() start (previous-run leftovers).
-
-        This method is called from finally blocks on the simulation thread,
-        which may run concurrently with a newly started simulation.
-        Touching the bridge here would cause the generation-counter race
-        that makes windows invisible after abort+restart.
-        """
         try:
             import matplotlib.pyplot as plt
-            plt.close('all')
+            plt.close("all")
         except Exception:
             pass
 
     def _restore_sys_exit(self) -> None:
-        """No-op — kept for call-site compatibility."""
-        pass
+        pass  # kept for call-site compatibility
 
+    # ── SimulationBackend interface ───────────────────────────────────────────
 
     def start(self, yaml_path, cmd_args, append_terminal, on_port_found, on_finished):
         try:
@@ -897,8 +663,7 @@ class InProcessBackend(SimulationBackend):
         except ImportError:
             append_terminal(
                 "[ERROR] 'specula' package not found.\n"
-                "        Install it (pip install specula) or switch to\n"
-                "        Remote mode.\n"
+                "        Install it (pip install specula) or switch to Remote mode.\n"
             )
             on_finished()
             return
@@ -923,13 +688,9 @@ class InProcessBackend(SimulationBackend):
                 f"nsimul={nsimul}, cpu={cpu}, target={target}, "
                 f"precision={precision}, stepping={stepping})\n"
             )
-            # In direct mode there is no DisplayServer, so on_port_found is
-            # never called and the Socket.IO client is left disconnected.
         else:
             append_terminal(
-                f"[In-Process] Legacy mode — specula.main_simul({yaml_path!r}, "
-                f"nsimul={nsimul}, cpu={cpu}, target={target}, "
-                f"precision={precision}, stepping={stepping})\n"
+                f"[In-Process] Legacy mode — specula.main_simul({yaml_path!r}, …)\n"
             )
             try:
                 ds_port = _extract_display_server_port_from_yaml(yaml_path)
@@ -949,8 +710,6 @@ class InProcessBackend(SimulationBackend):
             name="specula-inprocess",
         )
         self._thread.start()
-
-    # ------------------------------------------------------------------
 
     def _run_thread(
         self,
@@ -985,31 +744,21 @@ class InProcessBackend(SimulationBackend):
             append_terminal(f"[In-Process] Error: {exc}\n")
             traceback.print_exc()
         finally:
-            sys.stdin = old_stdin
-            self._running = False
+            sys.stdin      = old_stdin
+            self._running  = False
             self._probe_queue = None
             self._probe_state = None
             self._close_step_pipe()
-            # Do NOT call _cleanup_matplotlib() here.
-            # This finally block runs on the old simulation thread, potentially
-            # concurrently with a new simulation that has already started on a
-            # new thread.  Calling plt.close('all') here would destroy figures
-            # that the new simulation just created, making its windows go blank.
-            # Matplotlib figure cleanup is handled at the start of _run_direct()
-            # for the next run, and per-run inside _run_direct's own finally.
             on_finished()
             append_terminal("\n--- Finished (in-process) ---\n")
 
-    # ------------------------------------------------------------------
-    # Direct probe-monitoring path
-    # ------------------------------------------------------------------
+    # ── Direct probe-monitoring path ──────────────────────────────────────────
 
-    def _run_direct(self, yaml_path, nsimul, cpu, target, precision, stepping, append_terminal):
+    def _run_direct(
+        self, yaml_path, nsimul, cpu, target, precision, stepping, append_terminal
+    ):
         import importlib
-        import sys
 
-        # ── Close leftover windows and figures from the previous run ─────────
-        # Safe here: the new simulation has not created any figures yet.
         try:
             from matplotlib_dpg_bridge import MatplotlibDPGBridge as _Bridge
             _Bridge.close_all()
@@ -1017,11 +766,10 @@ class InProcessBackend(SimulationBackend):
             pass
         try:
             import matplotlib.pyplot as _plt
-            _plt.close('all')
+            _plt.close("all")
         except Exception:
             pass
 
-        # ── Install the bridge (idempotent) ───────────────────────────────────
         self._patch_matplotlib()
 
         target_device_idx = -1 if cpu else target
@@ -1029,9 +777,10 @@ class InProcessBackend(SimulationBackend):
         import specula
         specula.init(target_device_idx, precision=int(precision))
 
-        for mod_name in ('specula.base_time_obj', 'specula.base_data_obj',
-                         'specula.base_processing_obj', 'specula.loop_control',
-                         'specula.simul'):
+        for mod_name in (
+            "specula.base_time_obj", "specula.base_data_obj",
+            "specula.base_processing_obj", "specula.loop_control", "specula.simul",
+        ):
             if mod_name in sys.modules:
                 importlib.reload(sys.modules[mod_name])
 
@@ -1040,14 +789,14 @@ class InProcessBackend(SimulationBackend):
 
         monitor_bus = self._monitor_bus
 
-        _pending_probes: collections.deque = collections.deque()
-        _active_probes:  dict              = {}
-        _abort_requested: list = [False]
+        _pending_probes:  collections.deque = collections.deque()
+        _active_probes:   dict              = {}
+        _abort_requested: list              = [False]
         _state: dict = {
-            "registry":       {},
-            "loop_control":   None,
-            "probe_priority": 99999,
-            "active_probes":  _active_probes,
+            "registry":        {},
+            "loop_control":    None,
+            "probe_priority":  99999,
+            "active_probes":   _active_probes,
             "abort_requested": _abort_requested,
         }
         self._probe_queue = _pending_probes
@@ -1065,7 +814,7 @@ class InProcessBackend(SimulationBackend):
                         continue
                     for out_key, out_data_obj in getattr(obj, "outputs", {}).items():
                         topic = f"{obj_name}.{out_key}"
-                        registry[topic] = out_data_obj
+                        registry[topic] = (out_data_obj, out_key)
 
             _state["registry"]     = registry
             _state["loop_control"] = lc_self
@@ -1077,21 +826,22 @@ class InProcessBackend(SimulationBackend):
             _state["probe_priority"] = probe_priority
 
             for topic in monitor_bus.all_subscribed_outputs():
-                source = registry.get(topic)
-                if source is not None and topic not in _active_probes:
+                entry = registry.get(topic)
+                if entry is not None and topic not in _active_probes:
+                    source_obj, out_key = entry
                     probe = MonitorProbeObj(
                         name=f"_studio_probe_{topic}",
-                        source_data_obj=source,
+                        source_data_obj=source_obj,
                         topic=topic,
                         monitor_bus=monitor_bus,
+                        output_name=out_key,   # Issue 10: pass hint
                     )
                     lc_self.trigger_lists[probe_priority].append(probe)
                     _active_probes[topic] = probe
                     append_terminal(f"[In-Process] Probe injected for '{topic}'\n")
-                elif source is None:
+                elif entry is None:
                     append_terminal(
-                        f"[In-Process] Warning: topic '{topic}' not found "
-                        f"in registry — no probe created.\n"
+                        f"[In-Process] Warning: topic '{topic}' not found in registry.\n"
                     )
 
             original_run(lc_self, run_time, dt, t0=t0, speed_report=speed_report)
@@ -1099,7 +849,6 @@ class InProcessBackend(SimulationBackend):
         def _patched_iter(lc_self) -> None:
             if _abort_requested[0]:
                 raise KeyboardInterrupt("Simulation aborted by user")
-
             while _pending_probes:
                 try:
                     topic, probe = _pending_probes.popleft()
@@ -1117,104 +866,67 @@ class InProcessBackend(SimulationBackend):
         try:
             for simul_idx in range(nsimul):
                 if _abort_requested[0]:
-                    append_terminal("[In-Process] Simulation aborted by user.\n")
+                    append_terminal("[In-Process] Simulation aborted.\n")
                     break
 
                 _active_probes.clear()
                 _state["registry"].clear()
                 _state["loop_control"] = None
 
-                append_terminal(
-                    f"[In-Process] Starting run {simul_idx + 1}/{nsimul} …\n"
-                )
+                append_terminal(f"[In-Process] Starting run {simul_idx + 1}/{nsimul} …\n")
 
                 try:
-                    Simul(
-                        yaml_path,
-                        simul_idx=simul_idx,
-                        stepping=stepping,
-                    ).run()
+                    Simul(yaml_path, simul_idx=simul_idx, stepping=stepping).run()
                 except KeyboardInterrupt:
                     if _abort_requested[0]:
-                        append_terminal("[In-Process] Simulation aborted by user.\n")
+                        append_terminal("[In-Process] Simulation aborted.\n")
                         break
                     else:
                         raise
                 except Exception as e:
-                    append_terminal(f"[In-Process] Error in run {simul_idx + 1}: {type(e).__name__}: {e}\n")
+                    append_terminal(
+                        f"[In-Process] Error in run {simul_idx + 1}: "
+                        f"{type(e).__name__}: {e}\n"
+                    )
                     raise
                 finally:
-                    # Safe: free figures from this completed run.
-                    # The old thread cannot be running concurrently here
-                    # because we are still inside _run_direct (same thread).
                     self._cleanup_matplotlib()
         finally:
             LoopControl.run  = original_run
             LoopControl.iter = original_iter
 
-    # ------------------------------------------------------------------
-    # Dynamic probe management (called from the GUI thread)
-    # ------------------------------------------------------------------
+    # ── Dynamic probe management ──────────────────────────────────────────────
 
     def attach_probe(self, topic: str, monitor_bus) -> "MonitorProbeObj | None":
-        """Create and inject a MonitorProbeObj for *topic* at runtime.
-
-        This is called by ``MonitorManager`` when a monitor window is opened
-        *after* the simulation has already started.  If the simulation has
-        not started yet (or the registry is not yet available), ``None`` is
-        returned; in that case the probe will be created automatically by
-        ``_patched_run`` when the simulation starts, because the monitor has
-        already subscribed to the bus.
-
-        Parameters
-        ----------
-        topic       : Fully-qualified topic, e.g. ``"wfs.out_slopes"``.
-        monitor_bus : ``MonitorBus`` that the new probe should push to.
-
-        Returns
-        -------
-        MonitorProbeObj or None
-        """
         if not self._running or self._probe_state is None:
             return None
 
-        state = self._probe_state
+        state  = self._probe_state
         active = state.get("active_probes", {})
 
-        # Return existing probe if one is already live for this topic
         existing = active.get(topic)
         if existing is not None and existing._enabled:
             return existing
 
-        source = state.get("registry", {}).get(topic)
-        if source is None:
-            return None   # topic not (yet) in registry
+        entry = state.get("registry", {}).get(topic)
+        if entry is None:
+            return None
 
+        source_obj, out_key = entry
         probe = MonitorProbeObj(
             name=f"_studio_probe_{topic}",
-            source_data_obj=source,
+            source_data_obj=source_obj,
             topic=topic,
             monitor_bus=monitor_bus,
+            output_name=out_key,   # Issue 10
         )
 
-        # Queue for injection at the start of the next simulation iteration.
         if self._probe_queue is not None:
             self._probe_queue.append((topic, probe))
 
         return probe
 
     def detach_probe(self, probe: "MonitorProbeObj") -> None:
-        """Disable *probe* so it no longer pushes data.
-
-        The probe object remains in ``LoopControl.trigger_lists`` (removing
-        it safely while the simulation thread is running would require extra
-        locking); disabling it causes ``check_ready`` to return False
-        immediately, making every subsequent call a no-op.
-
-        Parameters
-        ----------
-        probe : The probe to disable, as returned by ``attach_probe``.
-        """
         if probe is None:
             return
         probe.disable()
@@ -1223,10 +935,9 @@ class InProcessBackend(SimulationBackend):
             if active.get(probe._topic) is probe:
                 del active[probe._topic]
 
-    # ------------------------------------------------------------------
+    # ── Stepping / abort ──────────────────────────────────────────────────────
 
     def step(self) -> None:
-        """Advance one step by writing a newline to the pipe."""
         if self._step_write_file and not self._step_write_file.closed:
             try:
                 self._step_write_file.write("\n")
@@ -1234,50 +945,27 @@ class InProcessBackend(SimulationBackend):
             except Exception:
                 pass
 
-
     def abort(self) -> None:
-        """Abort the simulation gracefully without exiting or crashing.
+        print("[In-Process] Abort requested")
+        self._running            = False
+        self._abort_in_progress  = True
 
-        Sets the abort flag which is checked at the start of each iteration
-        and between runs.
-
-        Also immediately closes any DPG matplotlib windows that the bridge
-        created, so the user sees them disappear on the very next frame
-        without having to wait for the simulation thread to fully unwind.
-        """
-        print("[In-Process] Abort requested - setting flag")
-        self._running = False
-        self._abort_in_progress = True
-
-        # Set abort flag for _run_direct mode
         if self._probe_state is not None:
-            abort_flag = self._probe_state.get("abort_requested")
-            if abort_flag is not None:
-                abort_flag[0] = True
-                print("[In-Process] Abort flag set")
+            flag = self._probe_state.get("abort_requested")
+            if flag is not None:
+                flag[0] = True
 
-        # Close pipe for stepping mode
         if self._step_write_file and not self._step_write_file.closed:
             try:
                 self._step_write_file.close()
-                print("[In-Process] Step pipe closed")
-            except Exception as e:
-                print(f"[In-Process] Error closing pipe: {e}")
+            except Exception:
+                pass
 
-        # Close matplotlib DPG windows immediately (GUI thread — safe with Agg).
-        # This is the primary close: it runs synchronously on the GUI thread so
-        # the windows disappear on the very next DPG frame, regardless of how
-        # long the simulation thread takes to unwind.
         try:
             from matplotlib_dpg_bridge import MatplotlibDPGBridge
             MatplotlibDPGBridge.close_all()
-            print("[In-Process] Matplotlib DPG windows queued for closure")
-        except Exception as exc:
-            print(f"[In-Process] Warning: could not queue matplotlib close_all: {exc}")
-
-        print("[In-Process] Abort complete - simulation will stop gracefully")
-
-
+        except Exception:
+            pass
 
     @property
     def is_running(self) -> bool:

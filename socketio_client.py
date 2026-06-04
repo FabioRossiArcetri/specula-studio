@@ -6,13 +6,17 @@ Owns the Socket.IO connection to the Specula simulation server.
 Responsibilities
 ----------------
 - Create and configure the socketio.Client instance.
-- Manage the connect / disconnect lifecycle.
-- Maintain the set of subscribed outputs and request new data frames.
-- Map local node UUIDs to server node names.
+- Manage the connect / disconnect lifecycle (with a connection lock so that
+  concurrent reconnect calls cannot race).
+- Maintain the set of subscribed outputs (protected by a threading.RLock) and
+  request new data frames.
+- Detect stalled streams: if a 'done' event is not received within
+  STREAM_STALL_TIMEOUT seconds after emitting 'newdata', the pull cycle is
+  re-armed automatically.
+- Map local node UUIDs to server node names (exact-name preferred; ambiguous
+  class-based matches are logged as warnings and skipped instead of silently
+  picking the wrong node).
 - Route raw server events to owner-supplied callbacks.
-
-The owner (NodeManager) provides four callback hooks at construction time so
-that this class has *no* dependency on DearPyGui, the graph model, or monitors.
 """
 
 import os
@@ -21,7 +25,11 @@ import traceback
 
 import socketio as sio_module
 
-from constants import SOCKETIO_SERVER, MONITOR_QUEUE_SIZE
+from constants import (
+    SOCKETIO_SERVER,
+    MONITOR_QUEUE_SIZE,
+    STREAM_STALL_TIMEOUT,
+)
 
 
 class SocketIOClient:
@@ -37,39 +45,41 @@ class SocketIOClient:
         on_data_update=None,
         debug: bool = True,
     ):
-        """
-        Parameters
-        ----------
-        server_url       : URL of the Socket.IO server.
-        on_connect       : callable()  – called after a successful connection.
-        on_disconnect    : callable()  – called on disconnection.
-        on_connect_error : callable(data) – called on connection error.
-        on_params        : callable(data) – called when the server sends its
-                           node parameter map (``params`` event).
-        on_data_update   : callable(name, raw_data) – called when the server
-                           pushes a data frame for a subscribed output.
-        debug            : enable verbose logging.
-        """
         self.server_url = server_url
-        self.connected = False
-        self.enabled = True
-        self.debug = debug
+        self.connected  = False
+        self.enabled    = True
+        self.debug      = debug
 
-        # Server state ---------------------------------------------------------
-        self.server_params: dict = {}        # raw params dict from server
-        self.server_nodes: dict = {}         # alias for server_params
-        self.uuid_to_server_name: dict = {}  # local uuid -> server node name
-        self.subscribed_outputs: set = set() # outputs we are subscribed to
+        # Server state ─────────────────────────────────────────────────────────
+        self.server_params:       dict = {}
+        self.server_nodes:        dict = {}
+        self.uuid_to_server_name: dict = {}
 
-        # Owner callbacks (all optional) ---------------------------------------
-        self._on_connect_cb = on_connect
-        self._on_disconnect_cb = on_disconnect
+        # Session id advertised by the server in the 'params' event.
+        # Used to verify that the studio is talking to the expected simulation run.
+        self.server_session_id: str | None = None
+
+        # Subscribed outputs ── protected by _subs_lock (Issue 8) ─────────────
+        self._subs_lock:        threading.RLock = threading.RLock()
+        self._subscribed_outputs: set           = set()
+
+        # Owner callbacks ──────────────────────────────────────────────────────
+        self._on_connect_cb       = on_connect
+        self._on_disconnect_cb    = on_disconnect
         self._on_connect_error_cb = on_connect_error
-        self._on_params_cb = on_params
-        self._on_data_update_cb = on_data_update
+        self._on_params_cb        = on_params
+        self._on_data_update_cb   = on_data_update
 
-        # Build the socketio.Client --------------------------------------------
-        if os.name == "nt":  # Windows needs explicit transport options
+        # Connection guard (Issue 7) ─────────────────────────────────────────
+        # Prevents concurrent _connect_worker threads from racing on sio.connect.
+        self._connect_lock: threading.Lock = threading.Lock()
+
+        # Stream-stall watchdog (Issue 2) ─────────────────────────────────────
+        self._stall_timer: threading.Timer | None = None
+        self._stall_lock:  threading.Lock          = threading.Lock()
+
+        # Build the socketio.Client ────────────────────────────────────────────
+        if os.name == "nt":
             self.sio = sio_module.Client(
                 logger=True,
                 engineio_logger=True,
@@ -83,26 +93,76 @@ class SocketIOClient:
             self.sio = sio_module.Client(logger=True, engineio_logger=False)
 
         self._setup_handlers()
-        # Connect in a background thread so the GUI thread is never blocked.
         self._connect()
 
-    # ------------------------------------------------------------------
+    # ──────────────────────────────────────────────────────────────────────────
     # Internal helpers
-    # ------------------------------------------------------------------
+    # ──────────────────────────────────────────────────────────────────────────
 
     def _log(self, message: str):
         if self.debug:
             print(f"[SOCKETIO] {message}")
 
-    def _setup_handlers(self):
-        """Register all Socket.IO event handlers."""
+    # ── Subscriptions (thread-safe) ────────────────────────────────────────────
 
-        @self.sio.event
-        def any_event(event, data):
-            if event not in ["ping", "pong"]:
-                print(f"[SOCKET.IO] ANY EVENT: {event} -> {type(data)}")
-                if isinstance(data, dict):
-                    print(f"    Keys: {list(data.keys())}")
+    @property
+    def subscribed_outputs(self) -> frozenset:
+        """Read-only snapshot of the current subscription set."""
+        with self._subs_lock:
+            return frozenset(self._subscribed_outputs)
+
+    def _subs_add(self, name: str) -> None:
+        with self._subs_lock:
+            self._subscribed_outputs.add(name)
+
+    def _subs_discard(self, name: str) -> None:
+        with self._subs_lock:
+            self._subscribed_outputs.discard(name)
+
+    def _subs_any(self) -> bool:
+        with self._subs_lock:
+            return bool(self._subscribed_outputs)
+
+    def _subs_list(self) -> list:
+        with self._subs_lock:
+            return list(self._subscribed_outputs)
+
+    # ── Stall watchdog ─────────────────────────────────────────────────────────
+
+    def _arm_stall_watchdog(self):
+        """Arm (or re-arm) the stall watchdog timer."""
+        if not self._subs_any():
+            return
+        with self._stall_lock:
+            if self._stall_timer is not None:
+                self._stall_timer.cancel()
+            self._stall_timer = threading.Timer(
+                STREAM_STALL_TIMEOUT, self._on_stall_detected
+            )
+            self._stall_timer.daemon = True
+            self._stall_timer.start()
+
+    def _disarm_stall_watchdog(self):
+        with self._stall_lock:
+            if self._stall_timer is not None:
+                self._stall_timer.cancel()
+                self._stall_timer = None
+
+    def _on_stall_detected(self):
+        """Called by the watchdog timer when no 'done' is received in time."""
+        if not self.connected or not self._subs_any():
+            return
+        self._log(
+            f"Stream stall detected (no 'done' in {STREAM_STALL_TIMEOUT}s). "
+            "Re-arming pull cycle."
+        )
+        self.request_next_frame()
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Event handler setup
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _setup_handlers(self):
 
         @self.sio.event
         def connect():
@@ -112,38 +172,33 @@ class SocketIOClient:
                 self.sio.emit("get_params")
                 print("[SOCKET.IO] Requested params via 'get_params'")
             except Exception as e:
-                print(f"[SOCKET.IO] Server should auto-send params on connect: {e}")
-            # Re-request data for any outputs that were subscribed before the
-            # connection was established (e.g. in-process monitors opened while
-            # specula's DisplayServer was still booting up), and to restart the
-            # streaming cycle after any reconnect.
-            if self.subscribed_outputs:
+                print(f"[SOCKET.IO] get_params emit error: {e}")
+            if self._subs_any():
                 self.request_next_frame()
             if self._on_connect_cb:
                 self._on_connect_cb()
 
         @self.sio.event
         def params(data):
-            print(f"\n[SOCKET.IO] PARAMS EVENT FIRED! ({len(data)} nodes)")
             if not data:
                 print("[SOCKET.IO] No data in params event!")
                 return
+            # Extract and remove studio-private keys before forwarding
+            self.server_session_id = data.pop("_session_id", None)
+            protocol_ver           = data.pop("_protocol_version", 1)
+            self._log(
+                f"PARAMS event: {len(data)} nodes, "
+                f"session={self.server_session_id}, protocol_ver={protocol_ver}"
+            )
             self.server_params = data
-            self.server_nodes = data
-            print("Server objects:", sorted(self.server_nodes.keys()))
-            for i, (name, info) in enumerate(list(data.items())[:3]):
-                print(
-                    f"  {i+1}. {name} ({info.get('class', 'Unknown')}): "
-                    f"{info.get('outputs', [])}"
-                )
+            self.server_nodes  = data
             if self._on_params_cb:
                 self._on_params_cb(data)
 
         @self.sio.event
         def data_update(data):
-            print(f"\n[SOCKET.IO] DATA_UPDATE: {data.get('name', 'unknown')}")
             try:
-                name = data.get("name")
+                name     = data.get("name")
                 raw_data = data.get("data")
                 if not name or raw_data is None:
                     print("[SOCKET.IO] Missing name or data in update")
@@ -155,8 +210,32 @@ class SocketIOClient:
                 traceback.print_exc()
 
         @self.sio.event
+        def done(data):
+            # 'done' signals the end of one display cycle — disarm watchdog and
+            # arm it again for the NEXT cycle that will start in request_next_frame.
+            self._disarm_stall_watchdog()
+            if self._subs_any():
+                self.request_next_frame()
+
+        @self.sio.event
+        def heartbeat(data):
+            """Server-side keepalive.  Confirms the connection is alive."""
+            server_sid = data.get("session_id") if isinstance(data, dict) else None
+            if server_sid and server_sid != self.server_session_id:
+                self._log(
+                    f"Heartbeat from unexpected session {server_sid} "
+                    f"(expected {self.server_session_id}) — reconnecting."
+                )
+                # The server has restarted under the same URL; request fresh params.
+                try:
+                    self.sio.emit("get_params")
+                except Exception:
+                    pass
+
+        @self.sio.event
         def connect_error(data):
             self.connected = False
+            self._disarm_stall_watchdog()
             print(f"[SOCKET.IO] Connection error: {data}")
             if self._on_connect_error_cb:
                 self._on_connect_error_cb(data)
@@ -164,58 +243,54 @@ class SocketIOClient:
         @self.sio.event
         def disconnect():
             self.connected = False
+            self._disarm_stall_watchdog()
             print("[SOCKET.IO] Disconnected")
             if self._on_disconnect_cb:
                 self._on_disconnect_cb()
 
         @self.sio.event
         def speed_report(data):
-            print(f"[SOCKET.IO] Speed report: {data}")
+            pass  # informational only
 
-        @self.sio.event
-        def done(data):
-            print(f"[SOCKET.IO] Done event: {data}")
-            if self.subscribed_outputs:
-                self.request_next_frame()
+    # ──────────────────────────────────────────────────────────────────────────
+    # Connection management
+    # ──────────────────────────────────────────────────────────────────────────
 
     def _connect_worker(self):
-        """Worker that runs in a background thread to avoid blocking the GUI."""
+        """Worker that runs in ONE background thread at a time (guarded by lock)."""
+        if not self._connect_lock.acquire(blocking=False):
+            self._log("Connection attempt already in progress — skipping duplicate.")
+            return
         try:
-            print(f"[SOCKET.IO] Connecting to {self.server_url} (background thread)...")
+            print(f"[SOCKET.IO] Connecting to {self.server_url} …")
             self.connected = False
             self.sio.connect(self.server_url, namespaces=["/"])
-            print(f"[SOCKET.IO] Connected! SID: {self.sio.sid}")
-            self.sio.emit("test_connection", {"client": "node_editor"})
+            print(f"[SOCKET.IO] Connection established. SID: {self.sio.sid}")
         except Exception as e:
             print(f"[SOCKET.IO] Connection failed: {e}")
             self.connected = False
+        finally:
+            self._connect_lock.release()
 
     def _connect(self):
-        """Start a non-blocking connection attempt in a daemon thread.
-
-        The GUI thread is never blocked: the socketio handshake and any
-        reconnection retries happen entirely in the background.
-        """
         if not self.enabled:
             return
-        thread = threading.Thread(target=self._connect_worker, daemon=True)
-        thread.start()
-
-    # ------------------------------------------------------------------
-    # Public interface
-    # ------------------------------------------------------------------
+        t = threading.Thread(target=self._connect_worker, daemon=True)
+        t.start()
 
     def reconnect(self):
-        """Reconnect to the server (called by monitor windows)."""
+        """Reconnect to the server (called by monitor windows or SimulationControl)."""
         self._connect()
 
     def disconnect(self):
-        """Disconnect gracefully."""
+        self._disarm_stall_watchdog()
         if self.connected:
-            self.sio.disconnect()
+            try:
+                self.sio.disconnect()
+            except Exception:
+                pass
 
     def emit(self, event: str, data=None) -> bool:
-        """Emit an event. Returns True on success."""
         if not self.connected:
             return False
         try:
@@ -228,44 +303,58 @@ class SocketIOClient:
             print(f"[SOCKET.IO] Error emitting '{event}': {e}")
             return False
 
+    # ──────────────────────────────────────────────────────────────────────────
+    # Pub/sub
+    # ──────────────────────────────────────────────────────────────────────────
+
     def request_next_frame(self):
-        """Request next data frame from the server for all subscribed outputs."""
+        """Emit 'newdata' for all subscribed outputs and arm the stall watchdog."""
         if not self.connected:
-            print("[SOCKET.IO] Not connected, cannot request data")
             return
-        if not self.subscribed_outputs:
+        outputs_list = self._subs_list()
+        if not outputs_list:
             return
-        outputs_list = list(self.subscribed_outputs)
-        print(f"[SOCKET.IO] Emitting 'newdata' for: {outputs_list}")
+        self._log(f"Emitting 'newdata' for: {outputs_list}")
         try:
             self.sio.emit("newdata", outputs_list)
+            self._arm_stall_watchdog()
         except Exception as e:
             print(f"[SOCKET.IO] Error emitting 'newdata': {e}")
 
     def subscribe(self, server_output_name: str):
-        """Add *server_output_name* to the subscription set and request data."""
-        self.subscribed_outputs.add(server_output_name)
+        self._subs_add(server_output_name)
         if self.connected:
             self.request_next_frame()
 
     def unsubscribe(self, server_output_name: str):
-        """Remove *server_output_name* from subscriptions and notify server."""
-        self.subscribed_outputs.discard(server_output_name)
+        self._subs_discard(server_output_name)
+        if not self._subs_any():
+            self._disarm_stall_watchdog()
         if self.connected:
             try:
                 self.sio.emit("unsubscribe", {"output": server_output_name})
             except Exception as e:
                 print(f"[SOCKET.IO] Error sending unsubscribe: {e}")
 
-    # ------------------------------------------------------------------
-    # Node-to-server mapping helpers
-    # ------------------------------------------------------------------
+    # ──────────────────────────────────────────────────────────────────────────
+    # Node-to-server name mapping  (Issue 1)
+    # ──────────────────────────────────────────────────────────────────────────
 
     def bind_nodes_to_server(self, graph_nodes: dict, params: dict):
         """
-        Auto-bind local graph nodes to server node names by class type.
-        Updates ``node_data['name']`` in-place when a unique match is found.
+        Map local graph UUIDs to server node names.
+
+        Strategy (in priority order):
+        1. Exact name match: node_data["name"] == server node name.
+           This should always work when the studio exported the YAML that SPECULA
+           is currently running — both use the same node names.
+        2. Class-type fallback: only when no exact match AND exactly ONE server
+           node has the same class. Logs a warning. Does NOT mutate
+           node_data["name"] so the graph model is never corrupted.
+        3. Ambiguous class match: logs a warning and skips. The monitor will show
+           "Waiting for data" until the user resolves the naming.
         """
+        server_names_set   = set(params.keys())
         server_by_class: dict = {}
         for server_name, meta in params.items():
             cls = meta.get("class")
@@ -275,61 +364,54 @@ class SocketIOClient:
         for node_uuid, node_data in graph_nodes.items():
             if node_uuid in self.uuid_to_server_name:
                 continue
-            node_type = node_data.get("type")
+            node_name = node_data.get("name", "")
+            node_type = node_data.get("type", "")
+
+            # ── 1. Exact name match ─────────────────────────────────────────
+            if node_name in server_names_set:
+                self.uuid_to_server_name[node_uuid] = node_name
+                self._log(f"[BIND] {node_uuid} ({node_type}) → '{node_name}' (exact match)")
+                continue
+
+            # ── 2/3. Class-type fallback ────────────────────────────────────
             candidates = server_by_class.get(node_type, [])
             if len(candidates) == 1:
                 server_name = candidates[0]
-                node_data["name"] = server_name
                 self.uuid_to_server_name[node_uuid] = server_name
-                print(f"[BIND] {node_uuid} ({node_type}) -> {server_name}")
+                self._log(
+                    f"[BIND] {node_uuid} ({node_type}) → '{server_name}' "
+                    f"(class fallback, node name '{node_name}' not found on server)"
+                )
             elif len(candidates) > 1:
                 print(
-                    f"[BIND] Ambiguous server instances for {node_uuid} "
-                    f"({node_type}): {candidates}"
+                    f"[BIND] WARNING: Ambiguous server instances for node "
+                    f"'{node_name}' ({node_type}): {candidates}. "
+                    "No mapping set — rename the node to match the server name."
                 )
             else:
-                print(f"[BIND] No server instance for {node_uuid} ({node_type})")
+                self._log(
+                    f"[BIND] No server instance found for '{node_name}' ({node_type})"
+                )
 
     def update_uuid_mapping(self, graph_nodes: dict):
         """
-        Rebuild the full ``uuid_to_server_name`` mapping by matching node
-        names (and falling back to class-based matching).
+        Rebuild uuid_to_server_name by calling bind_nodes_to_server from scratch.
+        Previous mappings are cleared so stale entries don't accumulate across runs.
         """
-        print("[MAPPING] Updating UUID -> server name mapping")
+        self._log("Updating UUID → server name mapping")
         self.uuid_to_server_name.clear()
-        mapped_count = 0
-        for node_uuid, node_data in graph_nodes.items():
-            client_name = node_data.get("name")
-            node_type = node_data.get("type", "")
-            if not client_name:
-                continue
-            if client_name in self.server_nodes:
-                self.uuid_to_server_name[node_uuid] = client_name
-                mapped_count += 1
-            else:
-                candidates = [
-                    sn
-                    for sn, si in self.server_nodes.items()
-                    if si.get("class") == node_type
-                ]
-                if len(candidates) == 1:
-                    self.uuid_to_server_name[node_uuid] = candidates[0]
-                    mapped_count += 1
-                elif candidates:
-                    print(
-                        f"[MAPPING] Multiple candidates for {client_name} "
-                        f"({node_type}): {candidates}"
-                    )
-        print(
-            f"[MAPPING] Complete: {mapped_count}/{len(graph_nodes)} nodes mapped"
-        )
+        self.bind_nodes_to_server(graph_nodes, self.server_nodes)
+        mapped = len(self.uuid_to_server_name)
+        self._log(f"Mapping complete: {mapped}/{len(graph_nodes)} nodes resolved")
 
     def get_server_output_name(
         self, node_uuid: str, output_name: str, graph_nodes: dict
     ) -> str:
         """
         Return the fully-qualified server output name ``<server_node>.<output>``.
-        Falls back to auto-detection and then a synthetic name.
+
+        Raises ValueError if no server name can be resolved, so callers can
+        decide whether to defer or show a meaningful error.
         """
         if not output_name:
             raise ValueError("output_name must be provided")
@@ -337,30 +419,37 @@ class SocketIOClient:
         server_name = self.uuid_to_server_name.get(node_uuid)
 
         if not server_name:
+            # Try to resolve on the fly using the current server_nodes snapshot.
             node_data = graph_nodes.get(node_uuid, {})
-            node_name = node_data.get("name", "<unnamed>")
-            node_type = node_data.get("type", "<unknown>")
+            node_name = node_data.get("name", "")
+            node_type = node_data.get("type", "")
 
-            candidates = [
-                (sn, si.get("class"))
-                for sn, si in self.server_nodes.items()
-                if sn == node_name or si.get("class") == node_type
-            ]
-            if candidates:
-                server_name = candidates[0][0]
+            if node_name and node_name in self.server_nodes:
+                server_name = node_name
                 self.uuid_to_server_name[node_uuid] = server_name
-                if len(candidates) > 1:
-                    print(
-                        f"[MONITOR] Multiple server candidates for {node_name}, "
-                        f"using {server_name}"
+                self._log(f"[MONITOR] Late-mapped '{node_name}' (exact name)")
+            else:
+                candidates = [
+                    sn for sn, si in self.server_nodes.items()
+                    if si.get("class") == node_type
+                ]
+                if len(candidates) == 1:
+                    server_name = candidates[0]
+                    self.uuid_to_server_name[node_uuid] = server_name
+                    self._log(
+                        f"[MONITOR] Late-mapped '{node_name}' → '{server_name}' "
+                        "(class fallback)"
                     )
-                else:
-                    print(f"[MONITOR] Auto-mapped {node_name} -> {server_name}")
+                elif len(candidates) > 1:
+                    raise ValueError(
+                        f"Ambiguous server candidates for '{node_name}' ({node_type}): "
+                        f"{candidates}. Rename the node to match the server name."
+                    )
 
         if not server_name:
-            node_data = graph_nodes.get(node_uuid, {})
-            node_name = node_data.get("name", "unknown")
-            server_name = f"auto_{node_name}"
-            print(f"[MONITOR] Warning: Using fallback server name: {server_name}")
+            raise ValueError(
+                f"Cannot resolve server name for node UUID {node_uuid}. "
+                "Server params not yet received or node name mismatch."
+            )
 
         return f"{server_name}.{output_name}"

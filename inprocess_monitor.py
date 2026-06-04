@@ -26,13 +26,24 @@ Thread safety
 -------------
 Only ``_on_data`` (enqueue) is called from the simulation thread.
 All DPG operations happen exclusively in ``render_frame()`` (main thread).
+Changes vs. previous version
+-----------------------------
+* Drop counter: ``_on_data`` raises ``_DropFrame`` (caught by MonitorBus.push)
+  instead of silently discarding the oldest item locally, so the bus can
+  aggregate drop counts across all monitors and log them periodically (Issue 6).
+* ``render_frame`` throttles rendering but no longer wastes CPU dequeuing-then-
+  discarding items faster than the display rate: if the minimum update interval
+  has not elapsed, it drains at most one additional item from the queue and
+  returns immediately (Issue 6).
+* ``_on_data`` uses a non-blocking ``put`` with the ``_DropFrame`` signal so
+  the simulation thread is never blocked on a full queue (Issue 6).
 """
 
 from __future__ import annotations
 
 import time
 import traceback
-from queue import Empty, Queue
+from queue import Empty, Full, Queue
 from typing import TYPE_CHECKING
 
 import dearpygui.dearpygui as dpg
@@ -40,23 +51,14 @@ import numpy as np
 
 from constants import MAX_QUEUE_ITEMS_PER_FRAME, MONITOR_QUEUE_SIZE
 from dpg_plotting import DPGPlotter
+from monitor_bus import _DropFrame
 
 if TYPE_CHECKING:
     from simulation_backend import MonitorProbeObj
 
 
 class InProcessMonitor:
-    """An in-process, DPG-native monitor window.
-
-    Parameters
-    ----------
-    monitor_id         : Unique identifier string used to build DPG tags.
-    node_uuid          : UUID of the source graph node.
-    node_name          : Human-readable node name (displayed in the title).
-    output_name        : Short output name, e.g. ``"out_slopes"``.
-    server_output_name : Fully-qualified topic, e.g. ``"my_wfs.out_slopes"``.
-    monitor_bus        : ``MonitorBus`` instance to subscribe to.
-    """
+    """An in-process, DPG-native monitor window."""
 
     def __init__(
         self,
@@ -67,22 +69,17 @@ class InProcessMonitor:
         server_output_name: str,
         monitor_bus,
     ) -> None:
-        self.monitor_id          = monitor_id
-        self.node_uuid           = node_uuid
-        self.node_name           = node_name
-        self.output_name         = output_name
-        self.server_output_name  = server_output_name
+        self.monitor_id         = monitor_id
+        self.node_uuid          = node_uuid
+        self.node_name          = node_name
+        self.output_name        = output_name
+        self.server_output_name = server_output_name
 
-        self._bus = monitor_bus
+        self._bus        = monitor_bus
         self._data_queue: Queue = Queue(maxsize=MONITOR_QUEUE_SIZE)
 
-        # Reference to the MonitorProbeObj that feeds this monitor.
-        # Set by MonitorManager after probe injection; may be None if the
-        # probe has not been created yet (simulation not started) or in
-        # legacy socket.io mode.
         self._probe: MonitorProbeObj | None = None
 
-        # DPG tag namespace — unique per monitor instance
         self._win_tag      = f"ipm_win_{monitor_id}"
         self._plot_grp_tag = f"ipm_plot_{monitor_id}"
         self._pholder_tag  = f"ipm_ph_{monitor_id}"
@@ -93,40 +90,33 @@ class InProcessMonitor:
         self._time_tag     = f"ipm_time_{monitor_id}"
 
         self._plotter: DPGPlotter | None = None
-        self.is_open        = False
-        self.update_count   = 0
-        self.last_update    = 0.0
+        self.is_open             = False
+        self.update_count        = 0
+        self.last_update         = 0.0
         self.min_update_interval = 0.05
 
-        # Subscribe to the MonitorBus so we receive payloads from any
-        # MonitorProbeObj (or, in legacy mode, from the Socket.IO path)
-        # that pushes to this topic.
         monitor_bus.subscribe(server_output_name, self._on_data)
 
-    # ------------------------------------------------------------------
-    # Bus callback (simulation / socket.io background thread)
-    # ------------------------------------------------------------------
+    # ── Bus callback ────────────────────────────────────────────────────────────
 
     def _on_data(self, raw_data) -> None:
-        """Enqueue *raw_data* from the producer thread."""
-        if self._data_queue.full():
-            try:
-                self._data_queue.get_nowait()   # drop oldest
-            except Empty:
-                pass
-        self._data_queue.put(raw_data)
+        """Enqueue *raw_data* from the producer thread.
 
-    # ------------------------------------------------------------------
-    # DPG window lifecycle (main thread only)
-    # ------------------------------------------------------------------
+        Raises ``_DropFrame`` if the queue is full instead of blocking or silently
+        discarding, so the bus can track drop counts centrally.
+        """
+        try:
+            self._data_queue.put_nowait(raw_data)
+        except Full:
+            raise _DropFrame()
+
+    # ── DPG window lifecycle ───────────────────────────────────────────────────
 
     def focus(self) -> None:
-        """Bring the monitor window to the foreground.  Main thread only."""
         if dpg.does_item_exist(self._win_tag):
             dpg.focus_item(self._win_tag)
 
     def open(self) -> None:
-        """Create and show the DPG window.  Must be called on the main thread."""
         if self.is_open and dpg.does_item_exist(self._win_tag):
             dpg.focus_item(self._win_tag)
             return
@@ -166,25 +156,17 @@ class InProcessMonitor:
         self.is_open = True
 
     def _on_dpg_close(self) -> None:
-        """Called by DPG when the user closes the window."""
         self.is_open = False
         self._bus.unsubscribe(self.server_output_name, self._on_data)
 
     def close(self) -> None:
-        """Programmatically close and clean up the monitor.  Main thread only."""
         self._bus.unsubscribe(self.server_output_name, self._on_data)
         if dpg.does_item_exist(self._win_tag):
             dpg.delete_item(self._win_tag)
-        self.is_open = False
-        self._probe = None
+        self.is_open  = False
+        self._probe   = None
 
     def retarget_server_output(self, new_server_output_name: str) -> bool:
-        """Rebind this monitor to a different fully-qualified server output.
-
-        Updates the bus subscription and the displayed output label.
-        The ``_probe`` reference is cleared here; the caller (MonitorManager)
-        is responsible for detaching the old probe and attaching a new one.
-        """
         if not new_server_output_name or new_server_output_name == self.server_output_name:
             return False
         old = self.server_output_name
@@ -193,7 +175,6 @@ class InProcessMonitor:
         except Exception as exc:
             print(f"[IPMonitor] unsubscribe failed for '{old}': {exc}")
         self.server_output_name = new_server_output_name
-        # Clear the probe reference — caller must attach a new probe
         self._probe = None
         try:
             self._bus.subscribe(self.server_output_name, self._on_data)
@@ -205,31 +186,31 @@ class InProcessMonitor:
         self._set_status("subscribed")
         return True
 
-    # ------------------------------------------------------------------
-    # Per-frame rendering (main thread only)
-    # ------------------------------------------------------------------
+    # ── Per-frame rendering ────────────────────────────────────────────────────
 
     def render_frame(self) -> bool:
         """Drain the queue and update the plot.
 
-        Returns
-        -------
-        bool
-            ``True`` if the window is still open and should continue to be
-            ticked, ``False`` if the window has been closed.
+        Back-pressure policy: if the minimum update interval has not elapsed,
+        drain at most one extra item (to keep the queue from growing unbounded)
+        then return — no point in dequeuing dozens of frames we won't render.
         """
-        # print(f"[RENDER-DBG] render_frame called, is_open={self.is_open}, win_exists={dpg.does_item_exist(self._win_tag)}, qsize={self._data_queue.qsize()}")  # TEMP
         if not self.is_open or not dpg.does_item_exist(self._win_tag):
             return False
 
-        now = time.time()
-        for _ in range(MAX_QUEUE_ITEMS_PER_FRAME):
+        now      = time.time()
+        can_draw = (now - self.last_update) >= self.min_update_interval
+
+        items_to_drain = MAX_QUEUE_ITEMS_PER_FRAME if can_draw else 1
+
+        for _ in range(items_to_drain):
             try:
                 raw_data = self._data_queue.get_nowait()
             except Empty:
                 break
 
-            if now - self.last_update < self.min_update_interval:
+            if not can_draw:
+                # queue is backing up — absorb the item but don't render
                 continue
 
             arr = self._raw_to_numpy(raw_data)
@@ -244,17 +225,9 @@ class InProcessMonitor:
 
         return True
 
-    # ------------------------------------------------------------------
-    # Data conversion
-    # ------------------------------------------------------------------
+    # ── Data conversion ────────────────────────────────────────────────────────
 
     def _raw_to_numpy(self, inner_payload: dict) -> np.ndarray | None:
-        """Convert the inner payload dict to a float32 numpy array.
-
-        In probe-based mode the ``data`` field is already a CPU numpy array,
-        so conversion is a cheap astype call.  In legacy (socket.io) mode
-        ``data`` may be a list, which is handled identically to before.
-        """
         data_type  = inner_payload.get("type")
         data_value = inner_payload.get("data")
         shape      = inner_payload.get("shape")
@@ -265,7 +238,6 @@ class InProcessMonitor:
         try:
             if data_type in ("1d_array", "2d_array", "scalar", "nd_array") or data_type is None:
                 if isinstance(data_value, np.ndarray):
-                    # Probe-based path — already a CPU array, cheap cast
                     arr = data_value.astype(np.float32, copy=False)
                 elif isinstance(data_value, list):
                     arr = np.array(data_value, dtype=np.float32)
@@ -300,18 +272,14 @@ class InProcessMonitor:
 
         return None
 
-    # ------------------------------------------------------------------
-    # Plotting
-    # ------------------------------------------------------------------
+    # ── Plotting ───────────────────────────────────────────────────────────────
 
     def _plot(self, arr: np.ndarray) -> bool:
         if dpg.does_item_exist(self._pholder_tag):
             dpg.delete_item(self._pholder_tag)
 
         if self._plotter is None:
-            self._plotter = DPGPlotter(
-                parent_tag=self._plot_grp_tag, width=880, height=500
-            )
+            self._plotter = DPGPlotter(parent_tag=self._plot_grp_tag, width=880, height=500)
 
         p    = self._plotter
         ndim = arr.ndim
@@ -320,11 +288,9 @@ class InProcessMonitor:
         try:
             if ndim == 0 or (ndim == 1 and size == 1):
                 return p.plot_history(float(arr.item()))
-
             if ndim == 1:
                 ok = p.plot_vector(arr)
                 return ok if ok else p.plot_scatter(arr)
-
             if ndim == 2:
                 h, w = arr.shape
                 px   = h * w
@@ -334,7 +300,6 @@ class InProcessMonitor:
                     0.1  if px > 10_000    else 0.05
                 )
                 return p.plot_2d_image_clean(arr)
-
             if ndim >= 3:
                 reduced = (
                     np.mean(arr, axis=tuple(range(arr.ndim - 2)))
@@ -343,16 +308,13 @@ class InProcessMonitor:
                 )
                 if reduced.ndim == 2:
                     return p.plot_2d_image_clean(reduced)
-
         except Exception as exc:
             print(f"[IPMonitor] Plot error: {exc}")
             traceback.print_exc()
 
         return False
 
-    # ------------------------------------------------------------------
-    # Status / info helpers
-    # ------------------------------------------------------------------
+    # ── Status / info helpers ──────────────────────────────────────────────────
 
     _STATUS_COLORS = {
         "receiving":  [0, 200, 255],
@@ -376,8 +338,7 @@ class InProcessMonitor:
         shape_str = str(arr.shape) if hasattr(arr, "shape") else "scalar"
         range_str = (
             f"[{arr.min():.4g}, {arr.max():.4g}]"
-            if isinstance(arr, np.ndarray)
-            and arr.size > 0
+            if isinstance(arr, np.ndarray) and arr.size > 0
             and np.issubdtype(arr.dtype, np.number)
             else "N/A"
         )
