@@ -60,28 +60,23 @@ class MonitorBus:
 
     # ── Data delivery ──────────────────────────────────────────────────────────
 
-    def push(self, output_name: str, data) -> None:
-        """Deliver *data* to every subscriber of *output_name*."""
-        with self._lock:
-            callbacks = list(self._subscribers.get(output_name, []))
-            self._push_counts[output_name] = (
-                self._push_counts.get(output_name, 0) + 1
-            )
-
-        for cb in callbacks:
+    def push(self, topic: str, payload: dict) -> None:
+        """Push data to all subscribers of a topic."""
+        callbacks = self._subscribers.get(topic, [])
+        if not callbacks:
+            print(f"[BUS] No subscribers for topic '{topic}'")
+            return
+        
+        print(f"[BUS] Pushing to topic '{topic}': {len(callbacks)} subscriber(s)")
+        self._push_counts[topic] = self._push_counts.get(topic, 0) + 1
+        
+        for callback in callbacks:
             try:
-                cb(data)
+                callback(payload)
             except _DropFrame:
-                with self._lock:
-                    drops = self._drop_counts.get(output_name, 0) + 1
-                    self._drop_counts[output_name] = drops
-                if drops % MONITOR_DROP_LOG_INTERVAL == 0:
-                    print(
-                        f"[MONITOR_BUS] '{output_name}': "
-                        f"{drops} frames dropped (queue full)"
-                    )
-            except Exception as exc:
-                print(f"[MONITOR_BUS] Callback error for '{output_name}': {exc}")
+                self._drop_counts[topic] = self._drop_counts.get(topic, 0) + 1
+            except Exception as e:
+                print(f"[BUS] Error calling subscriber for '{topic}': {e}")
 
     # ── Introspection ──────────────────────────────────────────────────────────
 

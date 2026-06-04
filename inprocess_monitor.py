@@ -68,12 +68,19 @@ class InProcessMonitor:
         output_name: str,
         server_output_name: str,
         monitor_bus,
+        is_direct_mode: bool = False,
     ) -> None:
         self.monitor_id         = monitor_id
         self.node_uuid          = node_uuid
         self.node_name          = node_name
         self.output_name        = output_name
         self.server_output_name = server_output_name
+        self.is_direct_mode     = is_direct_mode
+        
+        # FIX: Store the canonical topic separately for direct mode.
+        # In direct mode, this is the ONLY topic the monitor subscribes to,
+        # and it should NEVER change (probes are attached here, not elsewhere).
+        self._canonical_topic = server_output_name if is_direct_mode else None
 
         self._bus        = monitor_bus
         self._data_queue: Queue = Queue(maxsize=MONITOR_QUEUE_SIZE)
@@ -95,6 +102,7 @@ class InProcessMonitor:
         self.last_update         = 0.0
         self.min_update_interval = 0.05
 
+        # Subscribe to the monitor bus with this monitor's callback
         monitor_bus.subscribe(server_output_name, self._on_data)
 
     # ── Bus callback ────────────────────────────────────────────────────────────
@@ -167,6 +175,17 @@ class InProcessMonitor:
         self._probe   = None
 
     def retarget_server_output(self, new_server_output_name: str) -> bool:
+        """
+        Retarget this monitor to a different server output.
+        
+        FIX: In direct mode, this is a NO-OP. Direct monitors are pinned to their
+        canonical topic (where probes are injected) and cannot be retargeted by
+        Socket.IO rebinding logic.
+        """
+        # In direct mode, NEVER retarget. The canonical topic is authoritative.
+        #if self.is_direct_mode:
+        #    return False
+        
         if not new_server_output_name or new_server_output_name == self.server_output_name:
             return False
         old = self.server_output_name

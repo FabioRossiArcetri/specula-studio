@@ -43,6 +43,9 @@ Changes vs. previous version
   The monitor is queued as pending so it will be retried when params arrive.
 * ``_open_inprocess_monitor`` passes the session_id to the InProcessMonitor
   for future diagnostics.
+* ``on_server_params()`` now short-circuits for direct backends (InProcessBackend
+  with monitor_bus) to prevent Socket.IO rebinding logic from corrupting probe-
+  based monitor subscriptions.
 """
 
 import json
@@ -115,7 +118,7 @@ class MonitorManager:
         self._session_id = session_id
         self._log(f"Session ID updated: {session_id}")
 
-    # ── Logging ───────────────────────────────────────────────────────────────
+    # ── Logging ──────────────────────────────────────────────────────────[...]
 
     def _log(self, msg: str):
         if self.debug:
@@ -129,6 +132,17 @@ class MonitorManager:
     def on_data_update(self, name: str, raw_data): pass
 
     def on_server_params(self, data: dict):
+        # FIX: SHORT-CIRCUIT for direct backends (in-process with monitor_bus).
+        # In direct mode, monitors are bound to probe topics (node_name.output_name),
+        # NOT Socket.IO-mapped topics. Rebinding via Socket.IO mapping will corrupt
+        # the subscriptions and cause probes to fail silently.
+        if _is_direct_backend(self._backend):
+            self._log(
+                "on_server_params: skipping Socket.IO rebinding for direct backend "
+                "(probe topics are authoritative)"
+            )
+            return
+
         if not self._use_inprocess:
             return
         self._flush_pending_monitors()
@@ -200,40 +214,33 @@ class MonitorManager:
             self.open_monitor(s, a, ud)
 
     # ── Open / close ──────────────────────────────────────────────────────────
-
     def open_monitor(self, sender, app_data, user_data):
+        """Open a monitor for the specified node output.
+        
+        FIX: In direct mode, use direct probe topic (node_name.output_name).
+        In Socket.IO mode, resolve server_output_name via DisplayServer.
+        """
         node_uuid, output_name = user_data
-
-        node_data = self.graph.nodes.get(node_uuid)
-        if not node_data:
-            self._log(f"open_monitor: node {node_uuid} not found")
+        
+        if node_uuid not in self.graph.nodes:
+            self._log(f"Node {node_uuid} not found")
             return
 
-        node_name = node_data.get("name", "Unknown")
+        node_data = self.graph.nodes.get(node_uuid, {})
+        node_name = node_data.get("name", node_uuid)
 
-        # ── In-process path ────────────────────────────────────────────────
-        if self._use_inprocess and self._monitor_bus is not None:
-            if _is_direct_backend(self._backend):
-                server_output_name = f"{node_name}.{output_name}"
-            else:
-                try:
-                    server_output_name = self.sio_client.get_server_output_name(
-                        node_uuid, output_name, self.graph.nodes
-                    )
-                except ValueError as e:
-                    self._log(
-                        f"Server output name not yet resolvable ({e}); "
-                        f"queueing in-process monitor for {node_name}.{output_name}"
-                    )
-                    self._pending_monitors.append((sender, app_data, user_data))
-                    return
-
+        # ── Direct in-process mode path ────────────────────────────────────────
+        if self._use_inprocess:
+            # In direct mode, use the probe topic format directly:
+            # no Socket.IO resolution needed
+            server_output_name = f"{node_name}.{output_name}"
+            
             self._open_inprocess_monitor(
                 node_uuid, node_name, output_name, server_output_name
             )
             return
 
-        # ── Subprocess path ────────────────────────────────────────────────
+        # ── Subprocess/Socket.IO path ──────────────────────────────────────────
         try:
             server_output_name = self.sio_client.get_server_output_name(
                 node_uuid, output_name, self.graph.nodes
@@ -304,7 +311,7 @@ class MonitorManager:
                 "server_url":         server_url,
                 "session_id":         self._session_id,
                 "started_at":         time.time(),
-            }
+            }    
 
     # ── In-process monitor helpers ─────────────────────────────────────────────
 
@@ -333,6 +340,7 @@ class MonitorManager:
             output_name=output_name,
             server_output_name=server_output_name,
             monitor_bus=self._monitor_bus,
+            is_direct_mode=_is_direct_backend(self._backend),  # FIX: pass direct mode flag
         )
         monitor.open()
         self._inprocess_monitors[monitor_id] = monitor
@@ -354,6 +362,7 @@ class MonitorManager:
                 self._log(f"Warning: could not subscribe to '{server_output_name}': {e}")
 
         self._log(f"In-process monitor {monitor_id} opened for {server_output_name}")
+
 
     def close_monitor(self, monitor_id: str, from_window_close: bool = False):
         with self._lock:
@@ -388,6 +397,11 @@ class MonitorManager:
             monitor.close()
 
     def _refresh_inprocess_monitor_bindings(self) -> None:
+        """Refresh Socket.IO monitor bindings (socket-based in-process mode only).
+        
+        FIX: This is called only for non-direct backends. Direct backends have
+        fixed probe topics and should NEVER reach this code (gated in on_server_params).
+        """
         output_to_monitor_ids: dict[str, list[str]] = {}
         for mid, monitor in self._inprocess_monitors.items():
             output_to_monitor_ids.setdefault(monitor.server_output_name, []).append(mid)
@@ -410,23 +424,27 @@ class MonitorManager:
                 continue
 
             if _is_direct_backend(self._backend):
-                probe = self._backend.attach_probe(new_output, self._monitor_bus)
-                if probe is not None:
-                    monitor._probe = probe
-            else:
-                try:
-                    self.sio_client.subscribe(new_output)
-                except Exception as e:
-                    self._log(f"Warning: could not subscribe to '{new_output}': {e}")
+                # Defensive: this should never happen after on_server_params fix,
+                # but if it does, log and skip to prevent corruption.
+                self._log(
+                    f"WARNING: _refresh_inprocess_monitor_bindings reached direct backend "
+                    f"for monitor {mid}. Skipping retarget to prevent probe corruption."
+                )
+                continue
 
-                old_watchers = output_to_monitor_ids.get(old_output, [])
-                if mid in old_watchers:
-                    old_watchers.remove(mid)
-                if not old_watchers:
-                    try:
-                        self.sio_client.unsubscribe(old_output)
-                    except Exception as e:
-                        self._log(f"Warning: could not unsubscribe '{old_output}': {e}")
+            try:
+                self.sio_client.subscribe(new_output)
+            except Exception as e:
+                self._log(f"Warning: could not subscribe to '{new_output}': {e}")
+
+            old_watchers = output_to_monitor_ids.get(old_output, [])
+            if mid in old_watchers:
+                old_watchers.remove(mid)
+            if not old_watchers:
+                try:
+                    self.sio_client.unsubscribe(old_output)
+                except Exception as e:
+                    self._log(f"Warning: could not unsubscribe '{old_output}': {e}")
 
             self._log(f"Retargeted monitor {mid}: {old_output} → {new_output}")
 
@@ -461,7 +479,7 @@ class MonitorManager:
             except Exception as e:
                 self._log(f"Reaper error: {e}")
 
-    # ── Ticking ───────────────────────────────────────────────────────────────
+    # ── Ticking ──────────────────────────────────────────────────────────[...]
 
     def _find_and_close_monitor(self, monitor_info):
         node_uuid, output_name = monitor_info
@@ -483,8 +501,34 @@ class MonitorManager:
         self._log("start_periodic_tasks called (ticking via main render loop)")
 
     def _inprocess_tick_direct(self) -> None:
+        """Drain and render all in-process monitors every frame.
+        
+        FIX: Add diagnostic logging to verify data is flowing through the bus.
+        """
         if not self._inprocess_monitors:
             return
+        
+        # Diagnostic: log subscribed topics and push counts periodically
+        if hasattr(self, '_tick_count'):
+            self._tick_count += 1
+        else:
+            self._tick_count = 0
+        
+        if self._tick_count % 300 == 0:  # Log every ~5 seconds at 60 FPS
+            subscribed = self._monitor_bus.all_subscribed_outputs()
+            push_counts = self._monitor_bus.push_counts()
+            drop_counts = self._monitor_bus.drop_counts()
+            self._log(
+                f"[DIAGNOSTIC] Subscribed topics: {subscribed} | "
+                f"Push counts: {push_counts} | Drop counts: {drop_counts}"
+            )
+            for mid, mon in self._inprocess_monitors.items():
+                self._log(
+                    f"[DIAGNOSTIC] Monitor {mid}: "
+                    f"topic='{mon.server_output_name}' is_open={mon.is_open} "
+                    f"queue_size={mon._data_queue.qsize()}"
+                )
+        
         dead = []
         for mid, monitor in list(self._inprocess_monitors.items()):
             try:

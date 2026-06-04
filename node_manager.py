@@ -159,10 +159,21 @@ class NodeManager:
         self.sio_client.bind_nodes_to_server(self.graph.nodes, data)
         self.sio_client.update_uuid_mapping(self.graph.nodes)
         self.monitors.on_server_params(data)
-
+        
     def _on_data_update(self, name: str, raw_data):
+        """Handle real-time data update from server.
+        
+        FIX: Only push to monitor_bus if NOT in direct in-process mode.
+        In direct mode, data flows through probes → MonitorBus directly,
+        not through SocketIO's on_data_update callback.
+        """
         self.monitors.on_data_update(name, raw_data)
-        self.monitor_bus.push(name, raw_data)
+        
+        # Only push to monitor_bus if we're NOT using direct in-process backend.
+        # In direct mode, probes push data directly to the bus; Socket.IO data
+        # updates should not interfere (they're for remote mode).
+        if not self.monitors._use_inprocess:
+            self.monitor_bus.push(name, raw_data)
 
     # ==========================================================================
     # PUBLIC DELEGATION HELPERS

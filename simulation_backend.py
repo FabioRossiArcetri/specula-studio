@@ -566,9 +566,14 @@ class MonitorProbeObj:
                 "data":  arr,
                 "shape": list(arr.shape),
             }
+            
+            # FIX: Add diagnostic logging
+            print(f"[PROBE] {self.name}: Pushing {dtype_str} to topic '{self._topic}', shape={payload['shape']}")
+            
             self._bus.push(self._topic, payload)
-        except Exception:
-            pass  # never crash the simulation loop
+        except Exception as e:
+            print(f"[PROBE] {self.name}: Error in trigger: {e}")
+            traceback.print_exc()
 
     def post_trigger(self) -> None:
         self.inputs_changed = False
@@ -784,6 +789,7 @@ class InProcessBackend(SimulationBackend):
             if mod_name in sys.modules:
                 importlib.reload(sys.modules[mod_name])
 
+        # FIX: Import AFTER reloading modules, and IMMEDIATELY patch before using
         from specula.loop_control import LoopControl
         from specula.simul import Simul
 
@@ -802,30 +808,48 @@ class InProcessBackend(SimulationBackend):
         self._probe_queue = _pending_probes
         self._probe_state = _state
 
+        # Save original methods IMMEDIATELY after import
         original_run  = LoopControl.run
         original_iter = LoopControl.iter
+        original_simul_init = Simul.__init__
 
-        def _patched_run(lc_self, run_time, dt, t0=0, speed_report=False):
+        def _build_registry_from_lc(lc_self):
+            """Build the output registry from the LoopControl's trigger_lists."""
             registry: dict = {}
             for idx in sorted(lc_self.trigger_lists.keys()):
                 for obj in lc_self.trigger_lists[idx]:
                     obj_name = getattr(obj, "name", None)
                     if not obj_name:
                         continue
-                    for out_key, out_data_obj in getattr(obj, "outputs", {}).items():
+                    outputs = getattr(obj, "outputs", {})
+                    if not outputs:
+                        continue
+                    for out_key, out_data_obj in outputs.items():
                         topic = f"{obj_name}.{out_key}"
                         registry[topic] = (out_data_obj, out_key)
+            return registry
 
-            _state["registry"]     = registry
-            _state["loop_control"] = lc_self
-
-            probe_priority = (
-                max(lc_self.trigger_lists.keys()) + 1
-                if lc_self.trigger_lists else 0
-            )
+        def _inject_probes_for_subscriptions(lc_self, registry):
+            """Inject probes for all currently subscribed monitor topics."""
+            subscribed = monitor_bus.all_subscribed_outputs()
+            append_terminal(f"[In-Process] Subscribed topics: {subscribed}\n")
+            append_terminal(f"[In-Process] Available registry: {sorted(registry.keys())}\n")
+            
+            # FIX: Use a priority that WILL be executed
+            # Find the maximum priority in use
+            max_priority = max(lc_self.trigger_lists.keys()) if lc_self.trigger_lists else 0
+            probe_priority = max_priority + 1
+            
+            append_terminal(f"[In-Process] Using probe_priority={probe_priority}, trigger_lists keys={sorted(lc_self.trigger_lists.keys())}\n")
+            
+            # Ensure the priority list exists
+            if probe_priority not in lc_self.trigger_lists:
+                lc_self.trigger_lists[probe_priority] = []
+                append_terminal(f"[In-Process] Created new trigger_lists[{probe_priority}]\n")
+            
             _state["probe_priority"] = probe_priority
 
-            for topic in monitor_bus.all_subscribed_outputs():
+            for topic in subscribed:
                 entry = registry.get(topic)
                 if entry is not None and topic not in _active_probes:
                     source_obj, out_key = entry
@@ -834,33 +858,105 @@ class InProcessBackend(SimulationBackend):
                         source_data_obj=source_obj,
                         topic=topic,
                         monitor_bus=monitor_bus,
-                        output_name=out_key,   # Issue 10: pass hint
+                        output_name=out_key,
                     )
+                    
+                    # FIX: Call setup() on the probe before adding it
+                    try:
+                        probe.setup()
+                    except Exception as e:
+                        append_terminal(f"[In-Process] Warning: probe.setup() failed: {e}\n")
+                    
                     lc_self.trigger_lists[probe_priority].append(probe)
                     _active_probes[topic] = probe
-                    append_terminal(f"[In-Process] Probe injected for '{topic}'\n")
+                    append_terminal(f"[In-Process] ✓ Probe injected for '{topic}' at priority {probe_priority}\n")
                 elif entry is None:
                     append_terminal(
-                        f"[In-Process] Warning: topic '{topic}' not found in registry.\n"
+                        f"[In-Process] ✗ ERROR: topic '{topic}' NOT in registry\n"
+                        f"[In-Process]       Available: {sorted(registry.keys())}\n"
                     )
 
+        def _patched_simul_init(self, *args, **kwargs):
+            """FIX: Simul.__init__ - just call original, probes injected in iter."""
+            original_simul_init(self, *args, **kwargs)
+
+        def _patched_run(lc_self, run_time, dt, t0=0, speed_report=False):
+            """Run loop - probes will be injected on first iter() call."""
+            append_terminal(f"[In-Process] >>> LoopControl.run called, starting iterations\n")
             original_run(lc_self, run_time, dt, t0=t0, speed_report=speed_report)
 
+        def _build_registry_from_simul_objs(simul_obj):
+            """Build registry from Simul.objs dict instead of LoopControl.trigger_lists."""
+            registry: dict = {}
+            objs_dict = getattr(simul_obj, "objs", {})
+            append_terminal(f"[In-Process] >>> Building registry from Simul.objs ({len(objs_dict)} objects)\n")
+            
+            for obj_name, obj in objs_dict.items():
+                outputs = getattr(obj, "outputs", {})
+                if outputs:
+                    append_terminal(f"[In-Process]       - {obj_name}: {list(outputs.keys())}\n")
+                    for out_key, out_data_obj in outputs.items():
+                        topic = f"{obj_name}.{out_key}"
+                        registry[topic] = (out_data_obj, out_key)
+            
+            return registry
+
+        _probes_injected = [False]
+        _iter_count = [0]
+        _simul_obj = [None]
+
+        def _patched_simul_init(self, *args, **kwargs):
+            """FIX: Simul.__init__ - store reference to self in state for attach_probe."""
+            original_simul_init(self, *args, **kwargs)
+            _simul_obj[0] = self
+            _state["simul"] = self  # FIX: Store in state so attach_probe can access it
+
         def _patched_iter(lc_self) -> None:
+            """FIX: Inject probes after first iteration when Simul.objs is populated."""
+            _iter_count[0] += 1
+            
             if _abort_requested[0]:
                 raise KeyboardInterrupt("Simulation aborted by user")
+            
+            original_iter(lc_self)
+            
+            # After first iteration, build registry from Simul.objs
+            if not _probes_injected[0] and _iter_count[0] == 1:
+                simul = _simul_obj[0]
+                if simul is not None:
+                    append_terminal(f"[In-Process] >>> After first iteration - building registry from Simul.objs\n")
+                    
+                    # Build registry from Simul.objs
+                    registry = _build_registry_from_simul_objs(simul)
+                    append_terminal(f"[In-Process] >>> Built registry with {len(registry)} topics\n")
+                    _state["registry"] = registry
+                    _state["loop_control"] = lc_self
+                    
+                    # Inject probes for currently subscribed monitors
+                    _inject_probes_for_subscriptions(lc_self, registry)
+                    _probes_injected[0] = True
+            
+            # Drain pending probes (added via attach_probe)
             while _pending_probes:
                 try:
                     topic, probe = _pending_probes.popleft()
-                    probe.setup()
+                    try:
+                        probe.setup()
+                    except Exception as e:
+                        print(f"[In-Process] Warning: probe.setup() failed: {e}")
                     priority = _state.get("probe_priority", 99999)
                     lc_self.trigger_lists[priority].append(probe)
                     _active_probes[topic] = probe
+                    print(f"[PROBE] Probe for '{topic}' injected into trigger_lists[{priority}]")
                 except Exception as exc:
                     print(f"[In-Process] Dynamic probe injection error: {exc}")
-            original_iter(lc_self)
 
+        # FIX: PATCH IMMEDIATELY after defining the function
+        append_terminal(f"[In-Process] Patching Simul.__init__...\n")
+        Simul.__init__ = _patched_simul_init
+        append_terminal(f"[In-Process] Patching LoopControl.run...\n")
         LoopControl.run  = _patched_run
+        append_terminal(f"[In-Process] Patching LoopControl.iter...\n")
         LoopControl.iter = _patched_iter
 
         try:
@@ -876,6 +972,7 @@ class InProcessBackend(SimulationBackend):
                 append_terminal(f"[In-Process] Starting run {simul_idx + 1}/{nsimul} …\n")
 
                 try:
+                    append_terminal(f"[In-Process] Creating Simul object...\n")
                     Simul(yaml_path, simul_idx=simul_idx, stepping=stepping).run()
                 except KeyboardInterrupt:
                     if _abort_requested[0]:
@@ -892,24 +989,46 @@ class InProcessBackend(SimulationBackend):
                 finally:
                     self._cleanup_matplotlib()
         finally:
+            Simul.__init__ = original_simul_init
             LoopControl.run  = original_run
             LoopControl.iter = original_iter
 
     # ── Dynamic probe management ──────────────────────────────────────────────
 
     def attach_probe(self, topic: str, monitor_bus) -> "MonitorProbeObj | None":
+        """Attach a probe for a specific topic.
+        
+        FIX: Build registry on-demand from Simul.objs if not yet available.
+        """
         if not self._running or self._probe_state is None:
             return None
 
-        state  = self._probe_state
+        state = self._probe_state
         active = state.get("active_probes", {})
 
         existing = active.get(topic)
         if existing is not None and existing._enabled:
             return existing
 
-        entry = state.get("registry", {}).get(topic)
+        # Get or build registry
+        registry = state.get("registry", {})
+        if not registry:
+            # Registry not built yet - try to build from Simul object
+            simul = state.get("simul")
+            if simul is not None:
+                print(f"[In-Process] attach_probe: Building registry on-demand from Simul.objs")
+                objs_dict = getattr(simul, "objs", {})
+                for obj_name, obj in objs_dict.items():
+                    outputs = getattr(obj, "outputs", {})
+                    for out_key, out_data_obj in outputs.items():
+                        topic_key = f"{obj_name}.{out_key}"
+                        registry[topic_key] = (out_data_obj, out_key)
+                state["registry"] = registry
+                print(f"[In-Process] attach_probe: Built registry with {len(registry)} topics")
+
+        entry = registry.get(topic)
         if entry is None:
+            print(f"[In-Process] attach_probe: topic '{topic}' not found in registry")
             return None
 
         source_obj, out_key = entry
@@ -918,15 +1037,18 @@ class InProcessBackend(SimulationBackend):
             source_data_obj=source_obj,
             topic=topic,
             monitor_bus=monitor_bus,
-            output_name=out_key,   # Issue 10
+            output_name=out_key,
         )
 
+        # Queue for injection on next iteration
         if self._probe_queue is not None:
             self._probe_queue.append((topic, probe))
+            print(f"[In-Process] attach_probe: queued probe for '{topic}'")
 
         return probe
-
+    
     def detach_probe(self, probe: "MonitorProbeObj") -> None:
+        """Detach and disable a probe."""
         if probe is None:
             return
         probe.disable()

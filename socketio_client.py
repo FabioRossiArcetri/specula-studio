@@ -17,6 +17,12 @@ Responsibilities
   class-based matches are logged as warnings and skipped instead of silently
   picking the wrong node).
 - Route raw server events to owner-supplied callbacks.
+
+Changes vs. previous version
+-----------------------------
+* Heartbeat handler now refrains from triggering on_params callback when
+  the session ID matches, to avoid spurious rebinding in direct-mode runs
+  where Socket.IO is not the source of truth.
 """
 
 import os
@@ -219,9 +225,19 @@ class SocketIOClient:
 
         @self.sio.event
         def heartbeat(data):
-            """Server-side keepalive.  Confirms the connection is alive."""
+            """Server-side keepalive. Confirms the connection is alive.
+            
+            FIX: Only trigger get_params if the session ID changed. If it matches
+            or we haven't received params yet, don't spam the callback. This avoids
+            spurious on_server_params rebinding in direct-mode runs where Socket.IO
+            is not the authority on monitor topics.
+            """
             server_sid = data.get("session_id") if isinstance(data, dict) else None
-            if server_sid and server_sid != self.server_session_id:
+            if (
+                server_sid
+                and server_sid != self.server_session_id
+                and self.server_session_id is not None
+            ):
                 self._log(
                     f"Heartbeat from unexpected session {server_sid} "
                     f"(expected {self.server_session_id}) — reconnecting."
@@ -231,6 +247,9 @@ class SocketIOClient:
                     self.sio.emit("get_params")
                 except Exception:
                     pass
+            else:
+                if server_sid:
+                    self._log(f"Heartbeat OK (session {server_sid})")
 
         @self.sio.event
         def connect_error(data):
