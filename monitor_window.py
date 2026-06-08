@@ -47,6 +47,7 @@ from constants import (
     STREAM_STALL_TIMEOUT,
     MONITOR_DROP_LOG_INTERVAL,
 )
+from theme_manager import ThemeManager
 
 FONT_SIZE = 18
 
@@ -138,6 +139,9 @@ class StandaloneMonitor:
 
         # Mouse state
         self.mouse_down = False
+
+        # Theme manager
+        self.theme_manager = ThemeManager()
 
     # =========================================================================
     # Coordination file / URL resolution  (Issue 9)
@@ -392,6 +396,7 @@ class StandaloneMonitor:
                 dpg.bind_font(dpg.add_font(_FONT_PATH, FONT_SIZE))
 
         title = f"Monitor: {self.node_name}.{self.output_name}"
+        tm = self.theme_manager
 
         with dpg.window(
             label=title,
@@ -421,13 +426,16 @@ class StandaloneMonitor:
             with dpg.collapsing_header(label="Connection", default_open=False):
                 dpg.add_text(
                     f"Server:  {self.server_url}",
-                    color=[150, 150, 150],
+                    color=tm.get_color("text_hint"),
                     tag=self._TAG_URL_TXT,
                 )
-                dpg.add_text(f"Output:  {self.server_output_name}", color=[100, 255, 100])
+                dpg.add_text(
+                    f"Output:  {self.server_output_name}",
+                    color=tm.get_color("monitor_output_label"),
+                )
                 dpg.add_text(
                     "Status:  Connecting …",
-                    color=[255, 200, 0],
+                    color=tm.get_color("monitor_status_waiting"),
                     tag=self._TAG_STATUS,
                 )
                 dpg.add_button(
@@ -444,17 +452,33 @@ class StandaloneMonitor:
             ):
                 dpg.add_text(
                     "Waiting for data …",
-                    color=[150, 150, 150],
+                    color=tm.get_color("text_hint"),
                     tag=self._TAG_PHOLDER,
                 )
 
             dpg.add_separator()
 
             with dpg.group(horizontal=False):
-                dpg.add_text("Type:    —", color=[200, 200, 200], tag=self._TAG_INFO_TYPE)
-                dpg.add_text("Shape:   —", color=[200, 200, 200], tag=self._TAG_INFO_SHP)
-                dpg.add_text("Range:   —", color=[200, 200, 200], tag=self._TAG_INFO_RNG)
-                dpg.add_text("Updated: never", color=[200, 200, 200], tag=self._TAG_INFO_TIME)
+                dpg.add_text(
+                    "Type:    —",
+                    color=tm.get_color("text_secondary"),
+                    tag=self._TAG_INFO_TYPE,
+                )
+                dpg.add_text(
+                    "Shape:   —",
+                    color=tm.get_color("text_secondary"),
+                    tag=self._TAG_INFO_SHP,
+                )
+                dpg.add_text(
+                    "Range:   —",
+                    color=tm.get_color("text_secondary"),
+                    tag=self._TAG_INFO_RNG,
+                )
+                dpg.add_text(
+                    "Updated: never",
+                    color=tm.get_color("text_secondary"),
+                    tag=self._TAG_INFO_TIME,
+                )
 
         with dpg.handler_registry():
             dpg.add_mouse_move_handler(callback=self._on_mouse_move)
@@ -604,6 +628,7 @@ class StandaloneMonitor:
             else "N/A"
         )
         ts = time.strftime("%H:%M:%S")
+        tm = self.theme_manager
         for tag, text in (
             (self._TAG_INFO_TYPE, f"Type:    {dtype_str}"),
             (self._TAG_INFO_SHP,  f"Shape:   {shape_str}"),
@@ -612,27 +637,11 @@ class StandaloneMonitor:
         ):
             if dpg.does_item_exist(tag):
                 dpg.set_value(tag, text)
+                dpg.configure_item(tag, color=tm.get_color("text_secondary"))
 
     # =========================================================================
     # Per-frame work (main thread)  — back-pressure policy  (Issue 6)
     # =========================================================================
-
-    _STATUS_COLORS = {
-        "connected":    [0, 255, 0],
-        "subscribed":   [100, 255, 100],
-        "receiving":    [0, 200, 255],
-        "disconnected": [255, 80, 80],
-        "error":        [255, 80, 80],
-        "retrying":     [255, 180, 0],
-    }
-    _STATUS_LABELS = {
-        "connected":    "+ Connected",
-        "subscribed":   "> Subscribed",
-        "receiving":    "<> Receiving",
-        "disconnected": "- Disconnected",
-        "error":        "! Error",
-        "retrying":     "~ Retrying …",
-    }
 
     def _set_status(self, status: str):
         with self._status_lock:
@@ -646,8 +655,26 @@ class StandaloneMonitor:
             self._pending_url    = None
 
         if status and dpg.does_item_exist(self._TAG_STATUS):
-            label = self._STATUS_LABELS.get(status, status.capitalize())
-            color = self._STATUS_COLORS.get(status, [200, 200, 200])
+            tm = self.theme_manager
+            # Map status to color keys
+            color_keys = {
+                "connected":    "monitor_status_subscribed",   # actually green
+                "subscribed":   "monitor_status_subscribed",
+                "receiving":    "monitor_status_receiving",
+                "disconnected": "monitor_status_error",
+                "error":        "monitor_status_error",
+                "retrying":     "monitor_status_waiting",
+            }
+            label_map = {
+                "connected":    "+ Connected",
+                "subscribed":   "> Subscribed",
+                "receiving":    "<> Receiving",
+                "disconnected": "- Disconnected",
+                "error":        "! Error",
+                "retrying":     "~ Retrying …",
+            }
+            label = label_map.get(status, status.capitalize())
+            color = tm.get_color(color_keys.get(status, "text_secondary"))
             dpg.set_value(self._TAG_STATUS, f"Status:  {label}")
             dpg.configure_item(self._TAG_STATUS, color=color)
 

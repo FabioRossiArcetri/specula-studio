@@ -1,4 +1,5 @@
 import dearpygui.dearpygui as dpg
+from theme_manager import ThemeManager
 import json
 import os
 import pathlib
@@ -93,6 +94,41 @@ class SpeculaEditor:
         self._setup_custom_handlers()
 
     # ── Settings persistence ──────────────────────────────────────────────────
+
+
+    def on_theme_changed(self, sender, app_data):
+        theme_name = app_data
+        self.theme_manager.save_preference(theme_name)
+
+        # Rebuild all nodes from scratch – this re‑applies all node colours
+        self.nm.rebuild_all_nodes_ui()
+
+        # Refresh static UI elements that are not part of the node graph
+        if dpg.does_item_exist("status_bar_text"):
+            dpg.configure_item("status_bar_text", color=self.theme_manager.get_color("status_text"))
+
+        # Refresh property panel if visible
+        if dpg.does_item_exist("property_panel") and dpg.is_item_visible("property_panel"):
+            selected = self.nm.get_selected_nodes()
+            if len(selected) == 1:
+                self.nm.update_property_panel(selected[0], "property_panel")
+            elif self.nm._selected_link_id is not None:
+                self.nm.update_connection_panel(self.nm._selected_link_id, "property_panel")
+
+        # Recreate simulation control window if open
+        if dpg.does_item_exist("sim_control_window"):
+            was_open = dpg.is_item_visible("sim_control_window")
+            if was_open:
+                dpg.delete_item("sim_control_window")
+                self.sim_control.show_control_window()
+
+        # Close preferences dialog (it will be recreated on next open)
+        if dpg.does_item_exist("pref_window"):
+            dpg.delete_item("pref_window")
+
+        # Force a redraw
+        dpg.split_frame()
+
 
     def _load_settings(self):
         """Load preferences from the JSON settings file (if it exists)."""
@@ -427,7 +463,7 @@ class SpeculaEditor:
         ):
             dpg.add_text(
                 "Select items from the lists, use the arrows to stage them, then click Confirm.",
-                color=[180, 180, 180],
+                color=self.theme_manager.get_color("text_instruction"),
             )
             dpg.add_separator()
             dpg.add_spacer(height=4)
@@ -451,7 +487,10 @@ class SpeculaEditor:
                     dpg.add_button(label="← Remove",  width=70, callback=self._mo_remove)
                 dpg.add_spacer(width=8)
                 with dpg.group(width=COL_W):
-                    dpg.add_text("Staged to Add", color=[150, 255, 150])
+                    dpg.add_text(
+                        "Staged to Add",
+                        color=self.theme_manager.get_color("text_success")
+                    )
                     dpg.add_listbox(items=[], tag="_mo_staged_listbox", num_items=16, width=COL_W)
             dpg.add_spacer(height=8)
             dpg.add_separator()
@@ -461,7 +500,7 @@ class SpeculaEditor:
                 dpg.add_spacer(width=8)
                 dpg.add_button(label="Cancel", width=100, callback=self._mo_cancel)
                 dpg.add_spacer(width=20)
-                dpg.add_text("", tag="_mo_status_text", color=[200, 200, 100])
+                dpg.add_text("", tag="_mo_status_text", color=self.theme_manager.get_color("text_hint"))
 
     def _show_add_multiple_dialog(self):
         self._multi_add_queue.clear()
@@ -579,12 +618,25 @@ class SpeculaEditor:
             label="Preferences", tag="preferences_dialog",
             modal=True, show=False, width=540, height=650, no_resize=True
         ):
-            dpg.add_text("Preferences", color=[200, 200, 100])
+            dpg.add_text("Preferences", color=self.theme_manager.get_color("dialog_title"))
+            dpg.add_separator()
+            dpg.add_spacer(height=12)
+
+            dpg.add_text("Appearance")
+            current = self.theme_manager.current_theme.name
+            dpg.add_radio_button(
+                label="Theme",
+                items=["dark", "light"],
+                default_value=current,
+                tag="theme_radio",
+                callback=self.on_theme_changed
+            )
+
             dpg.add_separator()
             dpg.add_spacer(height=12)
 
             # ── Render Size ───────────────────────────────────────────────────
-            dpg.add_text("Render Size", color=[100, 200, 255])
+            dpg.add_text("Render Size", color=self.theme_manager.get_color("section_header"))
             dpg.add_radio_button(
                 items=render_scale.RENDER_SIZES,
                 tag="pref_render_size_radio",
@@ -596,7 +648,7 @@ class SpeculaEditor:
                 "Controls font size and node dimensions.\n"
                 "MICRO, SMALL,  MEDIUM, LARGE .\n"
                 "All text and nodes are updated immediately.",
-                color=[150, 150, 150],
+                color=self.theme_manager.get_color("text_hint"),
                 wrap=490,
             )
 
@@ -605,9 +657,13 @@ class SpeculaEditor:
             dpg.add_spacer(height=12)
 
             # ── Font Selection ────────────────────────────────────────────────
-            dpg.add_text("Font", color=[100, 200, 255])
+            dpg.add_text("Font", color=self.theme_manager.get_color("section_header"))
             font_name = pathlib.Path(self.preferences['font_path']).name
-            dpg.add_text(f"Selected: {font_name}", tag="pref_font_path_text", color=[150, 200, 150])
+            dpg.add_text(
+                f"Selected: {font_name}",
+                tag="pref_font_path_text",
+                color=self.theme_manager.get_color("font_selected_text")
+            )
             dpg.add_button(
                 label="Browse Fonts",
                 width=-1,
@@ -616,7 +672,7 @@ class SpeculaEditor:
             dpg.add_text(
                 "Select a TrueType font (.ttf) from the matplotlib font directory.\n"
                 "The GUI will refresh with the new font.",
-                color=[150, 150, 150],
+                color=self.theme_manager.get_color("text_hint"),
                 wrap=490,
             )
 
@@ -635,7 +691,8 @@ class SpeculaEditor:
                 dpg.add_text(
                     "When enabled, newly added nodes with SimulParams reference\n"
                     "will automatically connect to the existing SimulParams node.",
-                    color=[150, 150, 150], wrap=490,
+                    color=self.theme_manager.get_color("text_hint"),
+                    wrap=490,
                 )
             
             dpg.add_spacer(height=16)
@@ -653,15 +710,19 @@ class SpeculaEditor:
                 dpg.add_text(
                     "When enabled, default parameter values will be included\n"
                     "when saving simulations.",
-                    color=[150, 150, 150], wrap=490,
+                    color=self.theme_manager.get_color("text_hint"),
+                    wrap=490,
                 )
             
             dpg.add_spacer(height=20)
             dpg.add_separator()
             dpg.add_spacer(height=8)
             with dpg.group(horizontal=True):
-                dpg.add_button(label="Close", width=100,
-                               callback=lambda: dpg.hide_item("preferences_dialog"))
+                dpg.add_button(
+                    label="Close",
+                    width=100,
+                    callback=lambda: dpg.hide_item("preferences_dialog")
+                )
 
     # ── Preference callbacks ──────────────────────────────────────────────────
     
@@ -782,6 +843,8 @@ class SpeculaEditor:
 
         dpg_utils.set_zebra_theme()
         self.nm.init_themes()
+        self.theme_manager = ThemeManager()
+        self.theme_manager.apply_theme()
 
         self._font_handle = None
         font_path = self.preferences['font_path']
@@ -867,14 +930,21 @@ class SpeculaEditor:
                         with dpg.node_editor(
                             tag="specula_editor",
                             callback=self.nm.link_callback,
-                            delink_callback=self.nm.delink_callback,
+                            delink_callback=self.nm.delink_callback,                            
                             minimap=True
                         ):
-                            pass
+                            pass                
+
                     with dpg.child_window(width=0, tag="property_panel", border=True, show=False):
-                        pass
+                        pass                                
+
                 with dpg.child_window(height=30, tag="status_bar", border=False):
-                    dpg.add_text("Simulation: (Unsaved)", tag="status_bar_text", color=(180, 180, 180))
+                    dpg.add_text(
+                        "Simulation: (Unsaved)",
+                        tag="status_bar_text",
+                        color=self.theme_manager.get_color("status_text")
+                    )
+                    
             
         with dpg.handler_registry():
             dpg.add_key_press_handler(callback=self._on_key_press)
@@ -882,8 +952,9 @@ class SpeculaEditor:
         viewport_id = dpg.create_viewport(title="SPECULA Node Editor", width=1600, height=900)
         dpg.set_viewport_resize_callback(self._resize_callback)
 
-        self.setup_dialogs()
-        
+        self.setup_dialogs()                                        
+
+
         # Initialize the recent files menu
         self._refresh_recent_files_menu()
         
@@ -929,7 +1000,10 @@ class SpeculaEditor:
         with dpg.window(label="Confirm Exit", tag="exit_confirmation_dialog",
                         modal=True, show=False, width=450, height=180, no_resize=True):
             dpg.add_text("Are you sure you want to exit?")
-            dpg.add_text("Would you like to save your current simulation before exiting?", color=[180, 180, 180])
+            dpg.add_text(
+                "Would you like to save your current simulation before exiting?",
+                color=self.theme_manager.get_color("text_muted")
+            )
             dpg.add_spacer()
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Save and Exit",      width=140, callback=self._on_exit_save_and_confirm)
@@ -940,8 +1014,10 @@ class SpeculaEditor:
         with dpg.window(label="Create New Simulation?", tag="new_simulation_confirmation_dialog",
                         modal=True, show=False, width=450, height=180, no_resize=True):
             dpg.add_text("Create a new simulation?")
-            dpg.add_text("Your current simulation will be cleared. Would you like to save it first?",
-                         color=[180, 180, 180])
+            dpg.add_text(
+                "Your current simulation will be cleared. Would you like to save it first?",
+                color=self.theme_manager.get_color("text_muted")
+            )
             dpg.add_spacer()
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Save and Continue", width=140, callback=self._on_new_simulation_save_and_proceed)
@@ -1205,8 +1281,10 @@ class SpeculaEditor:
             height=min(120 + len(overrides) * 36, 500),
             no_resize=False,
         ):
-            dpg.add_text("Click a button to remove that override file:",
-                         color=[200, 200, 100])
+            dpg.add_text(
+                "Click a button to remove that override file:",
+                color=self.theme_manager.get_color("dialog_title")
+            )
             dpg.add_separator()
             dpg.add_spacer(height=4)
 
@@ -1214,14 +1292,16 @@ class SpeculaEditor:
                 is_enabled = self.override_manager.is_enabled(path)
                 state_badge = "ON " if is_enabled else "OFF"
                 btn_label   = f"[{state_badge}]  Remove: {pathlib.Path(path).name}"
-                color       = [100, 220, 100] if is_enabled else [180, 180, 180]
+                # Text colour is handled by the theme below
                 dpg.add_button(
                     label=btn_label,
                     width=-1,
                     callback=lambda s, a, p=path: self._on_remove_override(p),
                 )
+                # Set text colour for the button: green if enabled, otherwise muted
+                btn_color = self.theme_manager.get_color("text_success") if is_enabled else self.theme_manager.get_color("text_muted")
                 dpg.bind_item_theme(dpg.last_item(),
-                                    self._make_text_color_theme(color))
+                                    self._make_text_color_theme(btn_color))
 
             dpg.add_spacer(height=6)
             dpg.add_separator()
@@ -1302,12 +1382,21 @@ class SpeculaEditor:
             label="About SPECULA Studio", tag=tag,
             modal=True, show=True, width=440, height=200, no_resize=True,
         ):
-            dpg.add_text("SPECULA Studio", color=[100, 200, 255])
-            dpg.add_text("Visual node editor for the SPECULA AO simulation framework.",
-                         color=[200, 200, 200], wrap=400)
+            dpg.add_text(
+                "SPECULA Studio",
+                color=self.theme_manager.get_color("accent")
+            )
+            dpg.add_text(
+                "Visual node editor for the SPECULA AO simulation framework.",
+                color=self.theme_manager.get_color("text_secondary"),
+                wrap=400
+            )
             dpg.add_spacer(height=8)
-            dpg.add_text("Documentation is extracted live from the installed SPECULA package.",
-                         color=[150, 150, 150], wrap=400)
+            dpg.add_text(
+                "Documentation is extracted live from the installed SPECULA package.",
+                color=self.theme_manager.get_color("text_hint"),
+                wrap=400
+            )
             dpg.add_spacer(height=12)
             dpg.add_button(
                 label="Close", width=-1,
@@ -1338,5 +1427,3 @@ class SpeculaEditor:
 if __name__ == "__main__":
     editor = SpeculaEditor(yaml_folder="specula_yaml_docs") 
     editor.run()
-
-

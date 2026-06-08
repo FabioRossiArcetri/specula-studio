@@ -9,6 +9,7 @@ import dearpygui.dearpygui as dpg
 import yaml
 
 from simulation_backend import RemoteBackend, InProcessBackend, SimulationBackend
+from theme_manager import ThemeManager
 
 _DISPLAY_SERVER_PORT      = 5000
 _DISPLAY_SERVER_NODE_NAME = "specula_studio_display_server"
@@ -48,6 +49,7 @@ class SimulationControl:
             "specula_studio_server.json",
         )
         self._clear_server_url_file()
+        self.theme_manager = ThemeManager()
 
     # ── Coordination file ─────────────────────────────────────────────────────
 
@@ -141,6 +143,8 @@ class SimulationControl:
             dpg.focus_item("sim_control_window")
             return
 
+        tm = self.theme_manager
+
         with dpg.window(
             label="Simulation Control Panel",
             tag="sim_control_window",
@@ -148,7 +152,10 @@ class SimulationControl:
         ):
             with dpg.group(horizontal=True):
                 with dpg.child_window(width=500):
-                    dpg.add_text("Backend Mode", color=[255, 200, 100])
+                    dpg.add_text(
+                        "Backend Mode",
+                        color=tm.get_color("control_section_header"),
+                    )
                     dpg.add_combo(
                         label="Execution Mode",
                         items=["Remote", "In-Process"],
@@ -158,7 +165,7 @@ class SimulationControl:
                     )
                     dpg.add_text(
                         "Remote Server Configuration",
-                        color=[100, 200, 255],
+                        color=tm.get_color("control_subsection_header"),
                         tag="sim_remote_settings_label",
                     )
                     dpg.add_input_text(
@@ -171,7 +178,10 @@ class SimulationControl:
                         default_value="", hint="Leave empty to use current user", width=-1,
                     )
                     dpg.add_separator()
-                    dpg.add_text("Simulation Arguments", color=[100, 200, 255])
+                    dpg.add_text(
+                        "Simulation Arguments",
+                        color=tm.get_color("control_subsection_header"),
+                    )
                     dpg.add_input_int(label="N-Simul", tag="sim_nsimul", default_value=1, min_value=1)
                     dpg.add_checkbox(label="Use CPU", tag="sim_cpu")
                     dpg.add_input_int(label="GPU ID", tag="sim_target", default_value=0)
@@ -208,7 +218,10 @@ class SimulationControl:
                     )
 
                 with dpg.child_window(width=-1, tag="sim_terminal_child", border=True):
-                    dpg.add_text("Terminal Output", color=[150, 150, 150])
+                    dpg.add_text(
+                        "Terminal Output",
+                        color=tm.get_color("control_terminal_title"),
+                    )
                     dpg.add_input_text(
                         tag="sim_terminal", multiline=True,
                         readonly=True, width=-1, height=-1,

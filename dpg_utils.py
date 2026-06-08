@@ -1,43 +1,48 @@
 import dearpygui.dearpygui as dpg
 from collections import deque
 import render_scale
+from theme_manager import ThemeManager
 
 
 def create_node_theme(
-    node_background,
-    node_outline,
-    node_background_selected=None,
-    title_bar=None,
-    title_bar_hovered=None,
-    title_bar_selected=None,
-    pin=None,
-    pin_hovered=None,
-    text=None,
+    node_background_key,
+    node_outline_key,
+    node_background_selected_key=None,
+    title_bar_key=None,
+    title_bar_hovered_key=None,
+    title_bar_selected_key=None,
+    pin_key=None,
+    pin_hovered_key=None,
+    text_key=None,
     use_category: bool = False,
     border_thickness: float = None,
 ):
     """
     Generic node theme factory.
 
+    All color parameters are **keys** into the ThemeManager.
+    The actual RGBA values are fetched from the current theme at runtime.
+
     Set use_category=True to pass category=dpg.mvThemeCat_Nodes on every
     color call (required by the "complete" data/proc themes).
-    Components for pins and text are only emitted when their colors are given.
+    Components for pins and text are only emitted when their keys are given.
     border_thickness, when provided, sets mvNodeStyleVar_NodeBorderThickness.
     """
+    tm = ThemeManager()
     ckw = {"category": dpg.mvThemeCat_Nodes} if use_category else {}
 
     with dpg.theme() as theme:
         with dpg.theme_component(dpg.mvNode):
-            if title_bar is not None:
-                dpg.add_theme_color(dpg.mvNodeCol_TitleBar, title_bar, **ckw)
-            if title_bar_hovered is not None:
-                dpg.add_theme_color(dpg.mvNodeCol_TitleBarHovered, title_bar_hovered, **ckw)
-            if title_bar_selected is not None:
-                dpg.add_theme_color(dpg.mvNodeCol_TitleBarSelected, title_bar_selected, **ckw)
-            dpg.add_theme_color(dpg.mvNodeCol_NodeBackground, node_background, **ckw)
-            if node_background_selected is not None:
-                dpg.add_theme_color(dpg.mvNodeCol_NodeBackgroundSelected, node_background_selected, **ckw)
-            dpg.add_theme_color(dpg.mvNodeCol_NodeOutline, node_outline, **ckw)
+            if title_bar_key is not None:
+                dpg.add_theme_color(dpg.mvNodeCol_TitleBar, tm.get_color(title_bar_key), **ckw)
+            if title_bar_hovered_key is not None:
+                dpg.add_theme_color(dpg.mvNodeCol_TitleBarHovered, tm.get_color(title_bar_hovered_key), **ckw)
+            if title_bar_selected_key is not None:
+                dpg.add_theme_color(dpg.mvNodeCol_TitleBarSelected, tm.get_color(title_bar_selected_key), **ckw)
+            dpg.add_theme_color(dpg.mvNodeCol_NodeBackground, tm.get_color(node_background_key), **ckw)
+            if node_background_selected_key is not None:
+                dpg.add_theme_color(dpg.mvNodeCol_NodeBackgroundSelected, tm.get_color(node_background_selected_key), **ckw)
+            dpg.add_theme_color(dpg.mvNodeCol_NodeOutline, tm.get_color(node_outline_key), **ckw)
             if border_thickness is not None:
                 dpg.add_theme_style(
                     dpg.mvNodeStyleVar_NodeBorderThickness,
@@ -45,65 +50,63 @@ def create_node_theme(
                     category=dpg.mvThemeCat_Nodes,
                 )
 
-        if pin is not None or pin_hovered is not None:
+        if pin_key is not None or pin_hovered_key is not None:
             with dpg.theme_component(dpg.mvNodeAttribute):
-                if pin is not None:
-                    dpg.add_theme_color(dpg.mvNodeCol_Pin, pin, **ckw)
-                if pin_hovered is not None:
-                    dpg.add_theme_color(dpg.mvNodeCol_PinHovered, pin_hovered, **ckw)
+                if pin_key is not None:
+                    dpg.add_theme_color(dpg.mvNodeCol_Pin, tm.get_color(pin_key), **ckw)
+                if pin_hovered_key is not None:
+                    dpg.add_theme_color(dpg.mvNodeCol_PinHovered, tm.get_color(pin_hovered_key), **ckw)
 
-        if text is not None:
+        if text_key is not None:
             with dpg.theme_component(dpg.mvText):
-                dpg.add_theme_color(dpg.mvThemeCol_Text, text, **ckw)
+                dpg.add_theme_color(dpg.mvThemeCol_Text, tm.get_color(text_key), **ckw)
 
     return theme
 
 
 def create_data_node_theme():
-    """Grey background, orange selection — complete data nodes."""
+    """Data node theme – complete (green/grey)."""
     return create_node_theme(
-        node_background          = [60,  60,  60],
-        node_background_selected = [155, 70,   0],
-        node_outline             = [80,  80,  80],
-        use_category             = True,
+        node_background_key          = "node_data_bg",
+        node_background_selected_key = "node_data_selected",
+        node_outline_key             = "node_data_outline",
+        use_category                 = True,
     )
 
 
 def create_proc_node_theme():
-    """Blue background, green selection — complete processing nodes."""
+    """Processing node theme – complete (blue/green)."""
     return create_node_theme(
-        node_background          = [40,  60,  90],
-        node_background_selected = [50, 105,  50],
-        node_outline             = [60,  90, 120],
-        use_category             = True,
+        node_background_key          = "node_proc_bg",
+        node_background_selected_key = "node_proc_selected",
+        node_outline_key             = "node_proc_outline",
+        use_category                 = True,
     )
 
 
 def create_data_node_theme_incomplete():
     """
-    Identical to the complete data theme but with a red 2 px border.
-    No title-bar or text colour change — the only visual cue is the outline.
+    Incomplete data node theme – same as complete but with a red 2 px border.
     """
     return create_node_theme(
-        node_background          = [60,  60,  60],
-        node_background_selected = [155, 70,   0],
-        node_outline             = [220, 50,  50, 255],
-        border_thickness         = 2.0,
-        use_category             = True,
+        node_background_key          = "node_data_bg",
+        node_background_selected_key = "node_data_selected",
+        node_outline_key             = "node_incomplete_outline",
+        border_thickness             = 2.0,
+        use_category                 = True,
     )
 
 
 def create_proc_node_theme_incomplete():
     """
-    Identical to the complete proc theme but with a red 2 px border.
-    No title-bar or text colour change — the only visual cue is the outline.
+    Incomplete processing node theme – same as complete but with a red 2 px border.
     """
     return create_node_theme(
-        node_background          = [40,  60,  90],
-        node_background_selected = [50, 105,  50],
-        node_outline             = [220, 50,  50, 255],
-        border_thickness         = 2.0,
-        use_category             = True,
+        node_background_key          = "node_proc_bg",
+        node_background_selected_key = "node_proc_selected",
+        node_outline_key             = "node_incomplete_outline",
+        border_thickness             = 2.0,
+        use_category                 = True,
     )
 
 
@@ -118,12 +121,13 @@ def apply_link_style(link_id: int, color: list, thickness: float = 1.0) -> None:
 
 
 def set_zebra_theme():
-    """Fixes the file dialog alternating row colors."""
+    """Apply a zebra-stripe theme for tables (file dialogs, property tables)."""
+    tm = ThemeManager()
     with dpg.theme() as global_theme:
         with dpg.theme_component(dpg.mvAll):
-            dpg.add_theme_color(dpg.mvThemeCol_TableRowBg,    [45, 45, 45, 255])
-            dpg.add_theme_color(dpg.mvThemeCol_TableRowBgAlt, [45, 45, 45, 255])
-            dpg.add_theme_color(dpg.mvThemeCol_TableHeaderBg, [60, 60, 60, 255])
+            dpg.add_theme_color(dpg.mvThemeCol_TableRowBg,    tm.get_color("table_row_bg"),    category=dpg.mvThemeCat_Core)
+            dpg.add_theme_color(dpg.mvThemeCol_TableRowBgAlt, tm.get_color("table_row_bg_alt"), category=dpg.mvThemeCat_Core)
+            dpg.add_theme_color(dpg.mvThemeCol_TableHeaderBg, tm.get_color("table_header_bg"),  category=dpg.mvThemeCat_Core)            
     dpg.bind_theme(global_theme)
 
 

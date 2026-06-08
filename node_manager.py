@@ -40,6 +40,7 @@ from socketio_client import SocketIOClient
 from monitor_bus import MonitorBus
 from monitor_manager import MonitorManager
 from property_panel import PropertyPanel
+from theme_manager import ThemeManager
 
 # ── Documentation / class introspection (graceful fallback) ───────────────────
 try:
@@ -49,7 +50,8 @@ except ImportError:
     _HELP_PROVIDER_OK = False
     def _is_input_optional(class_name, input_name):
         return False   # conservative: treat everything as required
-    
+
+
 class NodeManager:
     """
     Orchestrates the DPG node editor and its supporting sub-components.
@@ -133,6 +135,9 @@ class NodeManager:
         self._MOUSE_MOVE_INTERVAL: float  = 0.05   # 50 ms → ≤20 checks/s
 
         self.editor = None
+
+        # ===== 9. THEME MANAGER =====
+        self.theme_manager = ThemeManager()
 
     # ==========================================================================
     # LOGGING
@@ -473,6 +478,7 @@ class NodeManager:
         final_pos = pos if pos else [100, 100]
 
         header_spacer_w = render_scale.node_header_spacer_width()
+        tm = self.theme_manager
 
         with dpg.node(label=node_name, parent="specula_editor") as dpg_id:
             self.node_item_registry[node_uuid] = dpg_id
@@ -482,7 +488,10 @@ class NodeManager:
 
             # Static header
             with dpg.node_attribute(attribute_type=dpg.mvNode_Attr_Static):
-                dpg.add_text(f"Class: {node_type}", color=[130, 130, 130])
+                dpg.add_text(
+                    f"Class: {node_type}",
+                    color=tm.get_color("node_class_label")
+                )
                 dpg.add_spacer(width=header_spacer_w)
 
             # Reference parameter inputs
@@ -497,7 +506,10 @@ class NodeManager:
                         shape=REF_SHAPE_EMPTY,
                         show=pin_show,
                     ) as attr_id:
-                        dpg.add_text(display_name, color=[150, 255, 150])
+                        dpg.add_text(
+                            display_name,
+                            color=tm.get_color("node_ref_input_label")
+                        )
                         self.input_attr_registry[attr_id] = (node_uuid, display_name)
 
             # Standard inputs (non-reference)
@@ -514,7 +526,10 @@ class NodeManager:
                     attribute_type=dpg.mvNode_Attr_Input, shape=pin_shape
                 ) as attr_id:
                     label = f"{in_attr} [*]" if kind == "variadic" else in_attr
-                    dpg.add_text(label, color=[255, 255, 255])
+                    dpg.add_text(
+                        label,
+                        color=tm.get_color("node_input_label")
+                    )
                     self.input_attr_registry[attr_id] = (node_uuid, in_attr)
 
             # Outputs
@@ -538,6 +553,7 @@ class NodeManager:
         """
         output_spacer_w = render_scale.node_output_spacer_width()
         is_data_obj     = self._is_data_obj_node(node_type)
+        tm = self.theme_manager
 
         if node_type == "SimulParams":
             with dpg.node_attribute(
@@ -545,7 +561,7 @@ class NodeManager:
             ) as attr_id:
                 with dpg.group(horizontal=True):
                     dpg.add_spacer(width=output_spacer_w)
-                    dpg.add_text("ref", color=[150, 150, 150])
+                    dpg.add_text("ref", color=tm.get_color("node_hint_text"))
                 self.output_attr_registry[attr_id] = (node_uuid, "ref")
             return
 
@@ -591,7 +607,7 @@ class NodeManager:
             ) as attr_id:
                 with dpg.group(horizontal=True):
                     dpg.add_spacer(width=output_spacer_w)
-                    dpg.add_text(display_label)
+                    dpg.add_text(display_label, color=tm.get_color("node_output_label"))
                 self.output_attr_registry[attr_id] = (node_uuid, out_name)
 
         # ── ref output pin for ALL BaseDataObj nodes ──────────────────────────
@@ -607,7 +623,10 @@ class NodeManager:
                 ) as attr_id:
                     with dpg.group(horizontal=True):
                         dpg.add_spacer(width=output_spacer_w)
-                        dpg.add_text("ref", color=[100, 200, 255])
+                        dpg.add_text(
+                            "ref",
+                            color=tm.get_color("node_data_obj_ref_output")
+                        )
                     self.output_attr_registry[attr_id] = (node_uuid, "ref")
 
     def _extract_output_name(self, output):
@@ -618,10 +637,14 @@ class NodeManager:
         return None
 
     def _add_atmo_source_input(self, dpg_id, node_uuid: str):
+        tm = self.theme_manager
         with dpg.node_attribute(
             attribute_type=dpg.mvNode_Attr_Input, parent=dpg_id, shape=REF_SHAPE_EMPTY
         ) as attr_id:
-            dpg.add_text("source_dict_ref", color=[150, 255, 150])
+            dpg.add_text(
+                "source_dict_ref",
+                color=tm.get_color("node_ref_input_label")
+            )
             self.input_attr_registry[attr_id] = (node_uuid, "source_dict_ref")
             self._log(f"Added source_dict_ref input to AtmoPropagation node {node_uuid}")
 
@@ -644,6 +667,7 @@ class NodeManager:
         self._refresh_node_theme(node_uuid)
 
         output_spacer_w = render_scale.node_output_spacer_width()
+        tm = self.theme_manager
         with dpg.node_attribute(
             attribute_type=dpg.mvNode_Attr_Output,
             shape=DATA_SHAPE_EMPTY,
@@ -651,7 +675,10 @@ class NodeManager:
         ) as attr_id:
             with dpg.group(horizontal=True):
                 dpg.add_spacer(width=output_spacer_w)
-                dpg.add_text(new_output, color=[100, 255, 255])
+                dpg.add_text(
+                    new_output,
+                    color=tm.get_color("node_dynamic_output_label")
+                )
             self.output_attr_registry[attr_id] = (node_uuid, new_output)
             self._log(f"Created dynamic output '{new_output}'")
 
@@ -770,10 +797,11 @@ class NodeManager:
                 dst_node["values"][in_name] = src_name
                 self._log(f"Set reference parameter {in_name} = {src_name}")
 
+        tm = self.theme_manager
         if is_feedback:
-            apply_link_style(link_id, color=[255, 0, 0, 255])
+            apply_link_style(link_id, color=tm.get_color("node_feedback_link_color"))
         elif is_ref_connection:
-            apply_link_style(link_id, color=[200, 200, 200, 60])
+            apply_link_style(link_id, color=tm.get_color("node_ref_link_color"))
 
         if self._last_selected_uuid == in_node_uuid:
             self.update_property_panel(in_node_uuid, "property_panel")
@@ -956,16 +984,19 @@ class NodeManager:
         )
 
         output_spacer_w = render_scale.node_output_spacer_width()
+        tm = self.theme_manager
 
         if src_id is None:
             parent = self.uuid_to_dpg.get(src_uuid)
             if parent:
                 is_ref_link = dst_attr.endswith("_ref") or "params" in dst_attr.lower()
                 shape = REF_SHAPE_EMPTY if is_ref_link else DATA_SHAPE_EMPTY
-                color = (
-                    [255, 100, 100] if is_feedback
-                    else ([150, 150, 150] if is_ref_link else [255, 255, 255])
-                )
+                if is_feedback:
+                    color = tm.get_color("node_feedback_link_color")
+                elif is_ref_link:
+                    color = tm.get_color("node_ref_input_label")  # use same as ref input label
+                else:
+                    color = tm.get_color("node_output_label")
 
                 with dpg.node_attribute(
                     attribute_type=dpg.mvNode_Attr_Output, parent=parent, shape=shape
@@ -1001,7 +1032,10 @@ class NodeManager:
                 with dpg.node_attribute(
                     attribute_type=dpg.mvNode_Attr_Input, parent=parent, shape=pin_shape
                 ) as new_id:
-                    dpg.add_text(dst_attr, color=[150, 255, 150])
+                    dpg.add_text(
+                        dst_attr,
+                        color=tm.get_color("node_ref_input_label")
+                    )
                     self.input_attr_registry[new_id] = (dst_uuid, dst_attr)
                     dst_id = new_id
 
@@ -1009,9 +1043,9 @@ class NodeManager:
             link_id = dpg.add_node_link(src_id, dst_id, parent="specula_editor")
 
             if is_feedback:
-                apply_link_style(link_id, color=[255, 0, 0, 255])
+                apply_link_style(link_id, color=tm.get_color("node_feedback_link_color"))
             elif dst_attr.endswith("_ref") or "params" in dst_attr.lower():
-                apply_link_style(link_id, color=[200, 200, 200, 60])
+                apply_link_style(link_id, color=tm.get_color("node_ref_link_color"))
 
             self.link_registry[link_id] = (src_uuid, base_src_attr, dst_uuid, dst_attr)
             self.graph.add_connection(
@@ -1144,10 +1178,11 @@ class NodeManager:
             return
         if link_id in self.link_registry:
             src_uuid, src_attr, dst_uuid, dst_attr = self.link_registry[link_id]
+            tm = self.theme_manager
             if dst_attr.endswith("_ref") or "params" in dst_attr.lower():
-                apply_link_style(link_id, color=[200, 200, 200, 60])
+                apply_link_style(link_id, color=tm.get_color("node_ref_link_color"))
             elif ":-" in str(src_attr):
-                apply_link_style(link_id, color=[255, 0, 0, 255])
+                apply_link_style(link_id, color=tm.get_color("node_feedback_link_color"))
             else:
                 dpg.configure_item(link_id)
 
@@ -1260,11 +1295,15 @@ class NodeManager:
     def add_dynamic_io(self, node_uuid: str):
         parent = self.uuid_to_dpg[node_uuid]
         output_spacer_w = render_scale.node_output_spacer_width()
+        tm = self.theme_manager
 
         with dpg.node_attribute(
             attribute_type=dpg.mvNode_Attr_Input, parent=parent, shape=REF_SHAPE_EMPTY
         ) as attr_id:
-            dpg.add_text("source_dict_ref", color=[150, 255, 150])
+            dpg.add_text(
+                "source_dict_ref",
+                color=tm.get_color("node_ref_input_label")
+            )
             self.input_attr_registry[attr_id] = (node_uuid, "source_dict_ref")
 
         with dpg.node_attribute(
@@ -1272,17 +1311,31 @@ class NodeManager:
         ) as attr_id:
             with dpg.group(horizontal=True):
                 dpg.add_spacer(width=output_spacer_w)
-                dpg.add_text("output", color=[255, 200, 100])
+                dpg.add_text(
+                    "output",
+                    color=tm.get_color("node_io_output_label")
+                )
             self.output_attr_registry[attr_id] = (node_uuid, "output")
 
     def add_data_output(self, node_uuid: str):
         parent = self.uuid_to_dpg[node_uuid]
         output_spacer_w = render_scale.node_output_spacer_width()
+        tm = self.theme_manager
 
         with dpg.node_attribute(
             attribute_type=dpg.mvNode_Attr_Output, parent=parent
         ) as attr_id:
             with dpg.group(horizontal=True):
                 dpg.add_spacer(width=output_spacer_w)
-                dpg.add_text("Output: ref")
+                dpg.add_text(
+                    "Output: ref",
+                    color=tm.get_color("node_hint_text")
+                )
             self.output_attr_registry[attr_id] = (node_uuid, "ref")
+
+    def refresh_all_node_themes(self):
+        """Recreate node themes from current theme manager and rebind to all nodes."""
+        self.init_themes()   # re‑creates data_theme, proc_theme, etc.
+        for node_uuid in self.graph.nodes:
+            self._refresh_node_theme(node_uuid)
+        self._log("All node themes refreshed after global theme change")

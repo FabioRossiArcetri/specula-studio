@@ -50,6 +50,7 @@ import numpy as np
 import dearpygui.dearpygui as dpg
 
 from dpg_utils import apply_link_style
+from theme_manager import ThemeManager
 
 # ── Documentation helpers (gracefully absent if SPECULA not installed) ─────────
 try:
@@ -68,12 +69,6 @@ except ImportError:
     def get_output_tooltip(*_): return ""
     def get_class_tooltip(*_):  return ""
     def get_param_unit(*_):     return ""
-
-# ── colour constants ──────────────────────────────────────────────────────────
-_DEFAULT_PARAM_COLOR  = [110, 110, 110]
-_MODIFIED_PARAM_COLOR = [240, 240, 240]
-_DEFAULT_HINT_COLOR   = [90,  90,  90]   # dark-grey hint text beside inputs
-_TOOLTIP_COLOR        = [220, 220, 180]  # warm-white tooltip text
 
 # Type hints that indicate a list/array value
 _ARRAY_TYPE_HINTS = frozenset(
@@ -107,8 +102,9 @@ def _folder_for_param(param_name: str) -> str:
 def _add_tooltip(parent_id, text: str):
     """Attach a tooltip to *parent_id* if *text* is non-empty."""
     if text:
+        tm = ThemeManager()
         with dpg.tooltip(parent=parent_id):
-            dpg.add_text(text, color=_TOOLTIP_COLOR, wrap=400)
+            dpg.add_text(text, color=tm.get_color("tooltip_text"), wrap=400)
 
 
 class PropertyPanel:
@@ -129,6 +125,7 @@ class PropertyPanel:
         self.monitors           = monitor_manager
         self._delink_callback   = delink_callback
         self._refresh_node_theme = refresh_node_theme
+        self.theme_manager = ThemeManager()
 
     # =========================================================================
     # Public entry points
@@ -148,11 +145,19 @@ class PropertyPanel:
         template_params = template.get("parameters", {})
         current_values  = node_data.get("values", {})
         suffixes        = node_data.get("suffixes", set())
+        tm = self.theme_manager
 
         # ── 1. Editable name ──────────────────────────────────────────────────
-        dpg.add_text("Node Configuration", color=[100, 200, 255], parent=panel_tag)
+        dpg.add_text(
+            "Node Configuration",
+            color=tm.get_color("panel_section_header"),
+            parent=panel_tag,
+        )
         with dpg.group(horizontal=True, parent=panel_tag):
-            dpg.add_text("Instance Name:", color=[255, 255, 255])
+            dpg.add_text(
+                "Instance Name:",
+                color=tm.get_color("panel_label_normal"),
+            )
             dpg.add_input_text(
                 default_value=node_name,
                 width=150,
@@ -161,7 +166,11 @@ class PropertyPanel:
             )
 
         # Class name with tooltip showing summary
-        cls_lbl = dpg.add_text(f"Class: {node_type}", color=[150, 150, 150], parent=panel_tag)
+        cls_lbl = dpg.add_text(
+            f"Class: {node_type}",
+            color=tm.get_color("panel_text_muted"),
+            parent=panel_tag,
+        )
         _add_tooltip(cls_lbl, get_class_tooltip(node_type))
 
         dpg.add_separator(parent=panel_tag)
@@ -171,7 +180,11 @@ class PropertyPanel:
         # ── 2. Parameters ─────────────────────────────────────────────────────
         if template_params:
             dpg.add_spacer(height=10, parent=panel_tag)
-            dpg.add_text("Parameters", color=[100, 255, 100], parent=panel_tag)
+            dpg.add_text(
+                "Parameters",
+                color=tm.get_color("panel_section_header"),
+                parent=panel_tag,
+            )
             dpg.add_separator(parent=panel_tag)
 
             for param_name, meta in template_params.items():
@@ -225,7 +238,11 @@ class PropertyPanel:
 
         if data_object_params:
             dpg.add_spacer(height=10, parent=panel_tag)
-            dpg.add_text("Data Object Parameters", color=[150, 200, 255], parent=panel_tag)
+            dpg.add_text(
+                "Data Object Parameters",
+                color=tm.get_color("panel_label_data_obj"),
+                parent=panel_tag,
+            )
             dpg.add_separator(parent=panel_tag)
             for param_name, val in data_object_params:
                 is_data_class = False
@@ -238,7 +255,10 @@ class PropertyPanel:
 
                 if is_data_class:
                     with dpg.group(horizontal=True, parent=panel_tag):
-                        lbl = dpg.add_text(f"{param_name}:", color=[150, 200, 255])
+                        lbl = dpg.add_text(
+                            f"{param_name}:",
+                            color=tm.get_color("panel_label_data_obj"),
+                        )
                         _add_tooltip(lbl, get_param_tooltip(node_type, param_name))
                         input_tag = f"{node_uuid}_{param_name}_object"
                         dpg.add_input_text(
@@ -257,9 +277,15 @@ class PropertyPanel:
                         )
                 else:
                     with dpg.group(horizontal=True, parent=panel_tag):
-                        lbl = dpg.add_text(f"{param_name}:", color=[200, 200, 200])
+                        lbl = dpg.add_text(
+                            f"{param_name}:",
+                            color=tm.get_color("panel_text_secondary"),
+                        )
                         _add_tooltip(lbl, get_param_tooltip(node_type, param_name))
-                        dpg.add_text(str(val), color=[200, 200, 150])
+                        dpg.add_text(
+                            str(val),
+                            color=tm.get_color("panel_label_normal"),
+                        )
                     rendered_params.add(param_name)
 
         # ── 4. Connections ────────────────────────────────────────────────────
@@ -275,9 +301,17 @@ class PropertyPanel:
 
         if regular_inputs:
             dpg.add_spacer(height=10, parent=panel_tag)
-            dpg.add_text("Input Connections", color=[200, 150, 255], parent=panel_tag)
+            dpg.add_text(
+                "Input Connections",
+                color=tm.get_color("panel_section_header"),
+                parent=panel_tag,
+            )
             dpg.add_separator(parent=panel_tag)
-            dpg.add_text("Data Inputs:", color=[255, 200, 100], parent=panel_tag)
+            dpg.add_text(
+                "Data Inputs:",
+                color=tm.get_color("panel_label_ref"),
+                parent=panel_tag,
+            )
             for conn in regular_inputs:
                 src_name = conn["src_name"]
                 src_attr = conn["src_attr"]
@@ -287,13 +321,20 @@ class PropertyPanel:
                         node_uuid, conn["src_node"], src_attr
                     )
                     with dpg.group(horizontal=True, parent=panel_tag):
-                        lbl = dpg.add_text(f"  + {dst_attr}: ", color=[200, 200, 200])
+                        lbl = dpg.add_text(
+                            f"  + {dst_attr}: ",
+                            color=tm.get_color("panel_text_secondary"),
+                        )
                         _add_tooltip(lbl, get_input_tooltip(node_type, dst_attr))
                         dpg.add_text(
-                            f"{filename}-{src_name}.{src_attr}", color=[150, 255, 150]
+                            f"{filename}-{src_name}.{src_attr}",
+                            color=tm.get_color("panel_conn_src_name"),
                         )
                     with dpg.group(horizontal=True, parent=panel_tag):
-                        dpg.add_text("    Filename: ", color=[200, 200, 200])
+                        dpg.add_text(
+                            "    Filename: ",
+                            color=tm.get_color("panel_text_secondary"),
+                        )
                         dpg.add_input_text(
                             default_value=filename,
                             width=100,
@@ -302,48 +343,93 @@ class PropertyPanel:
                         )
                 else:
                     with dpg.group(horizontal=True, parent=panel_tag):
-                        lbl = dpg.add_text(f"  + {dst_attr}: ", color=[200, 200, 200])
+                        lbl = dpg.add_text(
+                            f"  + {dst_attr}: ",
+                            color=tm.get_color("panel_text_secondary"),
+                        )
                         _add_tooltip(lbl, get_input_tooltip(node_type, dst_attr))
-                        dpg.add_text(f"{src_name}.{src_attr}", color=[150, 255, 150])
+                        dpg.add_text(
+                            f"{src_name}.{src_attr}",
+                            color=tm.get_color("panel_conn_src_name"),
+                        )
 
         if reference_inputs:
             if not regular_inputs:
                 dpg.add_spacer(height=10, parent=panel_tag)
-                dpg.add_text("Connections", color=[200, 150, 255], parent=panel_tag)
+                dpg.add_text(
+                    "Connections",
+                    color=tm.get_color("panel_section_header"),
+                    parent=panel_tag,
+                )
                 dpg.add_separator(parent=panel_tag)
-            dpg.add_text("Reference Connections:", color=[255, 200, 100], parent=panel_tag)
+            dpg.add_text(
+                "Reference Connections:",
+                color=tm.get_color("panel_label_ref"),
+                parent=panel_tag,
+            )
             for conn in reference_inputs:
                 src_name = conn["src_name"]
                 src_attr = conn["src_attr"]
                 dst_attr = conn["dst_attr"]
                 with dpg.group(horizontal=True, parent=panel_tag):
-                    lbl = dpg.add_text(f"  + {dst_attr}: ", color=[200, 200, 200])
+                    lbl = dpg.add_text(
+                        f"  + {dst_attr}: ",
+                        color=tm.get_color("panel_text_secondary"),
+                    )
                     _add_tooltip(lbl, get_input_tooltip(node_type, dst_attr))
                     if src_attr == "ref":
-                        dpg.add_text(f"{src_name}", color=[100, 255, 100])
+                        dpg.add_text(
+                            f"{src_name}",
+                            color=tm.get_color("panel_conn_src_name"),
+                        )
                     else:
-                        dpg.add_text(f"{src_name}.{src_attr}", color=[100, 255, 100])
+                        dpg.add_text(
+                            f"{src_name}.{src_attr}",
+                            color=tm.get_color("panel_conn_src_name"),
+                        )
 
         if outgoing:
             if not regular_inputs and not reference_inputs:
                 dpg.add_spacer(height=10, parent=panel_tag)
-                dpg.add_text("Connections", color=[200, 150, 255], parent=panel_tag)
+                dpg.add_text(
+                    "Connections",
+                    color=tm.get_color("panel_section_header"),
+                    parent=panel_tag,
+                )
                 dpg.add_separator(parent=panel_tag)
-            dpg.add_text("Outputs:", color=[255, 200, 100], parent=panel_tag)
+            dpg.add_text(
+                "Outputs:",
+                color=tm.get_color("panel_label_ref"),
+                parent=panel_tag,
+            )
             for conn in outgoing:
                 dst_name = conn["dst_name"]
                 src_attr = conn["src_attr"]
                 dst_attr = conn["dst_attr"]
                 with dpg.group(horizontal=True, parent=panel_tag):
-                    lbl = dpg.add_text(f"  + {src_attr} -> ", color=[200, 200, 200])
+                    lbl = dpg.add_text(
+                        f"  + {src_attr} -> ",
+                        color=tm.get_color("panel_text_secondary"),
+                    )
                     _add_tooltip(lbl, get_output_tooltip(node_type, src_attr))
-                    dpg.add_text(f"{dst_name}.{dst_attr}", color=[150, 255, 150])
+                    dpg.add_text(
+                        f"{dst_name}.{dst_attr}",
+                        color=tm.get_color("panel_conn_dst_name"),
+                    )
 
         if not incoming and not outgoing:
             dpg.add_spacer(height=10, parent=panel_tag)
-            dpg.add_text("Connections", color=[200, 150, 255], parent=panel_tag)
+            dpg.add_text(
+                "Connections",
+                color=tm.get_color("panel_section_header"),
+                parent=panel_tag,
+            )
             dpg.add_separator(parent=panel_tag)
-            dpg.add_text("No connections", color=[150, 150, 150], parent=panel_tag)
+            dpg.add_text(
+                "No connections",
+                color=tm.get_color("panel_text_muted"),
+                parent=panel_tag,
+            )
 
         dpg.add_spacer(height=10, parent=panel_tag)
 
@@ -361,13 +447,20 @@ class PropertyPanel:
 
         if all_outputs:
             dpg.add_spacer(height=10, parent=panel_tag)
-            dpg.add_text("Output Monitors", color=[255, 150, 100], parent=panel_tag)
+            dpg.add_text(
+                "Output Monitors",
+                color=tm.get_color("panel_section_header"),
+                parent=panel_tag,
+            )
             dpg.add_separator(parent=panel_tag)
 
             for output_name in sorted(all_outputs):
                 is_open = self.monitors.is_monitor_open(node_uuid, output_name)
                 with dpg.group(horizontal=True, parent=panel_tag):
-                    lbl = dpg.add_text(f"  + {output_name}: ", color=[200, 200, 200])
+                    lbl = dpg.add_text(
+                        f"  + {output_name}: ",
+                        color=tm.get_color("panel_text_secondary"),
+                    )
                     _add_tooltip(lbl, get_output_tooltip(node_type, output_name))
                     if not is_open:
                         dpg.add_button(
@@ -376,7 +469,10 @@ class PropertyPanel:
                             user_data=(node_uuid, output_name),
                             width=120,
                         )
-                        dpg.add_text("- Inactive", color=[150, 150, 150])
+                        dpg.add_text(
+                            "- Inactive",
+                            color=tm.get_color("panel_text_muted"),
+                        )
                     else:
                         monitor_id = self.monitors.find_monitor_id(node_uuid, output_name)
                         if monitor_id:
@@ -390,7 +486,10 @@ class PropertyPanel:
                                 user_data=monitor_id,
                                 width=120,
                             )
-                            dpg.add_text("+ Active", color=[0, 255, 0])
+                            dpg.add_text(
+                                "+ Active",
+                                color=tm.get_color("panel_monitor_active"),
+                            )
 
             dpg.add_spacer(height=5, parent=panel_tag)
 
@@ -414,27 +513,56 @@ class PropertyPanel:
             src_uuid, src_attr, dst_uuid, dst_attr
         )
         current_delay = conn_props.get("delay", 0)
+        tm = self.theme_manager
 
-        dpg.add_text("Connection Properties", color=[100, 200, 255], parent=panel_tag)
+        dpg.add_text(
+            "Connection Properties",
+            color=tm.get_color("panel_section_header"),
+            parent=panel_tag,
+        )
         dpg.add_separator(parent=panel_tag)
-        dpg.add_text("Source (Output):", color=[255, 255, 255], parent=panel_tag)
+        dpg.add_text(
+            "Source (Output):",
+            color=tm.get_color("panel_label_normal"),
+            parent=panel_tag,
+        )
         with dpg.group(horizontal=True, parent=panel_tag):
-            dpg.add_text("Node:", color=[200, 200, 200])
-            dpg.add_text(f"{src_name}", color=[150, 255, 150])
+            dpg.add_text("Node:", color=tm.get_color("panel_text_secondary"))
+            dpg.add_text(
+                f"{src_name}",
+                color=tm.get_color("panel_conn_src_name"),
+            )
         with dpg.group(horizontal=True, parent=panel_tag):
-            dpg.add_text("Attribute:", color=[200, 200, 200])
-            dpg.add_text(src_attr, color=[150, 255, 150])
+            dpg.add_text("Attribute:", color=tm.get_color("panel_text_secondary"))
+            dpg.add_text(
+                src_attr,
+                color=tm.get_color("panel_conn_src_name"),
+            )
         dpg.add_spacer(height=10, parent=panel_tag)
-        dpg.add_text("Destination (Input):", color=[255, 255, 255], parent=panel_tag)
+        dpg.add_text(
+            "Destination (Input):",
+            color=tm.get_color("panel_label_normal"),
+            parent=panel_tag,
+        )
         with dpg.group(horizontal=True, parent=panel_tag):
-            dpg.add_text("Node:", color=[200, 200, 200])
-            dpg.add_text(f"{dst_name}", color=[150, 255, 150])
+            dpg.add_text("Node:", color=tm.get_color("panel_text_secondary"))
+            dpg.add_text(
+                f"{dst_name}",
+                color=tm.get_color("panel_conn_dst_name"),
+            )
         with dpg.group(horizontal=True, parent=panel_tag):
-            dpg.add_text("Attribute:", color=[200, 200, 200])
-            dpg.add_text(dst_attr, color=[150, 255, 150])
+            dpg.add_text("Attribute:", color=tm.get_color("panel_text_secondary"))
+            dpg.add_text(
+                dst_attr,
+                color=tm.get_color("panel_conn_dst_name"),
+            )
         dpg.add_separator(parent=panel_tag)
         dpg.add_spacer(height=10, parent=panel_tag)
-        dpg.add_text("Delay/Index:", color=[255, 200, 100], parent=panel_tag)
+        dpg.add_text(
+            "Delay/Index:",
+            color=tm.get_color("panel_label_ref"),
+            parent=panel_tag,
+        )
 
         def update_delay_callback(sender, app_data, user_data):
             conn_data = user_data
@@ -461,21 +589,27 @@ class PropertyPanel:
         )
         dpg.add_text(
             "0 = normal connection, -1 = feedback (previous timestep)",
-            color=[150, 150, 150], parent=panel_tag,
+            color=tm.get_color("panel_text_hint"),
+            parent=panel_tag,
         )
         dpg.add_spacer(height=10, parent=panel_tag)
         conn_type = "Feedback" if current_delay == -1 else "Normal"
-        dpg.add_text(f"Type: {conn_type}", color=[200, 200, 255], parent=panel_tag)
+        dpg.add_text(
+            f"Type: {conn_type}",
+            color=tm.get_color("panel_label_normal"),
+            parent=panel_tag,
+        )
         if conn_type == "Feedback":
             dpg.add_text(
                 "This connection uses data from previous timestep",
-                color=[255, 150, 100], parent=panel_tag,
+                color=tm.get_color("panel_text_hint"),
+                parent=panel_tag,
             )
         dpg.add_spacer(height=10, parent=panel_tag)
         dpg.add_separator(parent=panel_tag)
         with dpg.group(horizontal=True, parent=panel_tag):
-            dpg.add_text("Link ID:", color=[150, 150, 150])
-            dpg.add_text(link_id, color=[200, 200, 200])
+            dpg.add_text("Link ID:", color=tm.get_color("panel_text_muted"))
+            dpg.add_text(link_id, color=tm.get_color("panel_text_secondary"))
 
     # =========================================================================
     # Ref-or-object parameter rendering
@@ -498,6 +632,7 @@ class PropertyPanel:
         """
         node_type   = node_data.get("type", "")
         param_modes = node_data.setdefault("param_modes", {})
+        tm = self.theme_manager
 
         # Infer _object mode from YAML data already loaded
         obj_val = current_values.get(f"{param_name}_object", "")
@@ -514,7 +649,10 @@ class PropertyPanel:
             "_object (file)" if current_mode == "object" else "_ref (link)"
         )
         with dpg.group(horizontal=True, parent=panel_tag):
-            lbl = dpg.add_text(f"{param_name}:", color=[150, 200, 255])
+            lbl = dpg.add_text(
+                f"{param_name}:",
+                color=tm.get_color("panel_label_data_obj"),
+            )
             _add_tooltip(lbl, get_param_tooltip(node_type, param_name))
             dpg.add_combo(
                 items=mode_items,
@@ -536,8 +674,11 @@ class PropertyPanel:
 
             if connected_value:
                 with dpg.group(horizontal=True, parent=panel_tag):
-                    dpg.add_text("  →", color=[150, 150, 150])
-                    dpg.add_text(f"{connected_value}", color=[100, 255, 100])
+                    dpg.add_text("  →", color=tm.get_color("panel_text_muted"))
+                    dpg.add_text(
+                        f"{connected_value}",
+                        color=tm.get_color("panel_conn_src_name"),
+                    )
                     dpg.add_button(
                         label="X",
                         callback=self._disconnect_reference,
@@ -554,21 +695,33 @@ class PropertyPanel:
                 )
                 if is_required:
                     with dpg.group(horizontal=True, parent=panel_tag):
-                        dpg.add_text(f"  {display_ref_name}:", color=[255, 200, 150])
+                        dpg.add_text(
+                            f"  {display_ref_name}:",
+                            color=tm.get_color("panel_label_required"),
+                        )
                         dpg.add_text(
                             "REQUIRED – wire a link or switch to _object",
-                            color=[255, 100, 100],
+                            color=tm.get_color("panel_label_required"),
                         )
                 else:
                     with dpg.group(horizontal=True, parent=panel_tag):
-                        dpg.add_text(f"  {display_ref_name}:", color=[200, 200, 200])
-                        dpg.add_text("(optional link)", color=[150, 150, 150])
+                        dpg.add_text(
+                            f"  {display_ref_name}:",
+                            color=tm.get_color("panel_text_secondary"),
+                        )
+                        dpg.add_text(
+                            "(optional link)",
+                            color=tm.get_color("panel_text_muted"),
+                        )
 
         # ── object (file) mode ────────────────────────────────────────────────
         else:
             obj_input_tag = f"{node_uuid}_{param_name}_obj_input"
             with dpg.group(horizontal=True, parent=panel_tag):
-                dpg.add_text("  file:", color=[150, 200, 255])
+                dpg.add_text(
+                    "  file:",
+                    color=tm.get_color("panel_label_data_obj"),
+                )
                 dpg.add_input_text(
                     tag=obj_input_tag,
                     default_value=str(obj_val) if obj_val else "",
@@ -585,7 +738,8 @@ class PropertyPanel:
                 )
             dpg.add_text(
                 "  (ref pin hidden while file is set)",
-                color=[130, 130, 130], parent=panel_tag,
+                color=tm.get_color("panel_text_muted"),
+                parent=panel_tag,
             )
 
     # =========================================================================
@@ -916,14 +1070,15 @@ class PropertyPanel:
                 break
         if not link_id or not dpg.does_item_exist(link_id):
             return
+        tm = self.theme_manager
         if delay == -1:
-            apply_link_style(link_id, color=[255, 0, 0, 255])
+            apply_link_style(link_id, color=tm.get_color("node_feedback_link_color"))
             self._update_feedback_attribute(src_uuid, src_attr, delay)
         elif delay == 0:
             if dst_attr.endswith("_ref") or "params" in dst_attr.lower():
-                apply_link_style(link_id, color=[200, 200, 200, 60])
+                apply_link_style(link_id, color=tm.get_color("node_ref_link_color"))
             else:
-                dpg.configure_item(link_id, color=[255, 255, 255, 255])
+                dpg.configure_item(link_id, color=tm.get_color("link_default"))
 
     def _update_feedback_attribute(self, node_uuid, attr_name, delay: int):
         attr_id = None
@@ -933,16 +1088,17 @@ class PropertyPanel:
                 break
         if not attr_id or not dpg.does_item_exist(attr_id):
             return
+        tm = self.theme_manager
         children = dpg.get_item_children(attr_id, slot=1)
         for child in children:
             if dpg.get_item_type(child) == "mvAppItemType::mvText":
                 current_text = dpg.get_value(child)
                 if delay == -1 and ":-1" not in current_text:
                     dpg.set_value(child, f"{attr_name}:-1")
-                    dpg.configure_item(child, color=[255, 100, 100])
+                    dpg.configure_item(child, color=tm.get_color("text_error"))
                 elif delay == 0 and ":-1" in current_text:
                     dpg.set_value(child, attr_name.replace(":-1", ""))
-                    dpg.configure_item(child, color=[255, 255, 255])
+                    dpg.configure_item(child, color=tm.get_color("node_output_label"))
                 break
 
     def _update_connection_filename(self, sender, app_data, user_data):
@@ -1026,13 +1182,20 @@ class PropertyPanel:
         param_kind = (
             param_meta.get("kind", "value") if isinstance(param_meta, dict) else "value"
         )
+        tm = self.theme_manager
 
         # Legacy safety: reference/object params should not reach here, but guard
         if param_kind in ("reference", "object") and val is not None:
             with dpg.group(horizontal=True, parent=parent):
-                lbl = dpg.add_text(f"{param_name}:", color=[150, 255, 150])
+                lbl = dpg.add_text(
+                    f"{param_name}:",
+                    color=tm.get_color("panel_label_data_obj"),
+                )
                 _add_tooltip(lbl, get_param_tooltip(node_type, param_name))
-                dpg.add_text(f"{val}", color=[100, 255, 100])
+                dpg.add_text(
+                    f"{val}",
+                    color=tm.get_color("panel_conn_src_name"),
+                )
             return
 
         is_data_object = (
@@ -1045,20 +1208,19 @@ class PropertyPanel:
 
         # ── label colour ──────────────────────────────────────────────────────
         if is_required and not has_value:
-            label_color = [255, 100, 100]
+            label_color = tm.get_color("panel_label_required")
         elif is_data_object:
-            label_color = [150, 200, 255]
+            label_color = tm.get_color("panel_label_data_obj")
         elif param_kind == "reference":
-            label_color = [255, 200, 150]
+            label_color = tm.get_color("panel_label_ref")
         elif default_val is not None and val == default_val:
-            label_color = _DEFAULT_PARAM_COLOR
+            label_color = tm.get_color("param_default")
         elif has_value:
-            label_color = _MODIFIED_PARAM_COLOR
+            label_color = tm.get_color("param_modified")
         else:
-            label_color = _DEFAULT_PARAM_COLOR
+            label_color = tm.get_color("param_default")
 
         # ── current display value (empty string when not set) ─────────────────
-        # Never show "None" as text; empty string means "not set".
         if val is None:
             display_val = ""
         else:
@@ -1165,18 +1327,18 @@ class PropertyPanel:
                         user_data=user_data,
                     )
 
-
             # ── unit label + default hint (grey text to the right) ────────────
-            # Layout:  [widget]  unit  (default: X)
-            # For bool the checkbox state is self-documenting; skip both.
             if type_hint not in ("bool", "boolean"):
                 unit_str = get_param_unit(node_type, param_name) if _HELP_AVAILABLE else ""
                 if unit_str:
-                    dpg.add_text(f"[{unit_str}]", color=[120, 180, 120])   # muted green
+                    dpg.add_text(
+                        f"[{unit_str}]",
+                        color=tm.get_color("param_unit"),
+                    )
 
                 hint_color = (
-                    [255, 80, 80] if is_required and not has_value
-                    else _DEFAULT_HINT_COLOR
+                    tm.get_color("panel_label_required") if is_required and not has_value
+                    else tm.get_color("param_hint")
                 )
                 dpg.add_text(hint_text, color=hint_color)
 
@@ -1188,7 +1350,10 @@ class PropertyPanel:
             existing_data_file = node_data.get("values", {}).get(f"{param_name}_data", "")
             data_tag = f"{node_uuid}_{param_name}_data_file_input"
             with dpg.group(horizontal=True, parent=parent):
-                dpg.add_text(f"  {param_name}_data:", color=[150, 200, 255])
+                dpg.add_text(
+                    f"  {param_name}_data:",
+                    color=tm.get_color("panel_label_data_obj"),
+                )
                 dpg.add_input_text(
                     tag=data_tag,
                     default_value=str(existing_data_file) if existing_data_file else "",
@@ -1249,4 +1414,3 @@ class PropertyPanel:
     ) -> str:
         filename_map = self.graph.nodes.get(node_uuid, {}).get("filename_map", {})
         return filename_map.get(f"{src_uuid}.{src_attr}", "data")
-    

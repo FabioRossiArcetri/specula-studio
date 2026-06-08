@@ -52,6 +52,7 @@ import numpy as np
 from constants import MAX_QUEUE_ITEMS_PER_FRAME, MONITOR_QUEUE_SIZE
 from dpg_plotting import DPGPlotter
 from monitor_bus import _DropFrame
+from theme_manager import ThemeManager
 
 if TYPE_CHECKING:
     from simulation_backend import MonitorProbeObj
@@ -130,6 +131,7 @@ class InProcessMonitor:
             return
 
         title = f"Monitor: {self.node_name}.{self.output_name}"
+        tm = ThemeManager()
 
         with dpg.window(
             label=title,
@@ -140,26 +142,42 @@ class InProcessMonitor:
         ):
             dpg.add_text(
                 f"Output:  {self.server_output_name}",
-                color=[100, 255, 100],
+                color=tm.get_color("monitor_output_label"),
                 tag=self._output_tag,
             )
             dpg.add_text(
                 "Status:  Waiting for data …",
-                color=[255, 200, 0],
+                color=tm.get_color("monitor_status_waiting"),
                 tag=f"ipm_status_{self.monitor_id}",
             )
             dpg.add_separator()
             dpg.add_text(
                 "Waiting for data …",
-                color=[150, 150, 150],
+                color=tm.get_color("text_hint"),
                 tag=self._pholder_tag,
             )
             dpg.add_group(tag=self._plot_grp_tag)
             dpg.add_separator()
-            dpg.add_text("Type:    —", color=[200, 200, 200], tag=self._type_tag)
-            dpg.add_text("Shape:   —", color=[200, 200, 200], tag=self._shp_tag)
-            dpg.add_text("Range:   —", color=[200, 200, 200], tag=self._rng_tag)
-            dpg.add_text("Updated: never", color=[200, 200, 200], tag=self._time_tag)
+            dpg.add_text(
+                "Type:    —",
+                color=tm.get_color("text_secondary"),
+                tag=self._type_tag,
+            )
+            dpg.add_text(
+                "Shape:   —",
+                color=tm.get_color("text_secondary"),
+                tag=self._shp_tag,
+            )
+            dpg.add_text(
+                "Range:   —",
+                color=tm.get_color("text_secondary"),
+                tag=self._rng_tag,
+            )
+            dpg.add_text(
+                "Updated: never",
+                color=tm.get_color("text_secondary"),
+                tag=self._time_tag,
+            )
 
         self.is_open = True
 
@@ -336,19 +354,21 @@ class InProcessMonitor:
     # ── Status / info helpers ──────────────────────────────────────────────────
 
     _STATUS_COLORS = {
-        "receiving":  [0, 200, 255],
-        "subscribed": [100, 255, 100],
-        "error":      [255, 80, 80],
+        "receiving":  "monitor_status_receiving",
+        "subscribed": "monitor_status_subscribed",
+        "error":      "monitor_status_error",
     }
 
     def _set_status(self, status: str) -> None:
         tag = f"ipm_status_{self.monitor_id}"
         if dpg.does_item_exist(tag):
-            color = self._STATUS_COLORS.get(status, [200, 200, 200])
+            tm = ThemeManager()
+            color = tm.get_color(self._STATUS_COLORS.get(status, "text_secondary"))
             dpg.set_value(tag, f"Status:  {status.capitalize()}")
             dpg.configure_item(tag, color=color)
 
     def _update_info_labels(self, arr: np.ndarray) -> None:
+        tm = ThemeManager()
         dtype_str = (
             f"ndarray ({arr.dtype})"
             if isinstance(arr, np.ndarray)
@@ -370,3 +390,4 @@ class InProcessMonitor:
         ):
             if dpg.does_item_exist(tag):
                 dpg.set_value(tag, text)
+                dpg.configure_item(tag, color=tm.get_color("text_secondary"))
