@@ -388,8 +388,142 @@ class StandaloneMonitor:
         except Exception:
             pass
 
+    def _apply_theme_to_item(self, item_tag: str, item_type: str = "default"):
+        """Apply theme colors to a DPG item based on its type."""
+        if not dpg.does_item_exist(item_tag):
+            return
+        
+        tm = self.theme_manager
+        
+        if item_type == "window":
+            dpg.configure_item(
+                item_tag,
+                border_color=tm.get_color("border"),
+                title_bar_color=tm.get_color("titlebar"),
+                menubar_color=tm.get_color("menubar")
+            )
+        elif item_type == "collapsing_header":
+            dpg.configure_item(
+                item_tag,
+                border_color=tm.get_color("border")
+            )
+        elif item_type == "group":
+            pass  # Groups don't typically need explicit colors
+        elif item_type == "text_default":
+            dpg.configure_item(
+                item_tag,
+                color=tm.get_color("text_default")
+            )
+        elif item_type == "child_window":
+            dpg.configure_item(
+                item_tag,
+                border_color=tm.get_color("border")
+            )
+        elif item_type == "button":
+            dpg.configure_item(
+                item_tag,
+                border_color=tm.get_color("border"),
+                color=tm.get_color("text_default")
+            )
+        elif item_type == "radio_button":
+            dpg.configure_item(
+                item_tag,
+                color=tm.get_color("text_default")
+            )
+        elif item_type == "separator":
+            dpg.configure_item(
+                item_tag,
+                color=tm.get_color("border")
+            )
+        elif item_type == "handler_registry":
+            pass  # No visual styling needed
+
     def _build_ui(self):
         dpg.create_context()
+        
+        # Apply global theme colors to the entire context
+        tm = self.theme_manager
+        
+        # Set global style
+        with dpg.theme() as global_theme:
+            with dpg.theme_component(dpg.mvAll):
+                # Window colors
+                dpg.add_theme_color(dpg.mvThemeCol_WindowBg, tm.get_color("window_bg"))
+                dpg.add_theme_color(dpg.mvThemeCol_TitleBg, tm.get_color("titlebar"))
+                dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, tm.get_color("titlebar_active"))
+                dpg.add_theme_color(dpg.mvThemeCol_TitleBgCollapsed, tm.get_color("titlebar"))
+                dpg.add_theme_color(dpg.mvThemeCol_MenuBarBg, tm.get_color("menubar"))
+                
+                # Borders
+                dpg.add_theme_color(dpg.mvThemeCol_Border, tm.get_color("border"))
+                dpg.add_theme_color(dpg.mvThemeCol_BorderShadow, tm.get_color("border"))
+                
+                # Child windows and frames
+                dpg.add_theme_color(dpg.mvThemeCol_ChildBg, tm.get_color("window_bg"))
+                dpg.add_theme_color(dpg.mvThemeCol_PopupBg, tm.get_color("window_bg"))
+                
+                # Text colors
+                dpg.add_theme_color(dpg.mvThemeCol_Text, tm.get_color("text_default"))
+                dpg.add_theme_color(dpg.mvThemeCol_TextDisabled, tm.get_color("text_hint"))
+                dpg.add_theme_color(dpg.mvThemeCol_TextSelectedBg, tm.get_color("select"))
+                
+                # Headers and collapsing headers
+                dpg.add_theme_color(dpg.mvThemeCol_Header, tm.get_color("select"))
+                dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered, tm.get_color("select_hover"))
+                dpg.add_theme_color(dpg.mvThemeCol_HeaderActive, tm.get_color("select_active"))
+                
+                # Buttons
+                dpg.add_theme_color(dpg.mvThemeCol_Button, tm.get_color("button"))
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, tm.get_color("button_hover"))
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, tm.get_color("button_active"))
+                
+                # Frame backgrounds (for various widgets)
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, tm.get_color("frame_bg"))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, tm.get_color("frame_bg_hover"))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, tm.get_color("frame_bg_active"))
+                
+                # Scrollbars
+                dpg.add_theme_color(dpg.mvThemeCol_ScrollbarBg, tm.get_color("window_bg"))
+                dpg.add_theme_color(dpg.mvThemeCol_ScrollbarGrab, tm.get_color("border"))
+                dpg.add_theme_color(dpg.mvThemeCol_ScrollbarGrabHovered, tm.get_color("select_hover"))
+                dpg.add_theme_color(dpg.mvThemeCol_ScrollbarGrabActive, tm.get_color("select_active"))
+                
+                # Sliders and progress bars
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, tm.get_color("select"))
+                dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, tm.get_color("select_active"))
+                
+                # Checkboxes and radio buttons
+                dpg.add_theme_color(dpg.mvThemeCol_CheckMark, tm.get_color("select"))
+                
+                # Tabs
+                dpg.add_theme_color(dpg.mvThemeCol_Tab, tm.get_color("button"))
+                dpg.add_theme_color(dpg.mvThemeCol_TabHovered, tm.get_color("button_hover"))
+                dpg.add_theme_color(dpg.mvThemeCol_TabActive, tm.get_color("button_active"))
+                dpg.add_theme_color(dpg.mvThemeCol_TabUnfocused, tm.get_color("frame_bg"))
+                dpg.add_theme_color(dpg.mvThemeCol_TabUnfocusedActive, tm.get_color("frame_bg_active"))
+                
+                # Separators
+                dpg.add_theme_color(dpg.mvThemeCol_Separator, tm.get_color("border"))
+                dpg.add_theme_color(dpg.mvThemeCol_SeparatorHovered, tm.get_color("select_hover"))
+                dpg.add_theme_color(dpg.mvThemeCol_SeparatorActive, tm.get_color("select_active"))
+                
+                # Resize grips
+                dpg.add_theme_color(dpg.mvThemeCol_ResizeGrip, tm.get_color("border"))
+                dpg.add_theme_color(dpg.mvThemeCol_ResizeGripHovered, tm.get_color("select_hover"))
+                dpg.add_theme_color(dpg.mvThemeCol_ResizeGripActive, tm.get_color("select_active"))
+                
+                # Drag and drop
+                dpg.add_theme_color(dpg.mvThemeCol_DragDropTarget, tm.get_color("select"))
+                
+                # Navigation highlight
+                dpg.add_theme_color(dpg.mvThemeCol_NavHighlight, tm.get_color("select"))
+                dpg.add_theme_color(dpg.mvThemeCol_NavWindowingHighlight, tm.get_color("select"))
+                dpg.add_theme_color(dpg.mvThemeCol_NavWindowingDimBg, tm.get_color("window_bg"))
+                
+                # Modal window dimming
+                dpg.add_theme_color(dpg.mvThemeCol_ModalWindowDimBg, tm.get_color("window_bg"))
+        
+        dpg.bind_theme(global_theme)
 
         if _FONT_PATH and os.path.exists(_FONT_PATH):
             with dpg.font_registry():

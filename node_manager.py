@@ -232,8 +232,9 @@ class NodeManager:
         template  = self.all_templates.get(node_type, {})
         category  = template.get("bases", "")
         is_complete = self.is_node_complete(node_uuid)
+        is_data_obj     = self._is_data_obj_node(node_type)
 
-        if "BaseDataObj" in category:
+        if is_data_obj:
             theme = self.data_theme if is_complete else self.data_theme_incomplete
         else:
             theme = self.proc_theme if is_complete else self.proc_theme_incomplete
