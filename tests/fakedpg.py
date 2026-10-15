@@ -108,6 +108,27 @@ class _FakeDPG(types.ModuleType):
     def is_dearpygui_running(self):
         return False
 
+    def get_item_width(self, item):
+        return 400
+
+    def get_item_height(self, item):
+        return 300
+
+    def is_item_shown(self, item):
+        return False
+
+    def is_any_item_active(self):
+        return False
+
+    def is_key_down(self, key):
+        return False
+
+    def get_item_alias(self, item):
+        return item if isinstance(item, str) else ""
+
+    def get_item_type(self, item):
+        return "mvAppItemType::mvText"
+
 
 def install():
     """Insert the fake module into ``sys.modules`` and return it."""

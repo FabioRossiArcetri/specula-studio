@@ -66,6 +66,15 @@ def main(path):
     step("theme_dark", editor.on_theme_changed, None, "dark")
     for size in ("SMALL", "MEDIUM"):
         step(f"render_{size}", editor._on_render_size_changed, None, size)
+    from specula_studio.core import clipboard
+    uuids = list(nm.graph.nodes)[:3]
+    step("duplicate", editor._paste, clipboard.copy_nodes(nm.graph, uuids))
+    step("undo", editor.undo)
+    step("redo", editor.redo)
+    for key in (dpg.mvKey_Z, dpg.mvKey_Delete, dpg.mvKey_D, dpg.mvKey_H):
+        editor._on_key_press(None, key)
+    steps.append("keys")
+    step("poll", editor._poll_history, True)
     step("new", editor._startup_create_new, None, None)
     dpg.destroy_context()
     print("@@STEPS@@" + ",".join(steps))

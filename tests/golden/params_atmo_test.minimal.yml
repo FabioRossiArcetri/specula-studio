@@ -3,9 +3,11 @@ main: {class: SimulParams, pixel_pupil: 80, pixel_pitch: 0.1, root_dir: ./calib,
 seeing: {class: WaveGenerator, constant: 0.8}
 wind_speed:
   class: WaveGenerator
+  outputs: [output]
   constant: [25.0]
 wind_direction:
   class: WaveGenerator
+  outputs: [output]
   constant: [91.5]
 on_axis_source:
   class: Source
@@ -15,6 +17,7 @@ on_axis_source:
 pupilstop: {class: Pupilstop, simul_params_ref: main}
 atmo1:
   class: AtmoEvolution
+  outputs: [layer_list]
   L0: 10
   heights: [0.0]
   Cn2: [1.0]
@@ -30,12 +33,14 @@ prop1:
   source_dict_ref: [on_axis_source]
 modal_analysis1:
   class: ModalAnalysis
+  outputs: [out_modes]
   type_str: zernike
   npixels: 80
   nmodes: 100
   inputs: {in_ef: prop1.out_on_axis_source_ef}
 atmo2:
   class: AtmoInfiniteEvolution
+  outputs: [layer_list]
   L0: [10]
   seed: 12345
   inputs: {seeing: seeing.output, wind_speed: wind_speed.output, wind_direction: wind_direction.output}
@@ -50,6 +55,7 @@ prop2:
   source_dict_ref: [on_axis_source]
 modal_analysis2:
   class: ModalAnalysis
+  outputs: [out_modes]
   type_str: zernike
   npixels: 80
   nmodes: 100

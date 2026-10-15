@@ -15,9 +15,13 @@ time_hist:
   - [8, 2]
   - [9, 1]
   - [10, 0]
-disturbance: {class: TimeHistoryGenerator, time_hist_ref: time_hist}
+disturbance:
+  class: TimeHistoryGenerator
+  outputs: [output]
+  time_hist_ref: time_hist
 dm_windshake:
   class: DM
+  outputs: [out_layer]
   height: 0
   type_str: zernike
   nmodes: 2
@@ -25,12 +29,17 @@ dm_windshake:
   obsratio: 0.283
   inputs: {in_command: disturbance.output}
   simul_params_ref: main
-seeing: {class: WaveGenerator, constant: 0.65}
+seeing:
+  class: WaveGenerator
+  outputs: [output]
+  constant: 0.65
 wind_speed:
   class: WaveGenerator
+  outputs: [output]
   constant: [5.5, 7.5, 22.0, 8.5]
 wind_direction:
   class: WaveGenerator
+  outputs: [output]
   constant: [0, 10, -10, 90]
 on_axis_source:
   class: Source
@@ -50,6 +59,7 @@ ngs_source:
 pupilstop: {class: Pupilstop, obs_diam: 0.283, simul_params_ref: main}
 atmo:
   class: AtmoEvolution
+  outputs: [layer_list]
   L0: 25
   heights: [30.0, 2630.0, 12500.0, 22500.0]
   Cn2: [0.7, 0.1, 0.15, 0.05]
@@ -67,6 +77,7 @@ prop:
   source_dict_ref: [on_axis_source, pfs_source, ngs_source]
 modal_analysis_pfs:
   class: ModalAnalysis
+  outputs: [out_modes]
   type_str: zernike
   npixels: 128
   obsratio: 0.283
@@ -74,6 +85,7 @@ modal_analysis_pfs:
   inputs: {in_ef: prop.out_pfs_source_ef}
 modal_analysis_ngs:
   class: ModalAnalysis
+  outputs: [out_modes]
   type_str: zernike
   npixels: 128
   obsratio: 0.283
@@ -81,26 +93,32 @@ modal_analysis_ngs:
   inputs: {in_ef: prop.out_ngs_source_ef}
 random_ngs:
   class: RandomGenerator
+  outputs: [output]
   amp: [10, 10.0]
 sum_operation_ngs_nosie:
   class: BaseOperation
+  outputs: [out_value]
   sum: true
   inputs: {in_value1: modal_analysis_ngs.out_modes, in_value2: random_ngs.output}
 control_ngs:
   class: Integrator
+  outputs: [out_comm]
   int_gain: [0.1, 0.1]
   delay: 2
   inputs: {delta_comm: sum_operation_ngs_nosie.out_value}
 sum_operation:
   class: BaseOperation
+  outputs: [out_value]
   sum: true
   inputs: {in_value1: modal_analysis_pfs.out_modes, in_value2: control_ngs.out_comm}
 random_pfs:
   class: RandomGenerator
+  outputs: [output]
   amp: [10, 10.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 sum_operation_pfs_noise:
   class: BaseOperation
+  outputs: [out_value]
   sum: true
   inputs: {in_value1: sum_operation.out_value, in_value2: random_pfs.output}
 temporal_filter:
@@ -213,17 +231,20 @@ temporal_filter:
   - [1.0, 1.0, 0.0]
 control:
   class: IirFilter
+  outputs: [out_comm]
   delay: 2
   inputs: {delta_comm: sum_operation_pfs_noise.out_value}
   iir_filter_data_ref: temporal_filter
 dm:
   class: DM
+  outputs: [out_layer]
   height: 0
   inputs: {in_command: control.out_comm}
   simul_params_ref: main
   ifunc_ref: zern_ifunc
 modal_analysis:
   class: ModalAnalysis
+  outputs: [out_modes]
   type_str: zernike
   npixels: 128
   obsratio: 0.283

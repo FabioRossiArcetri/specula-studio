@@ -35,7 +35,8 @@ from .constants import (
     REF_SHAPE_FILLED,
 )
 from . import render_scale
-from .graph_manager import add_ref_value, remove_ref_value, validate_node_name
+from .core import validation, yaml_io
+from .core.syntax import add_ref_value, is_ref_attr, remove_ref_value, validate_node_name
 from .node_registry import NodeRegistry
 from .socketio_client import SocketIOClient
 from .monitor_bus import MonitorBus
@@ -208,7 +209,7 @@ class NodeManager:
         )
 
     def is_data_class_type(self, type_name: str) -> bool:
-        return self.property_panel.is_data_class_type(type_name)
+        return yaml_io.is_data_class_type(type_name, self.all_templates)
 
     def after_dpg_init(self):
         self._log("DPG initialised, setting up periodic tasks")
@@ -257,193 +258,22 @@ class NodeManager:
     # NODE COMPLETENESS
     # ==========================================================================
 
+    def node_issues(self, node_uuid: str) -> list:
+        """Problems that make the node incomplete (see core.validation)."""
+        return validation.node_issues(self.graph, node_uuid, _is_input_optional)
+
     def is_node_complete(self, node_uuid: str) -> bool:
-        """
-        Return True when ALL required parameters and inputs are satisfied.
-
-        Three categories are checked:
-
-        1. Required reference / object parameters
-           (kind: "reference" or "object", default: "REQUIRED")
-           Satisfied when:
-           - mode is "ref"    AND a _ref link value is stored, OR
-           - mode is "object" AND a non-empty _object filename is stored.
-
-        2. Required value / data parameters
-           (kind: "value", "data", or absent, default: "REQUIRED")
-           Satisfied when a non-empty value is present in node values.
-
-        3. Required data inputs
-           (inputs listed in the template with optional: false / not set)
-           Satisfied when at least one graph connection targets that input.
-
-        Any unsatisfied required item makes the node incomplete (red border).
-        """
-        if node_uuid not in self.graph.nodes:
-            return True
-
-        node_data       = self.graph.nodes[node_uuid]
-        template        = self.all_templates.get(node_data.get("type", ""), {})
-        template_params = template.get("parameters", {})
-        current_values  = node_data.get("values", {})
-        param_modes     = node_data.get("param_modes", {})
-
-        # ── 1. Reference / object parameters ─────────────────────────────────
-        for param_name, param_meta in template_params.items():
-            if not isinstance(param_meta, dict):
-                continue
-            kind = param_meta.get("kind", "value")
-            if kind not in ("reference", "object"):
-                continue
-
-            default_val = param_meta.get("default")
-            is_required = (
-                default_val == "REQUIRED" or param_meta.get("required", False)
-            )
-            if not is_required:
-                continue
-
-            mode = param_modes.get(param_name, "ref")
-            if mode == "object":
-                if not current_values.get(f"{param_name}_object", ""):
-                    return False
-            else:
-                # ref mode: must have a stored _ref value (set when a link is wired)
-                if not current_values.get(f"{param_name}_ref"):
-                    return False
-
-        # ── 2. Required value / data parameters ───────────────────────────────
-        for param_name, param_meta in template_params.items():
-            if not isinstance(param_meta, dict):
-                continue
-            kind = param_meta.get("kind", "value")
-            # Only plain-value and data-array params; ref/object handled above
-            if kind in ("reference", "object"):
-                continue
-
-            default_val = param_meta.get("default")
-            is_required = (
-                default_val == "REQUIRED" or param_meta.get("required", False)
-            )
-            if not is_required:
-                continue
-
-            val = current_values.get(param_name)
-            # Accept any truthy value, including 0 and False (both are valid)
-            if val is None or val == "" or val == "REQUIRED":
-                return False
-
-
-        # ── 3. Required data inputs (connections) ──────────────────────────────
-        # Optionality is determined from the live SPECULA class via
-        # help_provider.is_input_optional(), NOT from the YAML template,
-        # because parse_classes.py does not write an "optional" field.
-        template_inputs = template.get("inputs", {})
-        node_type       = node_data.get("type", "")
-
-        for input_name in template_inputs:
-            if _is_input_optional(node_type, input_name):
-                continue
-
-            has_connection = any(
-                dst_u == node_uuid and dst_a == input_name
-                for _, _, dst_u, dst_a in self.graph.connections
-            )
-            if not has_connection:
-                return False
-
-        return True
+        """True when all required parameters, references and inputs are set."""
+        return not any(i.severity == validation.ERROR for i in self.node_issues(node_uuid))
 
     def debug_node_completeness(self, node_uuid: str) -> bool:
-        if node_uuid not in self.graph.nodes:
-            self._log(f"Node {node_uuid} not found in graph")
-            return False
-
-        node_data = self.graph.nodes[node_uuid]
-        node_type = node_data.get("type", "")
-        node_name = node_data.get("name", "Unknown")
-
-        log.debug("\n=== NODE COMPLETENESS DEBUG ===")
-        log.debug(f"Node: {node_name} ({node_type}) | UUID: {node_uuid}")
-
-        template = self.all_templates.get(node_type, {})
-        if not template:
-            log.debug("No template found. Assuming complete.\n=== END DEBUG ===\n")
-            return True
-
-        template_params = template.get("parameters", {})
-        template_inputs = template.get("inputs", {})
-        current_values  = node_data.get("values", {})
-        param_modes     = node_data.get("param_modes", {})
-        complete        = True
-
-        # ── params ────────────────────────────────────────────────────────────
-        for param_name, param_meta in template_params.items():
-            if not isinstance(param_meta, dict):
-                continue
-            kind        = param_meta.get("kind", "value")
-            default_val = param_meta.get("default")
-            is_required = (
-                default_val == "REQUIRED" or param_meta.get("required", False)
-            )
-
-            if kind in ("reference", "object"):
-                ref_key = f"{param_name}_ref"
-                obj_key = f"{param_name}_object"
-                mode    = param_modes.get(param_name, "ref")
-                if is_required:
-                    if mode == "object":
-                        obj_val = current_values.get(obj_key, "")
-                        if obj_val:
-                            log.debug(f" + Required {param_name} satisfied via _object: {obj_val}")
-                        else:
-                            log.debug(f" - Missing REQUIRED _object for: {param_name}")
-                            complete = False
-                    else:
-                        ref_val = current_values.get(ref_key)
-                        if ref_val:
-                            log.debug(f" + Required {param_name} connected to: {ref_val}")
-                        else:
-                            log.debug(f" - Missing REQUIRED reference for: {param_name} ({ref_key})")
-                            complete = False
-                else:
-                    if mode == "object" and current_values.get(obj_key):
-                        log.debug(f" + Optional {param_name} set via _object: {current_values[obj_key]}")
-                    elif current_values.get(ref_key):
-                        log.debug(f" + Optional {param_name} connected to: {current_values[ref_key]}")
-                    else:
-                        log.debug(f"   Optional {param_name} not connected (OK)")
-            else:
-                # value / data param
-                if is_required:
-                    val = current_values.get(param_name)
-                    if val is None or val == "":
-                        log.debug(f" - Missing REQUIRED value for: {param_name}")
-                        complete = False
-                    else:
-                        log.debug(f" + Required {param_name} = {val!r}")
-                # optional value params are not checked
-
-        # ── inputs ────────────────────────────────────────────────────────────
-        for input_name in template_inputs:
-            optional = _is_input_optional(node_type, input_name)
-            has_connection = any(
-                dst_u == node_uuid and dst_a == input_name
-                for _, _, dst_u, dst_a in self.graph.connections
-            )
-            if optional:
-                status = "connected" if has_connection else "not connected (optional, OK)"
-                log.debug(f"   Optional input  {input_name}: {status}")
-            else:
-                if has_connection:
-                    log.debug(f" + Required input  {input_name}: connected")
-                else:
-                    log.debug(f" - Missing REQUIRED input: {input_name}")
-                    complete = False
-
-        log.debug("Node is complete." if complete else "Node is INCOMPLETE.")
-        log.debug("=== END DEBUG ===\n")
-        return complete
+        issues = self.node_issues(node_uuid)
+        name = self.graph.nodes.get(node_uuid, {}).get("name", node_uuid)
+        if not issues:
+            log.debug("Node %s is complete", name)
+        for issue in issues:
+            log.debug("Node %s incomplete: %s", name, issue.describe(self.graph))
+        return not issues
 
     # ==========================================================================
     # NODE CREATION
@@ -486,8 +316,9 @@ class NodeManager:
         for atmo_uuid, atmo in self.graph.nodes.items():
             if atmo.get("type") != "AtmoPropagation":
                 continue
-            atmo["outputs_extra"] = [new_out if o == old_out else o
-                                     for o in atmo.get("outputs_extra", [])]
+            for key in ("outputs_extra", "file_outputs"):
+                if key in atmo:
+                    atmo[key] = [new_out if o == old_out else o for o in atmo[key]]
             for attr_id, (uid, name) in list(self.output_attr_registry.items()):
                 if uid == atmo_uuid and name == old_out:
                     self.output_attr_registry[attr_id] = (uid, new_out)
@@ -740,62 +571,53 @@ class NodeManager:
     # RENDER SCALE REBUILD
     # ==========================================================================
 
-    def rebuild_all_nodes_ui(self):
+    def current_positions(self) -> dict:
+        """{node_uuid: [x, y]} for every node currently on the canvas."""
+        return {
+            node_uuid: list(dpg.get_item_pos(dpg_id))
+            for node_uuid, dpg_id in self.uuid_to_dpg.items()
+            if dpg.does_item_exist(dpg_id)
+        }
+
+    def sync_ui_from_graph(self, positions: dict | None = None):
         """
-        Rebuild every DPG node item to reflect the current render_scale settings.
-        Also restores _object-mode pin visibility via PropertyPanel.
+        Re-create the whole canvas from the graph model.
+
+        The model is not modified: nodes are drawn at *positions* (falling
+        back to each node's ``gui_pos``), then every connection in the model
+        is drawn as a link.
         """
-        self._log("Rebuilding all node UI items for new render scale…")
-
-        # 1. Save positions
-        saved_positions: dict = {}
-        for node_uuid, dpg_id in list(self.uuid_to_dpg.items()):
-            saved_positions[node_uuid] = (
-                dpg.get_item_pos(dpg_id) if dpg.does_item_exist(dpg_id) else [100, 100]
-            )
-
-        # 2. Snapshot connections
-        saved_connections = list(self.graph.connections)
-        saved_conn_props  = dict(self.graph.connection_properties)
-
-        # 3. Tear down
+        positions = positions or {}
         self.registry.clear()
         dpg.delete_item("specula_editor", children_only=True)
-        self.graph.connections.clear()
-        self.graph.connection_properties.clear()
         self._last_selected_uuid = None
         self._selected_link_id   = None
 
-        # 4. Re-create nodes
         for node_uuid, node_data in self.graph.nodes.items():
             node_type = node_data.get("type", "")
-            node_name = node_data.get("name", node_type)
-            pos       = saved_positions.get(node_uuid, [100, 100])
             self.create_node(
                 node_type=node_type,
-                pos=pos,
+                pos=positions.get(node_uuid) or node_data.get("gui_pos") or [100, 100],
                 existing_uuid=node_uuid,
-                name_override=node_name,
+                name_override=node_data.get("name", node_type),
             )
 
-        # 5. Re-create links
-        dpg.split_frame()
-        dpg.split_frame()
+        for conn in list(self.graph.connections):
+            delay = self.graph.connection_properties.get(conn, {}).get("delay", 0)
+            if self._create_link_ui(*conn, delay=delay) is None:
+                self._log(f"Could not draw connection {conn}")
 
-        for (src_u, src_a, dst_u, dst_a) in saved_connections:
-            props = saved_conn_props.get((src_u, src_a, dst_u, dst_a), {})
-            delay = props.get("delay", 0)
-            self.manual_link(src_u, src_a, dst_u, dst_a, delay=delay)
-
-        # 6. Refresh themes and pin visibility
+        for (src_u, src_a, dst_u, dst_a) in self.graph.connections:
+            self._update_input_pin_shape(dst_u, dst_a)
+            self._update_output_pin_shape(src_u, src_a)
         for node_uuid in self.graph.nodes:
             self._refresh_node_theme(node_uuid)
             self.property_panel.restore_param_mode_pins(node_uuid)
 
-        self._log(
-            f"Rebuild complete: {len(self.graph.nodes)} nodes, "
-            f"{len(saved_connections)} connections restored."
-        )
+    def rebuild_all_nodes_ui(self):
+        """Redraw every node (render scale / theme / font change), keeping positions."""
+        self._log("Rebuilding all node UI items")
+        self.sync_ui_from_graph(self.current_positions())
 
     # ==========================================================================
     # LINK MANAGEMENT
@@ -972,6 +794,8 @@ class NodeManager:
             if dst_node.get("type") == "AtmoPropagation":
                 dynamic_output = f"out_{src_name}_ef"
                 if src_name not in values.get("source_dict_ref", []):
+                    if dynamic_output in dst_node.get("file_outputs", []):
+                        dst_node["file_outputs"].remove(dynamic_output)
                     if dynamic_output in dst_node.get("outputs_extra", []):
                         dst_node["outputs_extra"].remove(dynamic_output)
 
@@ -1001,21 +825,20 @@ class NodeManager:
         self._refresh_node_theme(dst_uuid)
         self._refresh_node_theme(src_uuid)
 
-    def manual_link(self, src_uuid, src_attr, dst_uuid, dst_attr, delay=0) -> bool:
-        is_feedback   = delay == -1
-        base_src_attr = src_attr
-
-        src_id = next(
-            (
-                d for d, (u, n) in self.output_attr_registry.items()
-                if u == src_uuid and n == base_src_attr
-            ),
-            None,
-        )
-
-        output_spacer_w = render_scale.node_output_spacer_width()
+    def _create_link_ui(self, src_uuid, src_attr, dst_uuid, dst_attr, delay=0):
+        """
+        Draw one link on the canvas (creating missing pins on the fly) and
+        register it.  The graph model is not touched.  Returns the link id,
+        or None if either endpoint node is not on the canvas.
+        """
+        is_feedback = delay == -1
         tm = self.theme_manager
 
+        src_id = next(
+            (d for d, (u, n) in self.output_attr_registry.items()
+             if u == src_uuid and n == src_attr),
+            None,
+        )
         if src_id is None:
             parent = self.uuid_to_dpg.get(src_uuid)
             if parent:
@@ -1024,73 +847,63 @@ class NodeManager:
                 if is_feedback:
                     color = tm.get_color("node_feedback_link_color")
                 elif is_ref_link:
-                    color = tm.get_color("node_ref_input_label")  # use same as ref input label
+                    color = tm.get_color("node_ref_input_label")
                 else:
                     color = tm.get_color("node_output_label")
-
                 with dpg.node_attribute(
                     attribute_type=dpg.mvNode_Attr_Output, parent=parent, shape=shape
-                ) as new_id:
+                ) as src_id:
                     with dpg.group(horizontal=True):
-                        dpg.add_spacer(width=output_spacer_w)
-                        text = f"{base_src_attr}:-1" if is_feedback else base_src_attr
-                        dpg.add_text(text, color=color)
-                    self.output_attr_registry[new_id] = (src_uuid, base_src_attr)
-                    src_id = new_id
+                        dpg.add_spacer(width=render_scale.node_output_spacer_width())
+                        dpg.add_text(f"{src_attr}:-1" if is_feedback else src_attr,
+                                     color=color)
+                    self.output_attr_registry[src_id] = (src_uuid, src_attr)
 
-        if dst_attr.endswith("_ref") or dst_attr == "layer_list":
+        dst_id = next(
+            (d for d, (u, n) in self.input_attr_registry.items()
+             if u == dst_uuid and n == dst_attr),
+            None,
+        )
+        if dst_id is None:
+            parent = self.uuid_to_dpg.get(dst_uuid)
+            if parent:
+                pin_shape = REF_SHAPE_EMPTY if is_ref_attr(dst_attr) else DATA_SHAPE_EMPTY
+                with dpg.node_attribute(
+                    attribute_type=dpg.mvNode_Attr_Input, parent=parent, shape=pin_shape
+                ) as dst_id:
+                    dpg.add_text(dst_attr, color=tm.get_color("node_ref_input_label"))
+                    self.input_attr_registry[dst_id] = (dst_uuid, dst_attr)
+
+        if not (src_id and dst_id):
+            return None
+
+        link_id = dpg.add_node_link(src_id, dst_id, parent="specula_editor")
+        if is_feedback:
+            apply_link_style(link_id, color=tm.get_color("node_feedback_link_color"))
+        elif dst_attr.endswith("_ref") or "params" in dst_attr.lower():
+            apply_link_style(link_id, color=tm.get_color("node_ref_link_color"))
+        self.link_registry[link_id] = (src_uuid, src_attr, dst_uuid, dst_attr)
+        return link_id
+
+    def manual_link(self, src_uuid, src_attr, dst_uuid, dst_attr, delay=0) -> bool:
+        """Add a connection to the model and draw it."""
+        if self._create_link_ui(src_uuid, src_attr, dst_uuid, dst_attr, delay) is None:
+            self._log(f"Failed manual link: {src_uuid}.{src_attr} -> {dst_uuid}.{dst_attr}")
+            return False
+
+        self.graph.add_connection(src_uuid, src_attr, dst_uuid, dst_attr, {"delay": delay})
+        if is_ref_attr(dst_attr):
             dst_node = self.graph.nodes.get(dst_uuid)
             src_node = self.graph.nodes.get(src_uuid)
             if dst_node and src_node:
                 add_ref_value(dst_node.setdefault("values", {}), dst_attr,
                               src_node.get("name", src_uuid))
 
-        dst_id = next(
-            (
-                d for d, (u, n) in self.input_attr_registry.items()
-                if u == dst_uuid and n == dst_attr
-            ),
-            None,
-        )
-
-        if dst_id is None:
-            parent = self.uuid_to_dpg.get(dst_uuid)
-            if parent:
-                is_ref    = dst_attr.endswith("_ref") or dst_attr == "layer_list"
-                pin_shape = REF_SHAPE_EMPTY if is_ref else DATA_SHAPE_EMPTY
-
-                with dpg.node_attribute(
-                    attribute_type=dpg.mvNode_Attr_Input, parent=parent, shape=pin_shape
-                ) as new_id:
-                    dpg.add_text(
-                        dst_attr,
-                        color=tm.get_color("node_ref_input_label")
-                    )
-                    self.input_attr_registry[new_id] = (dst_uuid, dst_attr)
-                    dst_id = new_id
-
-        if src_id and dst_id:
-            link_id = dpg.add_node_link(src_id, dst_id, parent="specula_editor")
-
-            if is_feedback:
-                apply_link_style(link_id, color=tm.get_color("node_feedback_link_color"))
-            elif dst_attr.endswith("_ref") or "params" in dst_attr.lower():
-                apply_link_style(link_id, color=tm.get_color("node_ref_link_color"))
-
-            self.link_registry[link_id] = (src_uuid, base_src_attr, dst_uuid, dst_attr)
-            self.graph.add_connection(
-                src_uuid, base_src_attr, dst_uuid, dst_attr, {"delay": delay}
-            )
-
-            self._update_input_pin_shape(dst_uuid, dst_attr)
-            self._update_output_pin_shape(src_uuid, base_src_attr)
-
-            self._refresh_node_theme(dst_uuid)
-            self._refresh_node_theme(src_uuid)
-            return True
-
-        self._log(f"Failed manual link: {src_uuid}.{src_attr} -> {dst_uuid}.{dst_attr}")
-        return False
+        self._update_input_pin_shape(dst_uuid, dst_attr)
+        self._update_output_pin_shape(src_uuid, src_attr)
+        self._refresh_node_theme(dst_uuid)
+        self._refresh_node_theme(src_uuid)
+        return True
 
     # ==========================================================================
     # EVENT HANDLERS
@@ -1273,16 +1086,5 @@ class NodeManager:
         ]
 
     def get_connection_for_yaml(self, src_uuid, src_attr, dst_uuid, dst_attr) -> str:
-        props    = self.graph.get_connection_properties(
-            src_uuid, src_attr, dst_uuid, dst_attr
-        )
-        delay    = props.get("delay", 0)
-        src_name = self.graph.nodes.get(src_uuid, {}).get("name", "")
-        base_str = src_name if src_attr == "ref" else f"{src_name}.{src_attr}"
-
-        if delay == -1:
-            return f"{base_str}:-1"
-        elif delay != 0:
-            return f"{base_str}:{delay}"
-        return base_str
+        return yaml_io.connection_to_yaml(self.graph, (src_uuid, src_attr, dst_uuid, dst_attr))
 

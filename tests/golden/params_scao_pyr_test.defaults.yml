@@ -15,6 +15,7 @@ on_axis_source:
 pupilstop: {class: Pupilstop, simul_params_ref: main}
 atmo:
   class: AtmoEvolution
+  outputs: [layer_list]
   L0: 40
   heights: [0.0]
   Cn2: [1.0]

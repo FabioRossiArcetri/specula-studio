@@ -1,10 +1,16 @@
 main: {class: SimulParams, pixel_pupil: 64, pixel_pitch: 0.015625, root_dir: ./calib/,
   total_time: 0.01}
-seeing: {class: WaveGenerator, constant: 1.0e-06}
+seeing:
+  class: WaveGenerator
+  outputs: [output]
+  constant: 1.0e-06
 wind_speed:
   class: WaveGenerator
+  outputs: [output]
   constant: [5.0]
-wind_direction: {class: WaveGenerator}
+wind_direction:
+  class: WaveGenerator
+  outputs: [output]
 on_axis_source:
   class: Source
   polar_coordinates: [0.0, 0.0]
@@ -13,6 +19,7 @@ on_axis_source:
 pupilstop: {class: Pupilstop, simul_params_ref: main}
 atmo:
   class: AtmoEvolution
+  outputs: [layer_list]
   L0: 25
   heights: [0.0]
   Cn2: [1.0]
@@ -29,6 +36,7 @@ prop:
   source_dict_ref: [on_axis_source]
 sh:
   class: SH
+  outputs: [out_i]
   wavelengthInNm: 600
   subap_wanted_fov: 4.0
   sensor_pxscale: 0.5
@@ -37,6 +45,7 @@ sh:
   inputs: {in_ef: prop.out_on_axis_source_ef}
 detector:
   class: CCD
+  outputs: [out_pixels]
   size: [64, 64]
   dt: 0.001
   bandw: 300
@@ -48,14 +57,17 @@ detector:
   simul_params_ref: main
 slopec:
   class: ShSlopec
+  outputs: [out_slopes, out_subapdata]
   subapdata_object: scao_subaps_n8_th0.5
   inputs: {in_pixels: detector.out_pixels}
 rec:
   class: Modalrec
+  outputs: [out_modes]
   recmat_object: scao_rec_n8_th0.5
   inputs: {in_slopes: slopec.out_slopes}
 control:
   class: Integrator
+  outputs: [out_comm]
   int_gain: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5,
     0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5,
     0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
@@ -63,6 +75,7 @@ control:
   inputs: {delta_comm: rec.out_modes}
 dm:
   class: DM
+  outputs: [out_layer]
   height: 0
   type_str: zernike
   nmodes: 40
@@ -72,6 +85,7 @@ dm:
   simul_params_ref: main
 modal_analysis:
   class: ModalAnalysis
+  outputs: [out_modes]
   type_str: zernike
   npixels: 64
   obsratio: 0.1
@@ -79,6 +93,7 @@ modal_analysis:
   inputs: {in_ef: prop.out_on_axis_source_ef}
 psf:
   class: PSF
+  outputs: [out_psf, out_sr]
   wavelengthInNm: 1650
   nd: 7
   inputs: {in_ef: prop.out_on_axis_source_ef}

@@ -53,6 +53,33 @@ def test_rename_validates_and_propagates(scenarios):
     assert res["psf_in_ef"] == "prop.out_ngs_ef"
 
 
+def test_override_preview_edit_save_disable(scenarios):
+    res = scenarios["override_preview"]
+    assert "exception" not in res, res
+    assert res["preview_total_time"] == 0.08 and res["preview_has_im_calibrator"]
+    # the file keeps the base values plus the user's edit, never override values
+    assert res["saved_total_time"] == 0.01
+    assert res["saved_psf_wl"] == 750
+    assert not res["saved_has_im_calibrator"]
+    assert res["saved_meta"]["overrides"][0]["enabled"] is True
+    # disabling the override keeps the edit
+    assert res["off_total_time"] == 0.01 and res["off_psf_wl"] == 750
+    assert not res["off_has_im_calibrator"]
+    # reopening restores and re-applies the override
+    assert res["reopen_total_time"] == 0.08 and len(res["reopen_enabled"]) == 1
+
+
+def test_undo_redo_and_dirty_flag(scenarios):
+    res = scenarios["undo_dirty"]
+    assert "exception" not in res, res
+    assert res["dirty_after_open"] is False
+    assert res["dirty_after_edit"] is True
+    assert res["value_after_undo"] == 1650 and res["dirty_after_undo"] is False
+    assert res["value_after_redo"] == 999
+    assert res["added"] == 1 and res["canvas_nodes"]
+    assert res["after_undo_paste"] == 0
+
+
 # ── pure helpers ──────────────────────────────────────────────────────────────
 
 def test_list_ref_helpers():

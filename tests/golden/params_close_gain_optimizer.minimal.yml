@@ -6,14 +6,17 @@ disturbance:
   freq: [5.0]
 diff:
   class: BaseOperation
+  outputs: [out_value]
   sub: true
   inputs: {in_value1: disturbance.output, in_value2: 'control.out_comm:-1'}
 noise:
   class: RandomGenerator
+  outputs: [output]
   amp: [0.2]
   seed: 42
 sum_operation_noise:
   class: BaseOperation
+  outputs: [out_value]
   sum: true
   inputs: {in_value1: diff.out_value, in_value2: noise.output}
 control:
@@ -24,6 +27,7 @@ control:
   inputs: {delta_comm: scaled_cmd.out_value}
 omgi:
   class: CloseGainOptimizer
+  outputs: [out_gains]
   nmodes: 1
   p: 0.2
   r: -0.1
@@ -34,6 +38,7 @@ omgi:
   inputs: {in_modes: sum_operation_noise.out_value}
 scaled_cmd:
   class: BaseOperation
+  outputs: [out_value]
   mul: true
   inputs: {in_value1: sum_operation_noise.out_value, in_value2: omgi.out_gains}
 data_store:

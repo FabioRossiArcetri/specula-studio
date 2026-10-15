@@ -47,7 +47,10 @@ ruff check .    # lint
 
 `tests/golden/` holds the YAML that loading and re-exporting each config in
 `tests/fixtures/specula/` must reproduce. If a change to the export format is
-intentional, regenerate the golden files and review the diff.
+intentional, regenerate the golden files with
+`python -m tests.helpers.regen_golden` and review the diff.
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the code layout.
 
 The class templates in `specula_studio/specula_yaml_docs/` are generated from
 the SPECULA sources with:

@@ -49,6 +49,7 @@ import os
 import numpy as np
 import dearpygui.dearpygui as dpg
 
+from .core import yaml_io
 from .dpg_utils import apply_link_style
 from .theme_manager import ThemeManager
 import logging
@@ -1383,14 +1384,7 @@ class PropertyPanel:
 
     def is_data_class_type(self, type_name: str) -> bool:
         """Return True if *type_name* looks like a Specula data-object type."""
-        if not type_name or type_name == "Any":
-            return False
-        if hasattr(self, "_data_obj_templates") and type_name in self._data_obj_templates:
-            return True
-        data_keywords = [
-            "Matrix", "Vector", "Atmosphere", "Telescope", "Detector", "Field",
-        ]
-        return any(k in type_name for k in data_keywords)
+        return yaml_io.is_data_class_type(type_name, self.all_templates)
 
     # =========================================================================
     # Helpers
