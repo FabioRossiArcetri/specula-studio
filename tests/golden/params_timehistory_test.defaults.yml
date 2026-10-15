@@ -1,0 +1,8 @@
+main: {class: SimulParams, pixel_pupil: 80, root_dir: ., total_time: 1.0, time_step: 0.1}
+mytimehist: {class: TimeHistory, tag: timehistory_test}
+generator: {class: TimeHistoryGenerator, time_hist_ref: mytimehist}
+data_store:
+  class: DataStore
+  store_dir: ./output_timehistory
+  inputs:
+    input_list: [timehist-generator.output]

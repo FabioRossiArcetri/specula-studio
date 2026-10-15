@@ -1,0 +1,84 @@
+main: {class: SimulParams, pixel_pupil: 512, pixel_pitch: 0.0762, root_dir: ./calib/SCAO_ELT,
+  total_time: 0.05, time_step: 0.001}
+seeing: {class: WaveGenerator, constant: 0.8}
+wind_speed:
+  class: WaveGenerator
+  constant: [20.0]
+wind_direction:
+  class: WaveGenerator
+  constant: [0.0]
+on_axis_source:
+  class: Source
+  polar_coordinates: [0.0, 0.0]
+  magnitude: 8
+  wavelengthInNm: 750
+pupilstop: {class: Pupilstop, simul_params_ref: main}
+atmo:
+  class: AtmoEvolution
+  L0: 40
+  heights: [119.0]
+  Cn2: [1.0]
+  fov: 0.0
+  inputs: {seeing: seeing.output, wind_speed: wind_speed.output, wind_direction: wind_direction.output}
+  simul_params_ref: main
+prop:
+  class: AtmoPropagation
+  outputs: [out_on_axis_source_ef]
+  inputs:
+    atmo_layer_list: [atmo.layer_list]
+    common_layer_list: [pupilstop, 'dm.out_layer:-1']
+  simul_params_ref: main
+  source_dict_ref: [on_axis_source]
+pyramid:
+  class: ModulatedPyramid
+  wavelengthInNm: 798
+  fov: 2.1
+  pup_diam: 90.0
+  output_resolution: 240
+  mod_amp: 4.0
+  pup_dist: 108.0
+  inputs: {in_ef: prop.out_on_axis_source_ef}
+  simul_params_ref: main
+detector:
+  class: CCD
+  size: [240, 240]
+  dt: 0.001
+  bandw: 155
+  photon_noise: true
+  readout_noise: true
+  readout_level: 1.0
+  quantum_eff: 0.32
+  inputs: {in_i: pyramid.out_i}
+  simul_params_ref: main
+slopec:
+  class: PyrSlopec
+  pupdata_object: hiresA_ps512p0.076_pyr90x90_wl798_fv2.1_ft3.0_bn1_th0.30a0.30b
+  sn_object: hiresA_ps512p0.076_pyr90x90_wl798_fv2.1_ft3.0_ma4_bn1_th0.30a0.30b
+  inputs: {in_pixels: detector.out_pixels}
+rec:
+  class: Modalrec
+  recmat_object: hiresA_ps512p0.076_pyr90x90_wl798_fv2.1_ft3.0_ma4_bn1_th0.30a0.30b_mn4094
+  inputs: {in_slopes: slopec.out_slopes}
+control:
+  class: Integrator
+  delay: 2
+  int_gain_data: g0.50_4094
+  inputs: {delta_comm: rec.out_modes}
+dm:
+  class: DM
+  height: 0
+  ifunc_object: EELT512nm4094klnogapRoundObs
+  inputs: {in_command: control.out_comm}
+  simul_params_ref: main
+psf:
+  class: PSF
+  wavelengthInNm: 1650
+  nd: 3
+  start_time: 0.05
+  inputs: {in_ef: prop.out_on_axis_source_ef}
+  simul_params_ref: main
+data_store:
+  class: DataStore
+  store_dir: ./output
+  inputs:
+    input_list: [res_ef-prop.out_on_axis_source_ef]

@@ -1,0 +1,43 @@
+main: {class: SimulParams, pixel_pupil: 160, pixel_pitch: 0.05, root_dir: ./calib,
+  total_time: 1.0}
+disturbance:
+  class: WaveGenerator
+  amp: [5.0]
+  freq: [5.0]
+diff:
+  class: BaseOperation
+  sub: true
+  inputs: {in_value1: disturbance.output, in_value2: 'control.out_comm:-1'}
+noise:
+  class: RandomGenerator
+  amp: [0.2]
+  seed: 42
+sum_operation_noise:
+  class: BaseOperation
+  sum: true
+  inputs: {in_value1: diff.out_value, in_value2: noise.output}
+control:
+  class: Integrator
+  int_gain: [1.0]
+  n_modes: [1]
+  delay: 1.0
+  inputs: {delta_comm: scaled_cmd.out_value}
+omgi:
+  class: CloseGainOptimizer
+  nmodes: 1
+  p: 0.2
+  r: -0.1
+  dt: 3
+  q_plus: 0.01
+  q_minus_ratio: 5.0
+  initial_gain: 0.4
+  inputs: {in_modes: sum_operation_noise.out_value}
+scaled_cmd:
+  class: BaseOperation
+  mul: true
+  inputs: {in_value1: sum_operation_noise.out_value, in_value2: omgi.out_gains}
+data_store:
+  class: DataStore
+  store_dir: ./data
+  inputs:
+    input_list: [res_close-diff.out_value, close_optimized_gain-omgi.out_gains]
