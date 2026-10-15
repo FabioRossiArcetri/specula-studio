@@ -53,6 +53,10 @@ from .constants import MAX_QUEUE_ITEMS_PER_FRAME, MONITOR_QUEUE_SIZE
 from .dpg_plotting import DPGPlotter
 from .monitor_bus import _DropFrame
 from .theme_manager import ThemeManager
+import logging
+
+log = logging.getLogger(__name__)
+
 
 if TYPE_CHECKING:
     from .simulation_backend import MonitorProbeObj
@@ -210,13 +214,13 @@ class InProcessMonitor:
         try:
             self._bus.unsubscribe(old, self._on_data)
         except Exception as exc:
-            print(f"[IPMonitor] unsubscribe failed for '{old}': {exc}")
+            log.warning(f"[IPMonitor] unsubscribe failed for '{old}': {exc}")
         self.server_output_name = new_server_output_name
         self._probe = None
         try:
             self._bus.subscribe(self.server_output_name, self._on_data)
         except Exception as exc:
-            print(f"[IPMonitor] subscribe failed for '{self.server_output_name}': {exc}")
+            log.warning(f"[IPMonitor] subscribe failed for '{self.server_output_name}': {exc}")
             return False
         if dpg.does_item_exist(self._output_tag):
             dpg.set_value(self._output_tag, f"Output:  {self.server_output_name}")
@@ -304,7 +308,7 @@ class InProcessMonitor:
                     return arr
 
         except Exception as exc:
-            print(f"[IPMonitor] Data conversion error: {exc}")
+            log.error(f"[IPMonitor] Data conversion error: {exc}")
             traceback.print_exc()
 
         return None
@@ -346,7 +350,7 @@ class InProcessMonitor:
                 if reduced.ndim == 2:
                     return p.plot_2d_image_clean(reduced)
         except Exception as exc:
-            print(f"[IPMonitor] Plot error: {exc}")
+            log.error(f"[IPMonitor] Plot error: {exc}")
             traceback.print_exc()
 
         return False

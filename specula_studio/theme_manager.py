@@ -1,7 +1,7 @@
 # theme_manager.py
-import json
-import os
 import dearpygui.dearpygui as dpg
+
+from . import settings
 
 class Theme:
     """Holds all color definitions for a theme (dark or light)."""
@@ -309,34 +309,20 @@ class ThemeManager:
             return
         self._initialized = True
         self.current_theme = None
-        self.config_path = os.path.join(os.path.dirname(__file__), "user_prefs.json")
+        self._global_theme = None
         self.load_preference()
 
     def load_preference(self):
-        theme_name = "dark"
-        if os.path.exists(self.config_path):
-            try:
-                with open(self.config_path, "r") as f:
-                    prefs = json.load(f)
-                    theme_name = prefs.get("theme", "dark")
-            except Exception:
-                pass
+        theme_name = settings.store().get("theme", "dark")
         if theme_name == "light":
             self.current_theme = Theme("light", self.LIGHT_THEME)
         else:
             self.current_theme = Theme("dark", self.DARK_THEME)
 
     def save_preference(self, theme_name: str):
-        prefs = {}
-        if os.path.exists(self.config_path):
-            try:
-                with open(self.config_path, "r") as f:
-                    prefs = json.load(f)
-            except Exception:
-                pass
-        prefs["theme"] = theme_name
-        with open(self.config_path, "w") as f:
-            json.dump(prefs, f, indent=2)
+        store = settings.store()
+        store["theme"] = theme_name
+        store.save()
         self.load_preference()
         self.apply_theme()
 
@@ -364,6 +350,9 @@ class ThemeManager:
                     dpg.mvThemeCol_TitleBgActive: "title_bg",
                     dpg.mvThemeCol_TitleBgCollapsed: "title_bg",
                     dpg.mvThemeCol_MenuBarBg: "menu_bar_bg",
+                    dpg.mvThemeCol_TableRowBg: "table_row_bg",
+                    dpg.mvThemeCol_TableRowBgAlt: "table_row_bg_alt",
+                    dpg.mvThemeCol_TableHeaderBg: "table_header_bg",
                 }
                 for dpg_key, logical_key in color_mappings.items():
                     dpg.add_theme_color(dpg_key, self.current_theme.get(logical_key))
@@ -402,6 +391,10 @@ class ThemeManager:
                 )
 
         dpg.bind_theme(global_theme)
+        # Free the previously bound global theme (one is created per switch).
+        if self._global_theme is not None and dpg.does_item_exist(self._global_theme):
+            dpg.delete_item(self._global_theme)
+        self._global_theme = global_theme
 
     def get_color(self, key: str):
         return self.current_theme.get(key)

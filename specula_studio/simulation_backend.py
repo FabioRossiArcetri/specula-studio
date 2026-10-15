@@ -89,6 +89,10 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 import yaml
+import logging
+
+log = logging.getLogger(__name__)
+
 
 
 # ---------------------------------------------------------------------------
@@ -158,20 +162,20 @@ def _resolve_remote_hostname(hostname: str) -> str:
             ips = result.stdout.strip().split()
             if ips:
                 ip = ips[0]
-                print(f"[REMOTE] Resolved '{hostname}' → {ip}")
+                log.info(f"[REMOTE] Resolved '{hostname}' → {ip}")
                 return ip
     except Exception as e:
-        print(f"[REMOTE] Could not resolve '{hostname}' via SSH: {e}")
+        log.warning(f"[REMOTE] Could not resolve '{hostname}' via SSH: {e}")
 
     try:
         import socket as sock_module
         ip = sock_module.gethostbyname(hostname)
-        print(f"[REMOTE] Resolved '{hostname}' (DNS) → {ip}")
+        log.info(f"[REMOTE] Resolved '{hostname}' (DNS) → {ip}")
         return ip
     except Exception:
         pass
 
-    print(f"[REMOTE] Warning: Could not resolve '{hostname}', using as-is")
+    log.warning(f"[REMOTE] Warning: Could not resolve '{hostname}', using as-is")
     return hostname
 
 
@@ -272,7 +276,9 @@ def _extract_cpu_array(out_obj, output_name: str = "") -> np.ndarray | None:
     if arr.size == 0:
         return None
 
-    return arr.astype(np.float32, copy=False)
+    # Always copy: on CPU the array may be the live simulation buffer, which
+    # the simulation thread keeps mutating while the GUI thread draws it.
+    return arr.astype(np.float32, copy=True)
 
 
 # ---------------------------------------------------------------------------
@@ -330,11 +336,11 @@ class RemoteBackend(SimulationBackend):
                 if isinstance(node_dict, dict) and node_dict.get("class") == "DisplayServer":
                     old_host = node_dict.get("host", "127.0.0.1")
                     node_dict["host"] = "0.0.0.0"
-                    print(f"[REMOTE] DisplayServer '{node_name}': {old_host} → 0.0.0.0")
+                    log.info(f"[REMOTE] DisplayServer '{node_name}': {old_host} → 0.0.0.0")
             with open(yaml_path, "w", encoding="utf-8") as f:
                 yaml.dump(yaml_data, f, sort_keys=False, default_flow_style=False)
         except Exception as e:
-            print(f"[REMOTE] Warning: could not prepare remote YAML: {e}")
+            log.warning(f"[REMOTE] Warning: could not prepare remote YAML: {e}")
 
     def start(self, yaml_path, cmd_args, append_terminal, on_port_found, on_finished):
         stepping  = cmd_args.get("stepping", False)
@@ -486,12 +492,6 @@ class RemoteBackend(SimulationBackend):
         return self._running
 
 
-class DisplayServerBackend(RemoteBackend):
-    """Backward-compatibility alias."""
-    def __init__(self) -> None:
-        super().__init__(remote_ip="localhost", remote_user="")
-
-
 # ---------------------------------------------------------------------------
 # MonitorProbeObj  (Issue 5 fix)
 # ---------------------------------------------------------------------------
@@ -567,12 +567,9 @@ class MonitorProbeObj:
                 "shape": list(arr.shape),
             }
 
-            # FIX: Add diagnostic logging
-            print(f"[PROBE] {self.name}: Pushing {dtype_str} to topic '{self._topic}', shape={payload['shape']}")
-
             self._bus.push(self._topic, payload)
         except Exception as e:
-            print(f"[PROBE] {self.name}: Error in trigger: {e}")
+            log.debug(f"[PROBE] {self.name}: Error in trigger: {e}")
             traceback.print_exc()
 
     def post_trigger(self) -> None:
@@ -648,7 +645,7 @@ class InProcessBackend(SimulationBackend):
             MatplotlibDPGBridge.install()
             self._matplotlib_patched = True
         except Exception as exc:
-            print(f"[In-Process] Warning: could not install matplotlib bridge: {exc}")
+            log.warning(f"[In-Process] Warning: could not install matplotlib bridge: {exc}")
 
     def _cleanup_matplotlib(self) -> None:
         try:
@@ -656,9 +653,6 @@ class InProcessBackend(SimulationBackend):
             plt.close("all")
         except Exception:
             pass
-
-    def _restore_sys_exit(self) -> None:
-        pass  # kept for call-site compatibility
 
     # ── SimulationBackend interface ───────────────────────────────────────────
 
@@ -876,10 +870,6 @@ class InProcessBackend(SimulationBackend):
                         f"[In-Process]       Available: {sorted(registry.keys())}\n"
                     )
 
-        def _patched_simul_init(self, *args, **kwargs):
-            """FIX: Simul.__init__ - just call original, probes injected in iter."""
-            original_simul_init(self, *args, **kwargs)
-
         def _patched_run(lc_self, run_time, dt, t0=0, speed_report=False):
             """Run loop - probes will be injected on first iter() call."""
             append_terminal("[In-Process] >>> LoopControl.run called, starting iterations\n")
@@ -943,13 +933,13 @@ class InProcessBackend(SimulationBackend):
                     try:
                         probe.setup()
                     except Exception as e:
-                        print(f"[In-Process] Warning: probe.setup() failed: {e}")
+                        log.warning(f"[In-Process] Warning: probe.setup() failed: {e}")
                     priority = _state.get("probe_priority", 99999)
                     lc_self.trigger_lists[priority].append(probe)
                     _active_probes[topic] = probe
-                    print(f"[PROBE] Probe for '{topic}' injected into trigger_lists[{priority}]")
+                    log.debug(f"[PROBE] Probe for '{topic}' injected into trigger_lists[{priority}]")
                 except Exception as exc:
-                    print(f"[In-Process] Dynamic probe injection error: {exc}")
+                    log.error(f"[In-Process] Dynamic probe injection error: {exc}")
 
         # FIX: PATCH IMMEDIATELY after defining the function
         append_terminal("[In-Process] Patching Simul.__init__...\n")
@@ -1016,7 +1006,7 @@ class InProcessBackend(SimulationBackend):
             # Registry not built yet - try to build from Simul object
             simul = state.get("simul")
             if simul is not None:
-                print("[In-Process] attach_probe: Building registry on-demand from Simul.objs")
+                log.info("[In-Process] attach_probe: Building registry on-demand from Simul.objs")
                 objs_dict = getattr(simul, "objs", {})
                 for obj_name, obj in objs_dict.items():
                     outputs = getattr(obj, "outputs", {})
@@ -1024,11 +1014,11 @@ class InProcessBackend(SimulationBackend):
                         topic_key = f"{obj_name}.{out_key}"
                         registry[topic_key] = (out_data_obj, out_key)
                 state["registry"] = registry
-                print(f"[In-Process] attach_probe: Built registry with {len(registry)} topics")
+                log.info(f"[In-Process] attach_probe: Built registry with {len(registry)} topics")
 
         entry = registry.get(topic)
         if entry is None:
-            print(f"[In-Process] attach_probe: topic '{topic}' not found in registry")
+            log.warning(f"[In-Process] attach_probe: topic '{topic}' not found in registry")
             return None
 
         source_obj, out_key = entry
@@ -1043,7 +1033,7 @@ class InProcessBackend(SimulationBackend):
         # Queue for injection on next iteration
         if self._probe_queue is not None:
             self._probe_queue.append((topic, probe))
-            print(f"[In-Process] attach_probe: queued probe for '{topic}'")
+            log.info(f"[In-Process] attach_probe: queued probe for '{topic}'")
 
         return probe
 
@@ -1068,7 +1058,7 @@ class InProcessBackend(SimulationBackend):
                 pass
 
     def abort(self) -> None:
-        print("[In-Process] Abort requested")
+        log.info("[In-Process] Abort requested")
         self._running            = False
         self._abort_in_progress  = True
 

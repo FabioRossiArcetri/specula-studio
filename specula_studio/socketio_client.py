@@ -35,6 +35,10 @@ from .constants import (
     SOCKETIO_SERVER,
     STREAM_STALL_TIMEOUT,
 )
+import logging
+
+log = logging.getLogger(__name__)
+
 
 
 class SocketIOClient:
@@ -98,15 +102,15 @@ class SocketIOClient:
             self.sio = sio_module.Client(logger=True, engineio_logger=False)
 
         self._setup_handlers()
-        self._connect()
+        # No connection attempt here: SimulationControl connects once a
+        # simulation with a DisplayServer has actually been started.
 
     # ──────────────────────────────────────────────────────────────────────────
     # Internal helpers
     # ──────────────────────────────────────────────────────────────────────────
 
     def _log(self, message: str):
-        if self.debug:
-            print(f"[SOCKETIO] {message}")
+        log.debug(message)
 
     # ── Subscriptions (thread-safe) ────────────────────────────────────────────
 
@@ -172,12 +176,12 @@ class SocketIOClient:
         @self.sio.event
         def connect():
             self.connected = True
-            print(f"[SOCKET.IO] Connected! SID: {self.sio.sid}")
+            log.info(f"[SOCKET.IO] Connected! SID: {self.sio.sid}")
             try:
                 self.sio.emit("get_params")
-                print("[SOCKET.IO] Requested params via 'get_params'")
+                log.info("[SOCKET.IO] Requested params via 'get_params'")
             except Exception as e:
-                print(f"[SOCKET.IO] get_params emit error: {e}")
+                log.error(f"[SOCKET.IO] get_params emit error: {e}")
             if self._subs_any():
                 self.request_next_frame()
             if self._on_connect_cb:
@@ -186,7 +190,7 @@ class SocketIOClient:
         @self.sio.event
         def params(data):
             if not data:
-                print("[SOCKET.IO] No data in params event!")
+                log.info("[SOCKET.IO] No data in params event!")
                 return
             # Extract and remove studio-private keys before forwarding
             self.server_session_id = data.pop("_session_id", None)
@@ -206,12 +210,12 @@ class SocketIOClient:
                 name     = data.get("name")
                 raw_data = data.get("data")
                 if not name or raw_data is None:
-                    print("[SOCKET.IO] Missing name or data in update")
+                    log.warning("[SOCKET.IO] Missing name or data in update")
                     return
                 if self._on_data_update_cb:
                     self._on_data_update_cb(name, raw_data)
             except Exception as e:
-                print(f"[SOCKET.IO] Error in data_update handler: {e}")
+                log.error(f"[SOCKET.IO] Error in data_update handler: {e}")
                 traceback.print_exc()
 
         @self.sio.event
@@ -254,7 +258,7 @@ class SocketIOClient:
         def connect_error(data):
             self.connected = False
             self._disarm_stall_watchdog()
-            print(f"[SOCKET.IO] Connection error: {data}")
+            log.error(f"[SOCKET.IO] Connection error: {data}")
             if self._on_connect_error_cb:
                 self._on_connect_error_cb(data)
 
@@ -262,7 +266,7 @@ class SocketIOClient:
         def disconnect():
             self.connected = False
             self._disarm_stall_watchdog()
-            print("[SOCKET.IO] Disconnected")
+            log.info("[SOCKET.IO] Disconnected")
             if self._on_disconnect_cb:
                 self._on_disconnect_cb()
 
@@ -280,12 +284,12 @@ class SocketIOClient:
             self._log("Connection attempt already in progress — skipping duplicate.")
             return
         try:
-            print(f"[SOCKET.IO] Connecting to {self.server_url} …")
+            log.info(f"[SOCKET.IO] Connecting to {self.server_url} …")
             self.connected = False
             self.sio.connect(self.server_url, namespaces=["/"])
-            print(f"[SOCKET.IO] Connection established. SID: {self.sio.sid}")
+            log.info(f"[SOCKET.IO] Connection established. SID: {self.sio.sid}")
         except Exception as e:
-            print(f"[SOCKET.IO] Connection failed: {e}")
+            log.warning(f"[SOCKET.IO] Connection failed: {e}")
             self.connected = False
         finally:
             self._connect_lock.release()
@@ -318,7 +322,7 @@ class SocketIOClient:
                 self.sio.emit(event, data)
             return True
         except Exception as e:
-            print(f"[SOCKET.IO] Error emitting '{event}': {e}")
+            log.error(f"[SOCKET.IO] Error emitting '{event}': {e}")
             return False
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -337,7 +341,7 @@ class SocketIOClient:
             self.sio.emit("newdata", outputs_list)
             self._arm_stall_watchdog()
         except Exception as e:
-            print(f"[SOCKET.IO] Error emitting 'newdata': {e}")
+            log.debug(f"[SOCKET.IO] Error emitting 'newdata': {e}")
 
     def subscribe(self, server_output_name: str):
         self._subs_add(server_output_name)
@@ -352,7 +356,7 @@ class SocketIOClient:
             try:
                 self.sio.emit("unsubscribe", {"output": server_output_name})
             except Exception as e:
-                print(f"[SOCKET.IO] Error sending unsubscribe: {e}")
+                log.error(f"[SOCKET.IO] Error sending unsubscribe: {e}")
 
     # ──────────────────────────────────────────────────────────────────────────
     # Node-to-server name mapping  (Issue 1)
@@ -401,7 +405,7 @@ class SocketIOClient:
                     f"(class fallback, node name '{node_name}' not found on server)"
                 )
             elif len(candidates) > 1:
-                print(
+                log.warning(
                     f"[BIND] WARNING: Ambiguous server instances for node "
                     f"'{node_name}' ({node_type}): {candidates}. "
                     "No mapping set — rename the node to match the server name."

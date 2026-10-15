@@ -57,6 +57,10 @@ import traceback
 
 
 from .inprocess_monitor import InProcessMonitor
+import logging
+
+log = logging.getLogger(__name__)
+
 
 _SYNTHETIC_SERVER_OUTPUT_PREFIX = "auto_"
 
@@ -69,6 +73,9 @@ def _subprocess_env() -> dict:
     """
     env = os.environ.copy()
     pkg_parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env["SPECULA_STUDIO_LOG_LEVEL"] = logging.getLevelName(
+        logging.getLogger("specula_studio").getEffectiveLevel()
+    )
     env["PYTHONPATH"] = os.pathsep.join(
         p for p in (pkg_parent, env.get("PYTHONPATH", "")) if p
     )
@@ -100,6 +107,7 @@ class MonitorManager:
         self._inprocess_monitors: dict[str, InProcessMonitor] = {}
         self._pending_monitors: list = []
         self._server_url: str | None = None
+        self._tick_count: int = 0
 
         self._server_url_file: str = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
@@ -133,8 +141,7 @@ class MonitorManager:
     # ── Logging ──────────────────────────────────────────────────────────[...]
 
     def _log(self, msg: str):
-        if self.debug:
-            print(f"[MONITOR_MGR] {msg}")
+        log.debug(msg)
 
     # ── Server-event stubs ────────────────────────────────────────────────────
 
@@ -159,8 +166,6 @@ class MonitorManager:
             return
         self._flush_pending_monitors()
         self._refresh_inprocess_monitor_bindings()
-
-    def _safe_update_monitor_status(self, monitor_id: str, status: str): pass
 
     # ── Public query helpers ──────────────────────────────────────────────────
 
@@ -492,26 +497,13 @@ class MonitorManager:
 
     # ── Ticking ──────────────────────────────────────────────────────────[...]
 
-    def _find_and_close_monitor(self, monitor_info):
-        node_uuid, output_name = monitor_info
-        with self._lock:
-            candidates = [
-                mid for mid, info in self.active_monitors.items()
-                if info["node_uuid"] == node_uuid and info["output_name"] == output_name
-            ]
-        for mid in candidates:
-            self.close_monitor(mid)
-        for mid, monitor in list(self._inprocess_monitors.items()):
-            if monitor.node_uuid == node_uuid and monitor.output_name == output_name:
-                self.close_monitor(mid)
-
     def after_dpg_init(self):
         self._log("Ready")
 
     def start_periodic_tasks(self):
         self._log("start_periodic_tasks called (ticking via main render loop)")
 
-    def _inprocess_tick_direct(self) -> None:
+    def tick(self) -> None:
         """Drain and render all in-process monitors every frame.
 
         FIX: Add diagnostic logging to verify data is flowing through the bus.
@@ -520,25 +512,14 @@ class MonitorManager:
             return
 
         # Diagnostic: log subscribed topics and push counts periodically
-        if hasattr(self, '_tick_count'):
-            self._tick_count += 1
-        else:
-            self._tick_count = 0
-
-        if self._tick_count % 300 == 0:  # Log every ~5 seconds at 60 FPS
-            subscribed = self._monitor_bus.all_subscribed_outputs()
-            push_counts = self._monitor_bus.push_counts()
-            drop_counts = self._monitor_bus.drop_counts()
-            self._log(
-                f"[DIAGNOSTIC] Subscribed topics: {subscribed} | "
-                f"Push counts: {push_counts} | Drop counts: {drop_counts}"
+        self._tick_count += 1
+        if self._tick_count % 300 == 0 and log.isEnabledFor(logging.DEBUG):
+            log.debug(
+                "Subscribed topics: %s | push counts: %s | drop counts: %s",
+                self._monitor_bus.all_subscribed_outputs(),
+                self._monitor_bus.push_counts(),
+                self._monitor_bus.drop_counts(),
             )
-            for mid, mon in self._inprocess_monitors.items():
-                self._log(
-                    f"[DIAGNOSTIC] Monitor {mid}: "
-                    f"topic='{mon.server_output_name}' is_open={mon.is_open} "
-                    f"queue_size={mon._data_queue.qsize()}"
-                )
 
         dead = []
         for mid, monitor in list(self._inprocess_monitors.items()):
@@ -551,7 +532,13 @@ class MonitorManager:
             if not still_alive:
                 dead.append(mid)
         for mid in dead:
-            self._inprocess_monitors.pop(mid, None)
+            monitor = self._inprocess_monitors.pop(mid, None)
+            # Window closed with its [x]: stop the probe feeding it.
+            if monitor is not None and monitor._probe is not None \
+                    and _is_direct_backend(self._backend):
+                self._backend.detach_probe(monitor._probe)
+            if monitor is not None:
+                monitor.close()   # unsubscribe + delete the hidden window
             self._log(f"In-process monitor {mid} closed")
 
     def cleanup(self):

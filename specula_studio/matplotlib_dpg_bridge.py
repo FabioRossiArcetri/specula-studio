@@ -43,6 +43,10 @@ from typing import Dict
 
 import numpy as np
 import dearpygui.dearpygui as dpg
+import logging
+
+log = logging.getLogger(__name__)
+
 
 _TEX_REGISTRY_TAG = "mpl_dpg_bridge_tex_registry"
 
@@ -172,9 +176,9 @@ class MatplotlibDPGBridge:
                 plt.ion   = _patched_ion
 
                 cls._installed = True
-                print("[MPL-DPG] Installed: FigureCanvasAgg.draw hooked.")
+                log.info("[MPL-DPG] Installed: FigureCanvasAgg.draw hooked.")
             except Exception as exc:
-                print(f"[MPL-DPG] install() failed: {exc}")
+                log.warning(f"[MPL-DPG] install() failed: {exc}")
 
     @classmethod
     def uninstall(cls) -> None:
@@ -196,9 +200,9 @@ class MatplotlibDPGBridge:
                 cls._orig_canvas_draw = cls._orig_canvas_draw_idle = None
                 cls._orig_show = cls._orig_draw = cls._orig_pause = cls._orig_ion = None
                 cls._installed = False
-                print("[MPL-DPG] Uninstalled.")
+                log.info("[MPL-DPG] Uninstalled.")
             except Exception as exc:
-                print(f"[MPL-DPG] uninstall() error: {exc}")
+                log.error(f"[MPL-DPG] uninstall() error: {exc}")
 
     @classmethod
     def close_all(cls) -> None:
@@ -253,7 +257,7 @@ class MatplotlibDPGBridge:
                     cls._dpg_show_figure(fig_num, title, w, h, flat)
                 except Exception as exc:
                     import traceback
-                    print(f"[MPL-DPG] tick error (fig {fig_num}): {exc}")
+                    log.error(f"[MPL-DPG] tick error (fig {fig_num}): {exc}")
                     traceback.print_exc()
 
     # ── Private helpers — main thread only ───────────────────────────────────
@@ -297,7 +301,7 @@ class MatplotlibDPGBridge:
                 win_tag=win_tag, tex_tag=tex_tag, img_tag=img_tag,
                 width=w, height=h,
             )
-            print(f"[MPL-DPG] Created DPG window for Figure {fig_num}: '{title}'")
+            log.info(f"[MPL-DPG] Created DPG window for Figure {fig_num}: '{title}'")
 
         else:
             old_w, old_h = info["width"], info["height"]
@@ -336,7 +340,7 @@ class MatplotlibDPGBridge:
                     dpg.delete_item(info["tex_tag"])
             except Exception:
                 pass
-        print(f"[MPL-DPG] DPG window for Figure {fig_num} closed by user.")
+        log.info(f"[MPL-DPG] DPG window for Figure {fig_num} closed by user.")
 
     @classmethod
     def _dpg_destroy_all(cls) -> None:
@@ -348,8 +352,8 @@ class MatplotlibDPGBridge:
                 if dpg.does_item_exist(info["tex_tag"]):
                     dpg.delete_item(info["tex_tag"])
             except Exception as exc:
-                print(f"[MPL-DPG] Error destroying Figure {fig_num}: {exc}")
+                log.error(f"[MPL-DPG] Error destroying Figure {fig_num}: {exc}")
         cls._figure_windows.clear()
         # Note: do NOT clear _pending here. Renders captured after close_all()
         # was called carry a newer generation and must be kept for display.
-        print("[MPL-DPG] All DPG matplotlib windows destroyed.")
+        log.info("[MPL-DPG] All DPG matplotlib windows destroyed.")

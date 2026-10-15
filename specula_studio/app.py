@@ -1,18 +1,21 @@
-import dearpygui.dearpygui as dpg
-from .theme_manager import ThemeManager
-import json
+import argparse
+import logging
 import os
 import pathlib
-import yaml
 from collections import OrderedDict
 
-from . import render_scale
-from .constants import DEFAULT_AUTO_SIMUL_PARAMS, DEFAULT_RENDER_SIZE
-from .node_manager import NodeManager
+import dearpygui.dearpygui as dpg
+import matplotlib
+import yaml
+
+from . import __version__, render_scale, settings
 from .file_handler import FileHandler, auto_layout_nodes
 from .graph_manager import GraphManager
-from . import dpg_utils
+from .logs import LEVELS, ring_buffer, set_level, setup_logging
+from .node_manager import NodeManager
 from .override_manager import OverrideManager
+from .theme_manager import ThemeManager
+
 try:
     from .help_window import show_help_window
     _HELP_AVAILABLE = True
@@ -20,13 +23,11 @@ except ImportError:
     _HELP_AVAILABLE = False
     def show_help_window(*_): pass
 
-# Font path via matplotlib
-import matplotlib
-FONT_PATH = matplotlib.get_data_path() + '/fonts/ttf/DejaVuSerif.ttf'
-MATPLOTLIB_FONTS_PATH = pathlib.Path(matplotlib.get_data_path()) / 'fonts' / 'ttf'
+log = logging.getLogger(__name__)
 
-# Persistent settings file (lives in the user's home directory)
-_SETTINGS_PATH = pathlib.Path.home() / ".specula_studio_settings.json"
+# Font path via matplotlib
+MATPLOTLIB_FONTS_PATH = pathlib.Path(matplotlib.get_data_path()) / 'fonts' / 'ttf'
+FONT_PATH = str(MATPLOTLIB_FONTS_PATH / 'DejaVuSerif.ttf')
 
 
 # ── YAML helpers ──────────────────────────────────────────────────────────
@@ -74,17 +75,10 @@ class SpeculaEditor:
         self.pending_deletion_type = None
         self.pending_deletion_items = []
 
-        # 4. Preferences (defaults)
-        self.preferences = {
-            'auto_simul_params': DEFAULT_AUTO_SIMUL_PARAMS,
-            'include_defaults': False,
-            'render_size': DEFAULT_RENDER_SIZE,
-            'font_path': FONT_PATH,
-            'recent_files': [],  # List of recent file paths (max 3)
-        }
-
-        # 5. Load persisted settings (overrides defaults)
-        self._load_settings()
+        # 4./5. Persistent preferences (single settings file, see settings.py)
+        self.preferences = settings.store()
+        self._recent_menu_items: list = []
+        self._log_window_version = -1
 
         # 6. Apply render scale before any UI is built
         render_scale.set_size(self.preferences['render_size'])
@@ -100,7 +94,9 @@ class SpeculaEditor:
         theme_name = app_data
         self.theme_manager.save_preference(theme_name)
 
-        # Rebuild all nodes from scratch – this re‑applies all node colours
+        # Node themes capture colours at creation time: recreate them for the
+        # new palette, then rebuild all nodes so they pick up the new themes.
+        self.nm.init_themes()
         self.nm.rebuild_all_nodes_ui()
 
         # Refresh static UI elements that are not part of the node graph
@@ -108,7 +104,7 @@ class SpeculaEditor:
             dpg.configure_item("status_bar_text", color=self.theme_manager.get_color("status_text"))
 
         # Refresh property panel if visible
-        if dpg.does_item_exist("property_panel") and dpg.is_item_visible("property_panel"):
+        if dpg.does_item_exist("property_panel") and dpg.is_item_shown("property_panel"):
             selected = self.nm.get_selected_nodes()
             if len(selected) == 1:
                 self.nm.update_property_panel(selected[0], "property_panel")
@@ -117,7 +113,7 @@ class SpeculaEditor:
 
         # Recreate simulation control window if open
         if dpg.does_item_exist("sim_control_window"):
-            was_open = dpg.is_item_visible("sim_control_window")
+            was_open = dpg.is_item_shown("sim_control_window")
             if was_open:
                 dpg.delete_item("sim_control_window")
                 self.sim_control.show_control_window()
@@ -130,132 +126,63 @@ class SpeculaEditor:
         dpg.split_frame()
 
 
-    def _load_settings(self):
-        """Load preferences from the JSON settings file (if it exists)."""
-        try:
-            if _SETTINGS_PATH.exists():
-                with open(_SETTINGS_PATH, "r", encoding="utf-8") as f:
-                    saved = json.load(f)
-                for key in self.preferences:
-                    if key in saved:
-                        # Validate font path exists; fall back to default if not
-                        if key == 'font_path':
-                            font_path = saved[key]
-                            if os.path.exists(font_path):
-                                self.preferences[key] = font_path
-                            else:
-                                print(f"[SETTINGS] Saved font path does not exist, using default: {font_path}")
-                        else:
-                            self.preferences[key] = saved[key]
-                print(f"[SETTINGS] Loaded from {_SETTINGS_PATH}")
-        except Exception as e:
-            print(f"[SETTINGS] Could not load settings: {e}")
+    def _font_path(self) -> str:
+        """Preferred font if it still exists, matplotlib's DejaVuSerif otherwise."""
+        path = self.preferences.get('font_path')
+        if path and os.path.exists(path):
+            return path
+        return FONT_PATH
 
     def _save_settings(self):
-        """Persist current preferences to the JSON settings file."""
-        try:
-            _SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-            with open(_SETTINGS_PATH, "w", encoding="utf-8") as f:
-                json.dump(self.preferences, f, indent=2)
-            print(f"[SETTINGS] Saved to {_SETTINGS_PATH}")
-        except Exception as e:
-            print(f"[SETTINGS] Could not save settings: {e}")
+        """Persist current preferences."""
+        self.preferences.save()
 
     # ── Recent files management ────────────────────────────────────────────────
 
     def _add_to_recent_files(self, file_path: str):
-        """Add a file to the recent files list (max 3)."""
+        """Move *file_path* to the top of the recent-files list."""
         if not file_path:
             return
-
-        # Resolve to absolute path for consistency
-        abs_path = str(pathlib.Path(file_path).resolve())
-
-        recent = self.preferences.get('recent_files', [])
-
-        # Remove if already in list (to re-insert at top)
-        if abs_path in recent:
-            recent.remove(abs_path)
-
-        # Add to beginning of list
-        recent.insert(0, abs_path)
-
-        # Keep only last 3
-        recent = recent[:3]
-        self.preferences['recent_files'] = recent
-        self._save_settings()
-
-        # Update the menu
+        self.preferences.add_recent_file(file_path)
         self._refresh_recent_files_menu()
 
     def _refresh_recent_files_menu(self):
         """Rebuild the Load Recent submenu with current recent files."""
-        if not dpg.does_item_exist("file_menu"):
+        if not dpg.does_item_exist("load_recent_submenu"):
             return
 
-        # Remove old recent items if they exist
-        for i in range(3):
-            tag = f"_recent_file_item_{i}"
-            if dpg.does_item_exist(tag):
-                dpg.delete_item(tag)
+        for item in self._recent_menu_items:
+            if dpg.does_item_exist(item):
+                dpg.delete_item(item)
+        self._recent_menu_items.clear()
 
         recent_files = self.preferences.get('recent_files', [])
-
-        # Only show submenu if there are recent files
         if not recent_files:
-            if dpg.does_item_exist("load_recent_submenu"):
-                dpg.hide_item("load_recent_submenu")
+            dpg.hide_item("load_recent_submenu")
             return
 
-        # Make sure submenu is visible
-        if dpg.does_item_exist("load_recent_submenu"):
-            dpg.show_item("load_recent_submenu")
-
-            # Add menu items for each recent file
-            for i, afile_path in enumerate(recent_files):
-                if i >= 3:  # Limit to 3 items
-                    break
-                print(afile_path)
-                file_name = pathlib.Path(afile_path).name
-                tag = f"_recent_file_item_{i}"
-                dpg.add_menu_item(
-                    label=file_name,
-                    tag=afile_path,
-                    parent="load_recent_submenu",
-                    callback= lambda file_path=afile_path: self._on_load_recent_file(file_path)
-                )
-
+        dpg.show_item("load_recent_submenu")
+        for afile_path in recent_files:
+            item = dpg.add_menu_item(
+                label=pathlib.Path(afile_path).name,
+                parent="load_recent_submenu",
+                user_data=afile_path,
+                callback=lambda s, a, u: self._on_load_recent_file(u),
+            )
+            with dpg.tooltip(parent=item):
+                dpg.add_text(afile_path)
+            self._recent_menu_items.append(item)
 
     def _on_load_recent_file(self, file_path: str):
         """Load a recent file by path."""
-        if file_path is None:
-            print("[RECENT] File path is None")
+        if not file_path:
             return
         if not os.path.exists(file_path):
-            # File doesn't exist - remove from recent list
-            recent = self.preferences.get('recent_files', [])
-            if file_path in recent:
-                recent.remove(file_path)
-                self.preferences['recent_files'] = recent
-                self._save_settings()
-                self._refresh_recent_files_menu()
-            print(f"[RECENT] File not found: {file_path}")
+            self.preferences.remove_recent_file(file_path)
+            self._refresh_recent_files_menu()
+            log.warning("Recent file not found, removed from list: %s", file_path)
             return
-
-        # Load the simulation
-        self.fh.load_simulation(file_path)
-        try:
-            self.current_simulation_path = file_path
-            self.current_simulation_name = pathlib.Path(file_path).stem
-        except Exception:
-            pass
-        self._update_status_bar()
-
-        # Update recent files (this will move it to the top)
-        self._add_to_recent_files(file_path)
-
-        if dpg.does_item_exist("startup_dialog"):
-            dpg.hide_item("startup_dialog")
+        self._open_simulation(file_path)
 
     # ── Template loading ──────────────────────────────────────────────────────
 
@@ -300,20 +227,6 @@ class SpeculaEditor:
                 pass
 
     # ── Status Bar ─────────────────────────────────────────────────────────
-    def _update_property_panel_visibility(self):
-        """Show property panel only when a single node is selected."""
-        if dpg.does_item_exist("property_panel"):
-            selected_nodes = self.nm.get_selected_nodes()
-            if len(selected_nodes) == 1:
-                # Show the panel and ensure it has the correct width
-                dpg.show_item("property_panel")
-                main_w = dpg.get_viewport_width()
-                property_width = int(main_w * 0.25)
-                dpg.set_item_width("property_panel", property_width)
-            else:
-                # Hide the panel if 0 or more than 1 node is selected
-                dpg.hide_item("property_panel")
-
     def _update_status_bar(self):
         if self.current_simulation_name:
             status_text = f"Simulation: {self.current_simulation_name}"
@@ -333,7 +246,7 @@ class SpeculaEditor:
 
     def _on_new_simulation_save_and_proceed(self):
         if self.current_simulation_path:
-            self.fh.save_simulation(self.current_simulation_path)
+            self._save_to(self.current_simulation_path)
         else:
             dpg.hide_item("new_simulation_confirmation_dialog")
             self._center_dialog("save_before_new_dialog")
@@ -343,12 +256,7 @@ class SpeculaEditor:
         self._show_startup_dialog()
 
     def _on_save_before_new_cb(self, sender, app_data):
-        path = app_data['file_path_name']
-        self.fh.save_simulation(path)
-        self.current_simulation_path = path
-        self.current_simulation_name = pathlib.Path(path).stem
-        self._update_status_bar()
-        self._add_to_recent_files(path)
+        self._save_to(app_data['file_path_name'])
         self._show_startup_dialog()
 
     def _on_new_simulation_discard(self):
@@ -415,7 +323,7 @@ class SpeculaEditor:
 
     def _on_exit_save_and_confirm(self):
         if self.current_simulation_path:
-            self.fh.save_simulation(self.current_simulation_path)
+            self._save_to(self.current_simulation_path)
             dpg.stop_dearpygui()
         else:
             dpg.hide_item("exit_confirmation_dialog")
@@ -423,12 +331,7 @@ class SpeculaEditor:
             dpg.show_item("save_and_exit_dialog")
 
     def _on_save_and_exit_cb(self, sender, app_data):
-        path = app_data['file_path_name']
-        self.fh.save_simulation(path)
-        self.current_simulation_path = path
-        self.current_simulation_name = pathlib.Path(path).stem
-        self._update_status_bar()
-        self._add_to_recent_files(path)
+        self._save_to(app_data['file_path_name'])
         dpg.stop_dearpygui()
 
     def _on_exit_cancel(self):
@@ -550,7 +453,7 @@ class SpeculaEditor:
         dpg.split_frame()
         if self.preferences['auto_simul_params']:
             self._apply_auto_simul_params(created_uuids)
-        print(f"[ADD_MULTIPLE] Created {len(self._multi_add_queue)} node(s): {self._multi_add_queue}")
+        log.info(f"[ADD_MULTIPLE] Created {len(self._multi_add_queue)} node(s): {self._multi_add_queue}")
         self._multi_add_queue.clear()
         dpg.hide_item("add_multiple_dialog")
 
@@ -566,7 +469,7 @@ class SpeculaEditor:
                     simul_params_uuid = uuid
                     break
         if not simul_params_uuid:
-            print("[AUTOSIMULPARAMS] No SimulParams node found, skipping auto-connection")
+            log.warning("[AUTOSIMULPARAMS] No SimulParams node found, skipping auto-connection")
             return
         simul_params_name = self.nm.graph.nodes[simul_params_uuid].get("name", simul_params_uuid)
         for node_uuid, node_type in created_uuids:
@@ -583,12 +486,12 @@ class SpeculaEditor:
                         success   = self.nm.manual_link(simul_params_uuid, "ref", node_uuid, ref_key)
                         node_name = node_data.get("name", node_uuid)
                         if success:
-                            print(f"[AUTOSIMULPARAMS] Connected '{node_name}' ({node_type}) "
+                            log.info(f"[AUTOSIMULPARAMS] Connected '{node_name}' ({node_type}) "
                                   f"to SimulParams '{simul_params_name}'")
                         else:
-                            print(f"[AUTOSIMULPARAMS] Failed to connect {node_uuid} ({node_type}) to SimulParams")
+                            log.warning(f"[AUTOSIMULPARAMS] Failed to connect {node_uuid} ({node_type}) to SimulParams")
                     else:
-                        print(f"[AUTOSIMULPARAMS] Node {node_uuid} already has simul_param_ref connected")
+                        log.info(f"[AUTOSIMULPARAMS] Node {node_uuid} already has simul_param_ref connected")
 
     def _mo_cancel(self):
         self._multi_add_queue.clear()
@@ -608,7 +511,7 @@ class SpeculaEditor:
             dpg.set_value("pref_include_defaults_checkbox",  self.preferences['include_defaults'])
             dpg.set_value("pref_render_size_radio",          self.preferences['render_size'])
             # Update font path display
-            font_name = pathlib.Path(self.preferences['font_path']).name
+            font_name = pathlib.Path(self._font_path()).name
             dpg.set_value("pref_font_path_text", f"Selected: {font_name}")
         self._center_dialog("preferences_dialog")
         dpg.show_item("preferences_dialog")
@@ -658,7 +561,7 @@ class SpeculaEditor:
 
             # ── Font Selection ────────────────────────────────────────────────
             dpg.add_text("Font", color=self.theme_manager.get_color("section_header"))
-            font_name = pathlib.Path(self.preferences['font_path']).name
+            font_name = pathlib.Path(self._font_path()).name
             dpg.add_text(
                 f"Selected: {font_name}",
                 tag="pref_font_path_text",
@@ -756,11 +659,11 @@ class SpeculaEditor:
         """Callback when a font file is selected."""
         file_path = app_data.get('file_path_name')
         if not file_path or not os.path.exists(file_path):
-            print("[FONT] No valid file selected")
+            log.info("[FONT] No valid file selected")
             return
 
         if not file_path.lower().endswith('.ttf'):
-            print("[FONT] Selected file is not a .ttf font file")
+            log.info("[FONT] Selected file is not a .ttf font file")
             return
 
         # Update preferences
@@ -775,14 +678,14 @@ class SpeculaEditor:
             font_name = pathlib.Path(file_path).name
             dpg.set_value("pref_font_path_text", f"Selected: {font_name}")
 
-        print(f"[FONT] Font changed to: {file_path}")
+        log.info(f"[FONT] Font changed to: {file_path}")
 
     def _reload_font(self):
         """Reload the font in DPG and refresh the GUI."""
-        font_path = self.preferences['font_path']
+        font_path = self._font_path()
 
         if not os.path.exists(font_path):
-            print(f"[FONT] Font file not found: {font_path}")
+            log.warning(f"[FONT] Font file not found: {font_path}")
             return
 
         try:
@@ -794,7 +697,7 @@ class SpeculaEditor:
             with dpg.font_registry():
                 current_fs = render_scale.font_size()
                 self._font_handle = dpg.add_font(font_path, current_fs)
-                print(f"[FONT] Loaded font from {font_path} at {current_fs} px")
+                log.info(f"[FONT] Loaded font from {font_path} at {current_fs} px")
 
             # Bind the new font
             dpg.bind_font(self._font_handle)
@@ -803,9 +706,9 @@ class SpeculaEditor:
             if self.nm.graph.nodes:
                 self.nm.rebuild_all_nodes_ui()
 
-            print("[FONT] GUI refreshed with new font")
+            log.info("[FONT] GUI refreshed with new font")
         except Exception as e:
-            print(f"[FONT] Error loading font: {e}")
+            log.error(f"[FONT] Error loading font: {e}")
 
     def _on_render_size_changed(self, sender, app_data):
         new_size = app_data
@@ -817,50 +720,48 @@ class SpeculaEditor:
 
         scale = 1.0 # render_scale.global_font_scale()
         dpg.set_global_font_scale(scale)
-        print(f"[RENDER] Global font scale → {scale}  (size: {new_size})")
+        log.info(f"[RENDER] Global font scale → {scale}  (size: {new_size})")
         self._reload_font()
 
         if self.nm.graph.nodes:
             self.nm.rebuild_all_nodes_ui()
 
         self._save_settings()
-        print(f"[PREFERENCES] Render size set to: {new_size}")
+        log.info(f"[PREFERENCES] Render size set to: {new_size}")
 
     def _on_auto_simul_params_changed(self, sender, app_data):
         self.preferences['auto_simul_params'] = app_data
         self._save_settings()
-        print(f"[PREFERENCES] AutoSimulParams set to: {app_data}")
+        log.info(f"[PREFERENCES] AutoSimulParams set to: {app_data}")
 
     def _on_include_defaults_changed(self, sender, app_data):
         self.preferences['include_defaults'] = app_data
         self._save_settings()
-        print(f"[PREFERENCES] Include Defaults set to: {app_data}")
+        log.info(f"[PREFERENCES] Include Defaults set to: {app_data}")
 
     # ── UI creation ────────────────────────────────────────────────────────
     def create_ui(self):
-        self.export_include_defaults = False
         dpg.create_context()
 
-        dpg_utils.set_zebra_theme()
         self.nm.init_themes()
         self.theme_manager = ThemeManager()
         self.theme_manager.apply_theme()
 
         self._font_handle = None
-        font_path = self.preferences['font_path']
+        font_path = self._font_path()
 
         if os.path.exists(font_path):
             with dpg.font_registry():
                 current_fs = render_scale.font_size()
                 self._font_handle = dpg.add_font(font_path, current_fs)
-                print(f"[FONT] Loaded font from {font_path} at {current_fs} px (handle={self._font_handle})")
+                log.info(f"[FONT] Loaded font from {font_path} at {current_fs} px (handle={self._font_handle})")
             dpg.bind_font(self._font_handle)
         else:
-            print(f"[FONT] Font path not found: {font_path}, using default")
+            log.warning(f"[FONT] Font path not found: {font_path}, using default")
 
         initial_scale = 1.0 # render_scale.global_font_scale()
         dpg.set_global_font_scale(initial_scale)
-        print(f"[FONT] Initial global font scale: {initial_scale} ({self.preferences['render_size']})")
+        log.info(f"[FONT] Initial global font scale: {initial_scale} ({self.preferences['render_size']})")
 
         # ── Main Window ───────────────────────────────────────────────────────
         with dpg.window(label="SPECULA Editor", tag='main_window', on_close=self._on_exit_requested):
@@ -910,8 +811,10 @@ class SpeculaEditor:
                     dpg.add_menu_item(label="Auto Layout",
                                       callback=lambda: auto_layout_nodes(self.nm.graph, self.nm.uuid_to_dpg))
                     dpg.add_menu_item(label="Debug Info",
-                                      callback=lambda: print(f"Nodes: {len(self.nm.graph.nodes)}, "
+                                      callback=lambda: log.info(f"Nodes: {len(self.nm.graph.nodes)}, "
                                                              f"Connections: {len(self.nm.graph.connections)}"))
+                with dpg.menu(label="View"):
+                    dpg.add_menu_item(label="Log", callback=self._show_log_window)
                 with dpg.menu(label="Help"):
                     dpg.add_menu_item(
                         label="Selected Object          [H]",
@@ -971,7 +874,7 @@ class SpeculaEditor:
         new_height = h - 80
 
         # Only resize editor if panel is not visible
-        if dpg.does_item_exist("property_panel") and not dpg.is_item_visible("property_panel"):
+        if dpg.does_item_exist("property_panel") and not dpg.is_item_shown("property_panel"):
             dpg.set_item_width("specula_editor_parent", -1)
 
         dpg.set_item_height("specula_editor_parent", new_height)
@@ -1063,7 +966,7 @@ class SpeculaEditor:
             if dpg.does_item_exist("startup_simulation_name"):
                 dpg.set_value("startup_simulation_name", "")
                 dpg.focus_item("startup_simulation_name")
-            print("Please enter a simulation name before creating a new simulation.")
+            log.info("Please enter a simulation name before creating a new simulation.")
             return
         self.nm.clear_all()
         self.nm.graph.nodes.clear()
@@ -1071,7 +974,7 @@ class SpeculaEditor:
         self.nm.graph.connection_properties.clear()
         self.current_simulation_name = name
         self.current_simulation_path = None
-        print(f"[SIMULATION] Created new simulation: {name}")
+        log.info(f"[SIMULATION] Created new simulation: {name}")
         self._update_status_bar()
         if dpg.does_item_exist("startup_dialog"):
             dpg.hide_item("startup_dialog")
@@ -1087,28 +990,34 @@ class SpeculaEditor:
 
     def _on_save_simulation_clicked(self):
         if self.current_simulation_path:
-            self.fh.save_simulation(self.current_simulation_path, self.preferences['include_defaults'])
+            self._save_to(self.current_simulation_path)
         else:
             dpg.show_item("save_simulation_dialog")
 
     def _save_simulation_cb(self, s, a):
-        path = a['file_path_name']
+        self._save_to(a['file_path_name'])
+
+    def _load_simulation_cb(self, s, a):
+        self._open_simulation(a['file_path_name'])
+
+    # ── Shared load / save helpers ────────────────────────────────────────────
+
+    def _save_to(self, path: str) -> None:
+        """Save the current graph to *path* and make it the current file."""
         self.fh.save_simulation(path, self.preferences['include_defaults'])
         self.current_simulation_path = path
         self.current_simulation_name = pathlib.Path(path).stem
         self._update_status_bar()
         self._add_to_recent_files(path)
 
-    def _load_simulation_cb(self, s, a):
-        path = pathlib.Path(a['file_path_name']).resolve()
-        self.fh.load_simulation(str(path))
-        try:
-            self.current_simulation_path = str(path)
-            self.current_simulation_name = path.stem
-        except Exception:
-            pass
+    def _open_simulation(self, path: str) -> None:
+        """Load *path* into the editor and make it the current file."""
+        path = str(pathlib.Path(path).resolve())
+        self.fh.load_simulation(path)
+        self.current_simulation_path = path
+        self.current_simulation_name = pathlib.Path(path).stem
         self._update_status_bar()
-        self._add_to_recent_files(str(path))
+        self._add_to_recent_files(path)
         if dpg.does_item_exist("startup_dialog"):
             dpg.hide_item("startup_dialog")
 
@@ -1140,7 +1049,7 @@ class SpeculaEditor:
 
         loaded = self.override_manager.load_overrides(selections)
         if loaded:
-            print(f"[OVERRIDES] Loaded {loaded} file(s) — click a name in the "
+            log.info(f"[OVERRIDES] Loaded {loaded} file(s) — click a name in the "
                   f"Overrides menu to enable/apply")
         # Do NOT apply yet — overrides load disabled; user enables via menu click
         self._refresh_overrides_menu()
@@ -1227,7 +1136,7 @@ class SpeculaEditor:
             include_override_metadata=False,  # snapshot must be override-free
         )
         self.override_manager.set_base_snapshot(snapshot)
-        print(f"[OVERRIDES] Snapshot taken: {len(snapshot)} node(s)")
+        log.info(f"[OVERRIDES] Snapshot taken: {len(snapshot)} node(s)")
 
     def _apply_overrides_to_simulation(self):
         """
@@ -1243,19 +1152,19 @@ class SpeculaEditor:
             if self.override_manager.any_enabled():
                 self._take_base_snapshot()
             else:
-                print("[OVERRIDES] No base snapshot available — skipping apply")
+                log.warning("[OVERRIDES] No base snapshot available — skipping apply")
                 return
 
         if self.override_manager.any_enabled():
             base   = self.override_manager.get_base_snapshot()
             merged = self.override_manager.apply_overrides(base)
             n = len(self.override_manager.get_enabled_overrides())
-            print(f"[OVERRIDES] Reloading with {n} active override(s)")
+            log.info(f"[OVERRIDES] Reloading with {n} active override(s)")
             self.fh.load_from_yaml_dict(merged)
         else:
             # All overrides disabled — restore original state
             base = self.override_manager.get_base_snapshot()
-            print("[OVERRIDES] All overrides disabled — restoring base snapshot")
+            log.info("[OVERRIDES] All overrides disabled — restoring base snapshot")
             self.fh.load_from_yaml_dict(base)
             self.override_manager.clear_base_snapshot()
 
@@ -1265,7 +1174,7 @@ class SpeculaEditor:
         """Open a modal popup listing loaded overrides with Remove buttons."""
         overrides = self.override_manager.get_all_overrides()
         if not overrides:
-            print("[OVERRIDES] No overrides loaded")
+            log.info("[OVERRIDES] No overrides loaded")
             return
 
         if dpg.does_item_exist("override_remove_popup"):
@@ -1346,7 +1255,7 @@ class SpeculaEditor:
         If no node is selected but the property panel is showing a node, use that.
         """
         if not _HELP_AVAILABLE:
-            print("[HELP] help_window.py or help_provider.py not available.")
+            log.info("[HELP] help_window.py or help_provider.py not available.")
             return
 
         # Prefer the node whose panel is currently displayed
@@ -1358,7 +1267,7 @@ class SpeculaEditor:
             node_uuid = self.nm._last_selected_node
 
         if node_uuid is None or node_uuid not in self.nm.graph.nodes:
-            print("[HELP] No node selected — select a node first.")
+            log.info("[HELP] No node selected — select a node first.")
             return
 
         node_data  = self.nm.graph.nodes[node_uuid]
@@ -1366,7 +1275,7 @@ class SpeculaEditor:
         node_name  = node_data.get("name", class_name)
 
         if not class_name:
-            print("[HELP] Selected node has no type information.")
+            log.info("[HELP] Selected node has no type information.")
             return
 
         show_help_window(class_name, node_name)
@@ -1403,6 +1312,53 @@ class SpeculaEditor:
             )
         self._center_dialog(tag)
 
+    # ── Log window ───────────────────────────────────────────────────────────
+
+    def _show_log_window(self):
+        tag = "log_window"
+        if dpg.does_item_exist(tag):
+            dpg.show_item(tag)
+            dpg.focus_item(tag)
+            return
+        current = logging.getLevelName(logging.getLogger("specula_studio").level)
+        with dpg.window(label="Log", tag=tag, width=900, height=420):
+            with dpg.group(horizontal=True):
+                dpg.add_text("Show:")
+                dpg.add_combo(LEVELS, default_value="INFO", width=110,
+                              tag="log_window_filter",
+                              callback=lambda: self._refresh_log_window(force=True))
+                dpg.add_spacer(width=20)
+                dpg.add_text("Record level:")
+                dpg.add_combo(LEVELS, default_value=current, width=110,
+                              callback=self._on_log_level_changed)
+                dpg.add_button(label="Clear", callback=self._on_log_clear)
+            dpg.add_input_text(tag="log_window_text", multiline=True, readonly=True,
+                               width=-1, height=-1)
+        self._refresh_log_window(force=True)
+
+    def _on_log_level_changed(self, sender, app_data):
+        set_level(app_data)
+        self.preferences['log_level'] = app_data
+        self._save_settings()
+
+    def _on_log_clear(self):
+        ring = ring_buffer()
+        if ring is not None:
+            ring.clear()
+        self._refresh_log_window(force=True)
+
+    def _refresh_log_window(self, force: bool = False):
+        ring = ring_buffer()
+        if ring is None or not dpg.does_item_exist("log_window_text"):
+            return
+        if not force and ring.version == self._log_window_version:
+            return
+        if not force and not dpg.is_item_shown("log_window"):
+            return
+        self._log_window_version = ring.version
+        min_level = getattr(logging, dpg.get_value("log_window_filter") or "INFO")
+        dpg.set_value("log_window_text", "\n".join(ring.lines(min_level)[-1000:]))
+
     def run(self):
         # Cache the bridge reference once — avoids a module lookup every frame.
         try:
@@ -1415,18 +1371,50 @@ class SpeculaEditor:
             dpg.set_viewport_resize_callback(None)
 
             while dpg.is_dearpygui_running():
-                self.nm.monitors._inprocess_tick_direct()
+                self.nm.monitors.tick()
                 if _MplBridge is not None:
                     _MplBridge.tick()
+                self._refresh_log_window()
                 dpg.render_dearpygui_frame()
         finally:
+            self.shutdown()
             dpg.destroy_context()
+
+    def shutdown(self):
+        """Stop a running simulation and close monitor windows/processes."""
+        try:
+            if self.sim_control.is_running:
+                self.sim_control.abort_sim()
+        except Exception:
+            log.exception("Error while aborting the simulation on exit")
+        try:
+            self.nm.cleanup()
+        except Exception:
+            log.exception("Error while closing monitors on exit")
 
 
 TEMPLATES_DIR = pathlib.Path(__file__).resolve().parent / "specula_yaml_docs"
 
 
+def parse_args(argv=None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="specula-studio",
+        description="Node-based visual editor for SPECULA AO simulations.",
+    )
+    parser.add_argument("--log-level", choices=LEVELS, default=None,
+                        help="Logging verbosity (default: saved preference, INFO)")
+    parser.add_argument("-v", "--verbose", action="store_true",
+                        help="Shortcut for --log-level DEBUG")
+    parser.add_argument("--version", action="version",
+                        version=f"%(prog)s {__version__}")
+    return parser.parse_args(argv)
+
+
 def main(argv=None):
+    args = parse_args(argv)
+    level = "DEBUG" if args.verbose else (
+        args.log_level or settings.store().get("log_level", "INFO"))
+    setup_logging(level)
     editor = SpeculaEditor(yaml_folder=str(TEMPLATES_DIR))
     editor.run()
 

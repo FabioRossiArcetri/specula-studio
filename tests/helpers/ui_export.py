@@ -6,6 +6,15 @@ Run as a subprocess so the fake ``dearpygui`` never leaks into other tests:
     python -m tests.helpers.ui_export <fixture> [<fixture> ...]
 """
 
+import os
+import tempfile
+
+# Never touch the developer's real settings, even when run by hand.
+os.environ.setdefault(
+    "SPECULA_STUDIO_SETTINGS",
+    os.path.join(tempfile.mkdtemp(prefix="specula_studio_test_"), "settings.json"),
+)
+
 import json
 import sys
 

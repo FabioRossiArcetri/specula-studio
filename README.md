@@ -30,6 +30,14 @@ python -m specula_studio    # equivalent
 python main.py              # from a source checkout, without installing
 ```
 
+Options: `--log-level {DEBUG,INFO,WARNING,ERROR}` (or `-v`), `--version`.
+Log messages are also shown in *View → Log*.
+
+Preferences (theme, fonts, render size, recent files, …) are stored in a
+single `settings.json` in the platform's user-config directory (e.g.
+`~/.config/specula-studio/` on Linux); set `SPECULA_STUDIO_SETTINGS` to use a
+different file. Settings from older versions are migrated automatically.
+
 ## Development
 
 ```bash

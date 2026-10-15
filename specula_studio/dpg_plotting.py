@@ -4,6 +4,9 @@ import dearpygui.dearpygui as dpg
 from matplotlib import cm
 import traceback
 from .constants import MAX_PLOT_HISTORY, DEFAULT_PLOT_WIDTH, DEFAULT_PLOT_HEIGHT
+import logging
+
+log = logging.getLogger(__name__)
 
 
 class InteractiveImageViewer:
@@ -216,7 +219,7 @@ class InteractiveImageViewer:
             return True
 
         except Exception as e:
-            print(f"[InteractiveImageViewer.update_image] Error: {e}")
+            log.error(f"[InteractiveImageViewer.update_image] Error: {e}")
             traceback.print_exc()
             return False
 
@@ -263,7 +266,7 @@ class InteractiveImageViewer:
             try:
                 dpg.configure_item(self.plot_tag, width=self.width, height=plot_h)
             except Exception as e:
-                print(f"[InteractiveImageViewer.update_size] Error: {e}")
+                log.error(f"[InteractiveImageViewer.update_size] Error: {e}")
 
     # ─��� Legacy compat no-ops ──────────────────────────────────────────────────
     # The DPG plot widget handles all mouse interaction natively.
@@ -316,7 +319,7 @@ class DPGPlotter:
         self.debug = debug
 
         if self.debug:
-            print(f"[DPGPlotter] Initialized with parent: {parent_tag}, size: {width}x{height}")
+            log.info(f"[DPGPlotter] Initialized with parent: {parent_tag}, size: {width}x{height}")
 
     @staticmethod
     def _ensure_1d(data: np.ndarray) -> np.ndarray | None:
@@ -354,7 +357,7 @@ class DPGPlotter:
             self._create_or_update_line_plot(list(range(len(vector))), vector.tolist(), label)
             return True
         except Exception as e:
-            print(f"[DPGPlotter.plot_vector] Error: {e}")
+            log.error(f"[DPGPlotter.plot_vector] Error: {e}")
             return False
 
     def _plot_vector_time_series(self, vector: np.ndarray, label: str) -> bool:
@@ -413,8 +416,7 @@ class DPGPlotter:
                     self.line_series_tag = series_factory(x_data, y_data, label=label, parent=children[1])
 
     def _debug(self, message):
-        if self.debug:
-            print(f"[DPGPlotter] {message}")
+        log.debug(message)
 
     def _clear_previous(self):
         """Clear previous plot items."""
@@ -425,7 +427,7 @@ class DPGPlotter:
             self.line_series_tag = None
             self.heat_series_tag = None
         except Exception as e:
-            print(f"[DPGPlotter._clear_previous] Error: {e}")
+            log.error(f"[DPGPlotter._clear_previous] Error: {e}")
 
     def _cleanup_image_resources(self):
         """Clean up image viewer resources."""
@@ -435,7 +437,7 @@ class DPGPlotter:
                     dpg.delete_item(self.image_viewer.container_tag)
             self.image_viewer = None
         except Exception as e:
-            print(f"[DPGPlotter._cleanup_image_resources] Error: {e}")
+            log.error(f"[DPGPlotter._cleanup_image_resources] Error: {e}")
 
     def clear(self):
         """Clear all plot elements."""
@@ -445,7 +447,7 @@ class DPGPlotter:
             self.history_data = []
             self.current_mode = None
         except Exception as e:
-            print(f"[DPGPlotter.clear] Error: {e}")
+            log.error(f"[DPGPlotter.clear] Error: {e}")
 
     def update_size(self, width: int, height: int) -> None:
         """Update the plot/viewer size for responsive layout."""
@@ -458,76 +460,10 @@ class DPGPlotter:
                                    width=self.current_width,
                                    height=self.current_height)
             except Exception as e:
-                print(f"[DPGPlotter.update_size] Error updating plot: {e}")
+                log.error(f"[DPGPlotter.update_size] Error updating plot: {e}")
 
         if self.image_viewer is not None:
             self.image_viewer.update_size(self.current_width, self.current_height)
-
-    def plot_2d_heatmap(self, data_2d, label="2D Heatmap"):
-        """Plot 2D data as a heatmap using DPG's heat series."""
-        try:
-            if data_2d.ndim != 2:
-                if data_2d.ndim == 3:
-                    if data_2d.shape[2] == 1:
-                        data_2d = data_2d[:, :, 0]
-                    else:
-                        data_2d = np.mean(data_2d[:, :, :3], axis=2)
-                else:
-                    print(f"[DPGPlotter] Cannot convert shape {data_2d.shape} to 2D")
-                    return False
-
-            rows, cols = data_2d.shape
-
-            if self.current_mode != 'heatmap':
-                self._clear_previous()
-                self._cleanup_image_resources()
-                self.current_mode = 'heatmap'
-
-            data_min = data_2d.min()
-            data_max = data_2d.max()
-            if data_max > data_min:
-                normalized_data = (data_2d - data_min) / (data_max - data_min)
-            else:
-                normalized_data = np.zeros_like(data_2d)
-
-            flat_data = normalized_data.flatten().tolist()
-
-            can_update = (
-                self.current_mode == 'heatmap' and
-                self.heat_series_tag is not None and
-                dpg.does_item_exist(self.heat_series_tag) and
-                self.current_shape == (rows, cols)
-            )
-
-            if can_update:
-                self._debug(f"Updating existing heatmap for {cols}x{rows}")
-                dpg.set_value(self.heat_series_tag, flat_data)
-                return True
-            else:
-                self._debug(f"Creating new heatmap for {cols}x{rows}")
-                self._clear_previous()
-                self.current_shape = (rows, cols)
-
-                with dpg.plot(label=label, parent=self.parent,
-                             height=self.current_height, width=self.current_width) as plot_id:
-                    self.plot_tag = plot_id
-                    dpg.add_plot_legend()
-                    x_axis = dpg.add_plot_axis(dpg.mvXAxis, label="X", no_gridlines=True)
-                    with dpg.plot_axis(dpg.mvYAxis, label="Y", no_gridlines=True) as y_axis:
-                        self.heat_series_tag = dpg.add_heat_series(
-                            flat_data, rows, cols, label=label, parent=y_axis,
-                            scale_min=0.0, scale_max=1.0,
-                            bounds_min=(0, 0), bounds_max=(cols, rows)
-                        )
-                    dpg.set_axis_limits(x_axis, 0, cols)
-                    dpg.set_axis_limits(y_axis, 0, rows)
-
-                return True
-
-        except Exception as e:
-            print(f"[DPGPlotter.plot_2d_heatmap] Error: {e}")
-            traceback.print_exc()
-            return False
 
     def plot_2d_image_clean(self, data_2d, label="2D Image", colormap='seismic'):
         """
@@ -563,7 +499,7 @@ class DPGPlotter:
             return self.image_viewer.update_image(data_2d, colormap)
 
         except Exception as e:
-            print(f"[DPGPlotter.plot_2d_image_clean] Error: {e}")
+            log.error(f"[DPGPlotter.plot_2d_image_clean] Error: {e}")
             traceback.print_exc()
             return False
 
@@ -587,10 +523,10 @@ class DPGPlotter:
                     data_2d = np.mean(data_array[:, :, :3], axis=2)
                 return self.plot_2d_image_clean(data_2d)
             else:
-                print(f"[DPGPlotter.update_existing_plot] Unsupported shape: {data_array.shape}")
+                log.info(f"[DPGPlotter.update_existing_plot] Unsupported shape: {data_array.shape}")
                 return False
         except Exception as e:
-            print(f"[DPGPlotter.update_existing_plot] Error: {e}")
+            log.error(f"[DPGPlotter.update_existing_plot] Error: {e}")
             traceback.print_exc()
             return False
 
@@ -615,7 +551,7 @@ class DPGPlotter:
             )
             return True
         except Exception as e:
-            print(f"[DPGPlotter.plot_history] Error: {e}")
+            log.error(f"[DPGPlotter.plot_history] Error: {e}")
             traceback.print_exc()
             return False
 
@@ -637,6 +573,6 @@ class DPGPlotter:
             )
             return True
         except Exception as e:
-            print(f"[DPGPlotter.plot_scatter] Error: {e}")
+            log.error(f"[DPGPlotter.plot_scatter] Error: {e}")
             traceback.print_exc()
             return False

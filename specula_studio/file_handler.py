@@ -1,9 +1,13 @@
 import yaml
 import dearpygui.dearpygui as dpg
 from .dpg_utils import auto_layout_nodes
+from .graph_manager import REQUIRED
 import uuid
 import traceback
 from collections import OrderedDict
+import logging
+
+log = logging.getLogger(__name__)
 
 
 # ── Custom YAML dumper ────────────────────────────────────────────────────────
@@ -75,12 +79,12 @@ class FileHandler:
             with open(file_path, "r", encoding="utf-8") as f:
                 data = self.ordered_load(f)
             if not isinstance(data, dict):
-                print(f"[FILE_HANDLER] Error: YAML root must be a mapping, "
+                log.error(f"[FILE_HANDLER] Error: YAML root must be a mapping, "
                       f"got {type(data)}")
                 return None
             return data
         except Exception as e:
-            print(f"[FILE_HANDLER] Error loading YAML file: {e}")
+            log.error(f"[FILE_HANDLER] Error loading YAML file: {e}")
             return None
 
     # ── Pass 1: populate graph model ──────────────────────────────────────────
@@ -102,11 +106,11 @@ class FileHandler:
 
         for node_name, content in yaml_data.items():
             if not isinstance(content, dict):
-                print(f"[FILE_HANDLER] Warning: Skipping '{node_name}' — "
+                log.warning(f"[FILE_HANDLER] Warning: Skipping '{node_name}' — "
                       f"expected dict, got {type(content)}")
                 continue
             if 'class' not in content:
-                print(f"[FILE_HANDLER] Warning: Skipping '{node_name}' — "
+                log.warning(f"[FILE_HANDLER] Warning: Skipping '{node_name}' — "
                       f"missing 'class' key")
                 continue
 
@@ -272,24 +276,24 @@ class FileHandler:
             missing = [nid for nid in self.nm.graph.nodes
                        if nid not in self.nm.uuid_to_dpg]
             if missing and attempt < max_attempts:
-                print(f"[{operation_name}] Attempt {attempt}: "
+                log.warning(f"[{operation_name}] Attempt {attempt}: "
                       f"{len(missing)} nodes missing DPG IDs, retrying…")
                 dpg.set_frame_callback(
                     dpg.get_frame_count() + 5,
                     lambda: verify_nodes(attempt + 1, max_attempts))
                 return
             if missing:
-                print(f"[{operation_name}] Failed after {max_attempts} attempts")
+                log.warning(f"[{operation_name}] Failed after {max_attempts} attempts")
                 return
             if perform_auto_layout:
                 try:
                     auto_layout_nodes(self.nm.graph, self.nm.uuid_to_dpg)
-                    print(f"[{operation_name}] Auto-layout done")
+                    log.info(f"[{operation_name}] Auto-layout done")
                 except Exception as e:
-                    print(f"[{operation_name}] Layout error: {e}")
+                    log.error(f"[{operation_name}] Layout error: {e}")
                     traceback.print_exc()
             else:
-                print(f"[{operation_name}] {len(self.nm.graph.nodes)} nodes "
+                log.info(f"[{operation_name}] {len(self.nm.graph.nodes)} nodes "
                       f"loaded with saved positions")
 
         dpg.set_frame_callback(dpg.get_frame_count() + 10,
@@ -325,7 +329,7 @@ class FileHandler:
         self._load_overrides_metadata(yaml_data)
         self._load_from_yaml_data(yaml_data, perform_auto_layout=False,
                                   operation_name="LOAD")
-        print(f"[LOAD] Simulation loaded from {file_path}")
+        log.info(f"[LOAD] Simulation loaded from {file_path}")
 
     def load_from_yaml_dict(self, yaml_data: dict):
         """
@@ -338,7 +342,7 @@ class FileHandler:
             perform_auto_layout=False,
             operation_name="OVERRIDE-RELOAD"
         )
-        print("[FILE_HANDLER] Simulation reloaded from in-memory dict")
+        log.info("[FILE_HANDLER] Simulation reloaded from in-memory dict")
 
     def save_simulation(self, file_path, include_defaults=False):
         """Capture current DPG positions then export to YAML file."""
@@ -348,20 +352,27 @@ class FileHandler:
                 if dpg.does_item_exist(dpg_id):
                     node_data['gui_pos'] = dpg.get_item_pos(dpg_id)
         self.export_simulation(file_path, include_defaults=include_defaults)
-        print(f"[SAVE] Simulation saved to {file_path}")
+        log.info(f"[SAVE] Simulation saved to {file_path}")
 
     def export_simulation(self, file_path, include_defaults=False):
         """Export the graph state to a SPECULA-compatible YAML file."""
+        text = self.export_to_yaml_string(include_defaults=include_defaults,
+                                          include_override_metadata=True)
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(text)
+        log.info(f"[FILE_HANDLER] Exported simulation to {file_path}")
+
+    def export_to_yaml_string(self, include_defaults=False,
+                              include_override_metadata=False) -> str:
+        """Export the current graph as SPECULA YAML text."""
         export_data = self.export_to_yaml_dict(
             include_defaults=include_defaults,
-            include_override_metadata=True)
-        with open(file_path, "w", encoding="utf-8") as f:
-            yaml.dump(export_data, f,
-                      Dumper=_CleanDumper,       # ← no !!python/… tags
-                      sort_keys=False,
-                      default_flow_style=False,
-                      allow_unicode=True)
-        print(f"[FILE_HANDLER] Exported simulation to {file_path}")
+            include_override_metadata=include_override_metadata)
+        return yaml.dump(export_data,
+                         Dumper=_CleanDumper,       # ← no !!python/… tags
+                         sort_keys=False,
+                         default_flow_style=False,
+                         allow_unicode=True)
 
     def export_to_yaml_dict(self, include_defaults=False,
                              include_override_metadata=False) -> dict:
@@ -446,7 +457,7 @@ class FileHandler:
                       self.nm.is_data_class_type(p_meta.get('type'))):
                     export_key = f"{p_name}_object"
 
-                if val is not None:
+                if val is not None and val != REQUIRED:
                     node_dict[export_key] = val
                 handled_params.add(p_name)
 
@@ -567,11 +578,3 @@ class FileHandler:
 
     # ── Node template utilities ───────────────────────────────────────────────
 
-    def get_node_template(self, node_type: str) -> dict:
-        return self.nm.all_templates.get(node_type, {})
-
-    def get_node_defaults(self, node_type: str) -> dict:
-        template = self.get_node_template(node_type)
-        return {p: m['default']
-                for p, m in template.get('parameters', {}).items()
-                if 'default' in m}

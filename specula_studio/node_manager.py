@@ -35,12 +35,17 @@ from .constants import (
     REF_SHAPE_FILLED,
 )
 from . import render_scale
+from .graph_manager import add_ref_value, remove_ref_value, validate_node_name
 from .node_registry import NodeRegistry
 from .socketio_client import SocketIOClient
 from .monitor_bus import MonitorBus
 from .monitor_manager import MonitorManager
 from .property_panel import PropertyPanel
 from .theme_manager import ThemeManager
+import logging
+
+log = logging.getLogger(__name__)
+
 
 # ── Documentation / class introspection (graceful fallback) ───────────────────
 try:
@@ -116,13 +121,13 @@ class NodeManager:
             monitor_manager=self.monitors,
             delink_callback=self.delink_callback,
             refresh_node_theme=self._refresh_node_theme,
+            rename_node=self.rename_node,
         )
 
         # ===== 6. UI STATE =====
         self._last_selected_uuid = None
         self._selected_link_id   = None
         self.class_name_counters = {}
-        self.node_item_registry  = {}
 
         # ===== 7. THEMES =====
         self.data_theme             = None
@@ -144,8 +149,7 @@ class NodeManager:
     # ==========================================================================
 
     def _log(self, message: str):
-        if self.debug:
-            print(f"[NODE_MANAGER] {message}")
+        log.debug(message)
 
     # ==========================================================================
     # SERVER EVENT CALLBACKS
@@ -326,7 +330,7 @@ class NodeManager:
 
             val = current_values.get(param_name)
             # Accept any truthy value, including 0 and False (both are valid)
-            if val is None or val == "":
+            if val is None or val == "" or val == "REQUIRED":
                 return False
 
 
@@ -359,12 +363,12 @@ class NodeManager:
         node_type = node_data.get("type", "")
         node_name = node_data.get("name", "Unknown")
 
-        print("\n=== NODE COMPLETENESS DEBUG ===")
-        print(f"Node: {node_name} ({node_type}) | UUID: {node_uuid}")
+        log.debug("\n=== NODE COMPLETENESS DEBUG ===")
+        log.debug(f"Node: {node_name} ({node_type}) | UUID: {node_uuid}")
 
         template = self.all_templates.get(node_type, {})
         if not template:
-            print("No template found. Assuming complete.\n=== END DEBUG ===\n")
+            log.debug("No template found. Assuming complete.\n=== END DEBUG ===\n")
             return True
 
         template_params = template.get("parameters", {})
@@ -391,33 +395,33 @@ class NodeManager:
                     if mode == "object":
                         obj_val = current_values.get(obj_key, "")
                         if obj_val:
-                            print(f" + Required {param_name} satisfied via _object: {obj_val}")
+                            log.debug(f" + Required {param_name} satisfied via _object: {obj_val}")
                         else:
-                            print(f" - Missing REQUIRED _object for: {param_name}")
+                            log.debug(f" - Missing REQUIRED _object for: {param_name}")
                             complete = False
                     else:
                         ref_val = current_values.get(ref_key)
                         if ref_val:
-                            print(f" + Required {param_name} connected to: {ref_val}")
+                            log.debug(f" + Required {param_name} connected to: {ref_val}")
                         else:
-                            print(f" - Missing REQUIRED reference for: {param_name} ({ref_key})")
+                            log.debug(f" - Missing REQUIRED reference for: {param_name} ({ref_key})")
                             complete = False
                 else:
                     if mode == "object" and current_values.get(obj_key):
-                        print(f" + Optional {param_name} set via _object: {current_values[obj_key]}")
+                        log.debug(f" + Optional {param_name} set via _object: {current_values[obj_key]}")
                     elif current_values.get(ref_key):
-                        print(f" + Optional {param_name} connected to: {current_values[ref_key]}")
+                        log.debug(f" + Optional {param_name} connected to: {current_values[ref_key]}")
                     else:
-                        print(f"   Optional {param_name} not connected (OK)")
+                        log.debug(f"   Optional {param_name} not connected (OK)")
             else:
                 # value / data param
                 if is_required:
                     val = current_values.get(param_name)
                     if val is None or val == "":
-                        print(f" - Missing REQUIRED value for: {param_name}")
+                        log.debug(f" - Missing REQUIRED value for: {param_name}")
                         complete = False
                     else:
-                        print(f" + Required {param_name} = {val!r}")
+                        log.debug(f" + Required {param_name} = {val!r}")
                 # optional value params are not checked
 
         # ── inputs ────────────────────────────────────────────────────────────
@@ -429,16 +433,16 @@ class NodeManager:
             )
             if optional:
                 status = "connected" if has_connection else "not connected (optional, OK)"
-                print(f"   Optional input  {input_name}: {status}")
+                log.debug(f"   Optional input  {input_name}: {status}")
             else:
                 if has_connection:
-                    print(f" + Required input  {input_name}: connected")
+                    log.debug(f" + Required input  {input_name}: connected")
                 else:
-                    print(f" - Missing REQUIRED input: {input_name}")
+                    log.debug(f" - Missing REQUIRED input: {input_name}")
                     complete = False
 
-        print("Node is complete." if complete else "Node is INCOMPLETE.")
-        print("=== END DEBUG ===\n")
+        log.debug("Node is complete." if complete else "Node is INCOMPLETE.")
+        log.debug("=== END DEBUG ===\n")
         return complete
 
     # ==========================================================================
@@ -446,10 +450,74 @@ class NodeManager:
     # ==========================================================================
 
     def _generate_unique_name(self, class_name: str) -> str:
-        self.class_name_counters.setdefault(class_name, 0)
-        counter = self.class_name_counters[class_name]
-        self.class_name_counters[class_name] += 1
+        """Next free ``a<Class><n>`` name (skips names already in the graph)."""
+        existing = self.graph.node_names()
+        counter = self.class_name_counters.get(class_name, 0)
+        while f"a{class_name}{counter}" in existing:
+            counter += 1
+        self.class_name_counters[class_name] = counter + 1
         return f"a{class_name}{counter}"
+
+    def rename_node(self, node_uuid: str, new_name: str) -> str | None:
+        """
+        Rename a node, keeping everything that refers to it by name in sync.
+
+        Returns an error message (and changes nothing) if *new_name* is invalid.
+        """
+        node = self.graph.nodes.get(node_uuid)
+        if node is None:
+            return "Unknown node"
+        old_name = node.get("name")
+        if new_name == old_name:
+            return None
+        error = validate_node_name(new_name, self.graph.node_names(exclude_uuid=node_uuid))
+        if error:
+            return error
+
+        node["name"] = new_name
+        self.graph.rename_references(old_name, new_name)
+
+        dpg_id = self.uuid_to_dpg.get(node_uuid)
+        if dpg_id and dpg.does_item_exist(dpg_id):
+            dpg.set_item_label(dpg_id, new_name)
+
+        # AtmoPropagation exposes one output per source: out_<source>_ef
+        old_out, new_out = f"out_{old_name}_ef", f"out_{new_name}_ef"
+        for atmo_uuid, atmo in self.graph.nodes.items():
+            if atmo.get("type") != "AtmoPropagation":
+                continue
+            atmo["outputs_extra"] = [new_out if o == old_out else o
+                                     for o in atmo.get("outputs_extra", [])]
+            for attr_id, (uid, name) in list(self.output_attr_registry.items()):
+                if uid == atmo_uuid and name == old_out:
+                    self.output_attr_registry[attr_id] = (uid, new_out)
+                    self._relabel_attribute(attr_id, new_out)
+            self._rename_connection_source(atmo_uuid, old_out, new_out)
+
+        self._log(f"Renamed '{old_name}' -> '{new_name}'")
+        return None
+
+    def _relabel_attribute(self, attr_id, text: str) -> None:
+        if not dpg.does_item_exist(attr_id):
+            return
+        stack = list(dpg.get_item_children(attr_id, slot=1) or [])
+        while stack:
+            child = stack.pop()
+            if dpg.get_item_type(child) == "mvAppItemType::mvText":
+                dpg.set_value(child, text)
+                return
+            stack.extend(dpg.get_item_children(child, slot=1) or [])
+
+    def _rename_connection_source(self, src_uuid: str, old_attr: str, new_attr: str) -> None:
+        for i, conn in enumerate(list(self.graph.connections)):
+            if conn[0] == src_uuid and conn[1] == old_attr:
+                new_conn = (src_uuid, new_attr, conn[2], conn[3])
+                self.graph.connections[i] = new_conn
+                props = self.graph.connection_properties.pop(conn, {"delay": 0})
+                self.graph.connection_properties[new_conn] = props
+        for link_id, conn in list(self.link_registry.items()):
+            if conn[0] == src_uuid and conn[1] == old_attr:
+                self.link_registry[link_id] = (src_uuid, new_attr, conn[2], conn[3])
 
     def _is_data_obj_node(self, node_type: str) -> bool:
         """Return True if *node_type* is a BaseDataObj subclass."""
@@ -480,7 +548,6 @@ class NodeManager:
         tm = self.theme_manager
 
         with dpg.node(label=node_name, parent="specula_editor") as dpg_id:
-            self.node_item_registry[node_uuid] = dpg_id
             dpg.set_item_pos(dpg_id, final_pos)
             self.dpg_to_uuid[dpg_id]    = node_uuid
             self.uuid_to_dpg[node_uuid] = dpg_id
@@ -635,18 +702,6 @@ class NodeManager:
             return output if output else None
         return None
 
-    def _add_atmo_source_input(self, dpg_id, node_uuid: str):
-        tm = self.theme_manager
-        with dpg.node_attribute(
-            attribute_type=dpg.mvNode_Attr_Input, parent=dpg_id, shape=REF_SHAPE_EMPTY
-        ) as attr_id:
-            dpg.add_text(
-                "source_dict_ref",
-                color=tm.get_color("node_ref_input_label")
-            )
-            self.input_attr_registry[attr_id] = (node_uuid, "source_dict_ref")
-            self._log(f"Added source_dict_ref input to AtmoPropagation node {node_uuid}")
-
     def _add_dynamic_atmo_output(self, node_uuid: str, source_name: str):
         dpg_id = self.uuid_to_dpg.get(node_uuid)
         if not dpg_id or not dpg.does_item_exist(dpg_id):
@@ -704,7 +759,6 @@ class NodeManager:
         saved_conn_props  = dict(self.graph.connection_properties)
 
         # 3. Tear down
-        self.node_item_registry.clear()
         self.registry.clear()
         dpg.delete_item("specula_editor", children_only=True)
         self.graph.connections.clear()
@@ -782,19 +836,10 @@ class NodeManager:
         is_ref_connection = in_name.endswith("_ref") or in_name == "layer_list"
 
         if is_ref_connection:
-            if in_name == "source_dict_ref":
-                dst_node["values"].setdefault(in_name, [])
-                if src_name not in dst_node["values"][in_name]:
-                    dst_node["values"][in_name].append(src_name)
-                if dst_node.get("type") == "AtmoPropagation":
-                    self._add_dynamic_atmo_output(in_node_uuid, src_name)
-            elif in_name == "layer_list":
-                dst_node["values"].setdefault(in_name, [])
-                if src_name not in dst_node["values"][in_name]:
-                    dst_node["values"][in_name].append(src_name)
-            else:
-                dst_node["values"][in_name] = src_name
-                self._log(f"Set reference parameter {in_name} = {src_name}")
+            add_ref_value(dst_node["values"], in_name, src_name)
+            if in_name == "source_dict_ref" and dst_node.get("type") == "AtmoPropagation":
+                self._add_dynamic_atmo_output(in_node_uuid, src_name)
+            self._log(f"Set reference parameter {in_name} -> {src_name}")
 
         tm = self.theme_manager
         if is_feedback:
@@ -920,13 +965,10 @@ class NodeManager:
         src_name = src_node.get("name", src_uuid)
         values   = dst_node.get("values", {})
 
-        if dst_attr == "source_dict_ref":
-            lst = values.get("source_dict_ref", [])
-            if src_name in lst:
-                lst.remove(src_name)
-            if not lst:
-                values.pop("source_dict_ref", None)
+        if dst_attr.endswith("_ref") or dst_attr == "layer_list":
+            remove_ref_value(values, dst_attr, src_name)
 
+        if dst_attr == "source_dict_ref":
             if dst_node.get("type") == "AtmoPropagation":
                 dynamic_output = f"out_{src_name}_ef"
                 if src_name not in values.get("source_dict_ref", []):
@@ -946,17 +988,6 @@ class NodeManager:
                             if dpg.does_item_exist(attr_to_remove):
                                 dpg.delete_item(attr_to_remove)
 
-        elif dst_attr == "layer_list":
-            lst = values.get("layer_list", [])
-            if src_name in lst:
-                lst.remove(src_name)
-            if not lst:
-                values.pop("layer_list", None)
-
-        elif dst_attr.endswith("_ref"):
-            if values.get(dst_attr) == src_name:
-                values.pop(dst_attr, None)
-                self._log(f"Cleared {dst_attr}")
 
         if self._last_selected_uuid == dst_uuid:
             self.update_property_panel(dst_uuid, "property_panel")
@@ -1011,8 +1042,8 @@ class NodeManager:
             dst_node = self.graph.nodes.get(dst_uuid)
             src_node = self.graph.nodes.get(src_uuid)
             if dst_node and src_node:
-                dst_node.setdefault("values", {})
-                dst_node["values"][dst_attr] = src_node.get("name", src_uuid)
+                add_ref_value(dst_node.setdefault("values", {}), dst_attr,
+                              src_node.get("name", src_uuid))
 
         dst_id = next(
             (
@@ -1061,24 +1092,9 @@ class NodeManager:
         self._log(f"Failed manual link: {src_uuid}.{src_attr} -> {dst_uuid}.{dst_attr}")
         return False
 
-    def manual_link_with_filename(
-        self, src_uuid, src_attr, dst_uuid, dst_attr, filename
-    ):
-        self.manual_link(src_uuid, src_attr, dst_uuid, dst_attr)
-        self.graph.nodes[dst_uuid].setdefault("filename_map", {})
-        conn_key = f"{src_uuid}.{src_attr}"
-        self.graph.nodes[dst_uuid]["filename_map"][conn_key] = filename
-
     # ==========================================================================
     # EVENT HANDLERS
     # ==========================================================================
-
-    def setup_handlers(self):
-        with dpg.handler_registry():
-            dpg.add_mouse_click_handler(callback=self.on_click_editor)
-            dpg.add_key_press_handler(key=dpg.mvKey_D, callback=self.delete_selected_link)
-            dpg.add_mouse_double_click_handler(callback=self._on_canvas_double_click)
-            dpg.add_mouse_move_handler(callback=self._on_mouse_move)
 
     def _on_link_click(self, sender, app_data, link_id):
         if self._selected_link_id and self._selected_link_id != link_id:
@@ -1105,7 +1121,7 @@ class NodeManager:
         if len(selected) == 1:
             node_uuid = selected[0]
             self._log(f"Node clicked: {node_uuid}")
-            if self.debug:
+            if log.isEnabledFor(logging.DEBUG):
                 self.debug_node_completeness(node_uuid)
 
             if node_uuid != self._last_selected_uuid:
@@ -1142,18 +1158,6 @@ class NodeManager:
             dpg.configure_item("specula_editor_parent", width=-1)
         except Exception as e:
             self._log(f"Error hiding property panel: {e}")
-
-    def _update_property_panel_visibility(self):
-        if not self.editor or not dpg.does_item_exist("property_panel"):
-            return
-        selected = self.get_selected_nodes()
-        if len(selected) == 1:
-            dpg.show_item("property_panel")
-            viewport_width = dpg.get_viewport_width()
-            property_width = int(viewport_width * 0.25)
-            dpg.set_item_width("property_panel", property_width)
-        else:
-            dpg.hide_item("property_panel")
 
     def _show_connection_panel(self, link_id: int):
         if not dpg.does_item_exist("property_panel"):
@@ -1223,10 +1227,6 @@ class NodeManager:
                 if link_id != self._selected_link_id:
                     self._reset_link_style(link_id)
 
-    def delete_selection(self, *_):
-        for node_uuid in self.get_selected_nodes():
-            self.delete_node(node_uuid)
-
     def delete_node(self, node_uuid: str):
         if node_uuid not in self.uuid_to_dpg:
             return
@@ -1261,7 +1261,6 @@ class NodeManager:
         self._log(f"Deleted node: {node_uuid}")
 
     def clear_all(self):
-        self.node_item_registry.clear()
         self.registry.clear()
         dpg.delete_item("specula_editor", children_only=True)
 
@@ -1272,10 +1271,6 @@ class NodeManager:
             for d_id in selected_dpg_ids
             if d_id in self.dpg_to_uuid
         ]
-
-    def update_node_value(self, sender, app_data, user_data):
-        node_uuid, param_name = user_data
-        self.graph.nodes[node_uuid]["values"][param_name] = app_data
 
     def get_connection_for_yaml(self, src_uuid, src_attr, dst_uuid, dst_attr) -> str:
         props    = self.graph.get_connection_properties(
@@ -1291,50 +1286,3 @@ class NodeManager:
             return f"{base_str}:{delay}"
         return base_str
 
-    def add_dynamic_io(self, node_uuid: str):
-        parent = self.uuid_to_dpg[node_uuid]
-        output_spacer_w = render_scale.node_output_spacer_width()
-        tm = self.theme_manager
-
-        with dpg.node_attribute(
-            attribute_type=dpg.mvNode_Attr_Input, parent=parent, shape=REF_SHAPE_EMPTY
-        ) as attr_id:
-            dpg.add_text(
-                "source_dict_ref",
-                color=tm.get_color("node_ref_input_label")
-            )
-            self.input_attr_registry[attr_id] = (node_uuid, "source_dict_ref")
-
-        with dpg.node_attribute(
-            attribute_type=dpg.mvNode_Attr_Output, parent=parent
-        ) as attr_id:
-            with dpg.group(horizontal=True):
-                dpg.add_spacer(width=output_spacer_w)
-                dpg.add_text(
-                    "output",
-                    color=tm.get_color("node_io_output_label")
-                )
-            self.output_attr_registry[attr_id] = (node_uuid, "output")
-
-    def add_data_output(self, node_uuid: str):
-        parent = self.uuid_to_dpg[node_uuid]
-        output_spacer_w = render_scale.node_output_spacer_width()
-        tm = self.theme_manager
-
-        with dpg.node_attribute(
-            attribute_type=dpg.mvNode_Attr_Output, parent=parent
-        ) as attr_id:
-            with dpg.group(horizontal=True):
-                dpg.add_spacer(width=output_spacer_w)
-                dpg.add_text(
-                    "Output: ref",
-                    color=tm.get_color("node_hint_text")
-                )
-            self.output_attr_registry[attr_id] = (node_uuid, "ref")
-
-    def refresh_all_node_themes(self):
-        """Recreate node themes from current theme manager and rebind to all nodes."""
-        self.init_themes()   # re‑creates data_theme, proc_theme, etc.
-        for node_uuid in self.graph.nodes:
-            self._refresh_node_theme(node_uuid)
-        self._log("All node themes refreshed after global theme change")

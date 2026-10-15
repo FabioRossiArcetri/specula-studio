@@ -25,6 +25,10 @@ import copy
 import yaml
 from collections import OrderedDict
 from pathlib import Path
+import logging
+
+log = logging.getLogger(__name__)
+
 
 
 # ── SPECULA combine_params logic ──────────────────────────────────────────────
@@ -88,7 +92,7 @@ class OverrideManager:
     def set_base_snapshot(self, snapshot: dict):
         """Store a deep-copy of the pre-override simulation dict."""
         self._base_snapshot = copy.deepcopy(snapshot)
-        print("[OVERRIDE_MGR] Base snapshot stored "
+        log.info("[OVERRIDE_MGR] Base snapshot stored "
               f"({len(snapshot)} top-level keys)")
 
     def get_base_snapshot(self) -> dict | None:
@@ -99,7 +103,7 @@ class OverrideManager:
 
     def clear_base_snapshot(self):
         self._base_snapshot = None
-        print("[OVERRIDE_MGR] Base snapshot cleared")
+        log.info("[OVERRIDE_MGR] Base snapshot cleared")
 
     def has_base_snapshot(self) -> bool:
         return self._base_snapshot is not None
@@ -118,19 +122,19 @@ class OverrideManager:
         for path in paths:
             path = str(Path(path).resolve())
             if path in self._overrides:
-                print(f"[OVERRIDE_MGR] Already loaded: {Path(path).name}")
+                log.info(f"[OVERRIDE_MGR] Already loaded: {Path(path).name}")
                 continue
             try:
                 with open(path, 'r', encoding='utf-8') as f:
                     data = yaml.safe_load(f)
                 if not isinstance(data, dict):
-                    print(f"[OVERRIDE_MGR] Skipping {path}: root is not a mapping")
+                    log.warning(f"[OVERRIDE_MGR] Skipping {path}: root is not a mapping")
                     continue
                 self._overrides[path] = {'enabled': False, 'data': data}   # ← disabled
-                print(f"[OVERRIDE_MGR] Loaded (disabled): {Path(path).name}")
+                log.info(f"[OVERRIDE_MGR] Loaded (disabled): {Path(path).name}")
                 loaded += 1
             except Exception as e:
-                print(f"[OVERRIDE_MGR] Error loading {path}: {e}")
+                log.error(f"[OVERRIDE_MGR] Error loading {path}: {e}")
         return loaded
 
     def remove_override(self, path: str):
@@ -138,7 +142,7 @@ class OverrideManager:
         path = str(Path(path).resolve())
         if path in self._overrides:
             del self._overrides[path]
-            print(f"[OVERRIDE_MGR] Removed: {Path(path).name}")
+            log.info(f"[OVERRIDE_MGR] Removed: {Path(path).name}")
 
     def toggle_override(self, path: str) -> bool:
         """
@@ -151,7 +155,7 @@ class OverrideManager:
         new_state = not self._overrides[path]['enabled']
         self._overrides[path]['enabled'] = new_state
         verb = "Enabled" if new_state else "Disabled"
-        print(f"[OVERRIDE_MGR] {verb}: {Path(path).name}")
+        log.info(f"[OVERRIDE_MGR] {verb}: {Path(path).name}")
         return new_state
 
     def enable_override(self, path: str):
@@ -190,7 +194,7 @@ class OverrideManager:
         for path, entry in self._overrides.items():
             if entry['enabled']:
                 result = _combine_params(result, entry['data'])
-                print(f"[OVERRIDE_MGR] Applied: {Path(path).name}")
+                log.info(f"[OVERRIDE_MGR] Applied: {Path(path).name}")
         return result
 
     # ── CLI helper ────────────────────────────────────────────────────────────
@@ -226,7 +230,7 @@ class OverrideManager:
                         'enabled': enabled,
                         'data': yaml_data,
                     }
-                    print(f"[OVERRIDE_MGR] Restored: {Path(path).name} "
+                    log.info(f"[OVERRIDE_MGR] Restored: {Path(path).name} "
                           f"({'on' if enabled else 'off'})")
             except Exception as e:
-                print(f"[OVERRIDE_MGR] Could not restore {path}: {e}")
+                log.warning(f"[OVERRIDE_MGR] Could not restore {path}: {e}")

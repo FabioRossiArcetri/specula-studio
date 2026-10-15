@@ -43,6 +43,10 @@ from .constants import (
     MONITOR_DROP_LOG_INTERVAL,
 )
 from .theme_manager import ThemeManager
+import logging
+
+log = logging.getLogger(__name__)
+
 
 FONT_SIZE = 18
 
@@ -162,7 +166,7 @@ class StandaloneMonitor:
                     and file_session
                     and file_session != self.session_id
                 ):
-                    print(
+                    log.info(
                         f"[MONITOR] Coordination file session changed "
                         f"({self.session_id!r} → {file_session!r}). "
                         "Exiting — this monitor belongs to the previous run."
@@ -171,14 +175,14 @@ class StandaloneMonitor:
 
                 url = data.get("url", "").strip()
                 if url and url != self.server_url:
-                    print(f"[MONITOR] URL updated from file: {self.server_url} → {url}")
+                    log.info(f"[MONITOR] URL updated from file: {self.server_url} → {url}")
                     self.server_url = url
                     with self._status_lock:
                         self._pending_url = url
                 if url:
                     return url, True
             except Exception as e:
-                print(f"[MONITOR] Could not read URL file: {e}")
+                log.warning(f"[MONITOR] Could not read URL file: {e}")
         return self.server_url, True
 
     # =========================================================================
@@ -204,7 +208,7 @@ class StandaloneMonitor:
     def _on_stall_detected(self):
         if not self.connected:
             return
-        print(
+        log.info(
             f"[MONITOR] Stream stall detected (no 'done' in {STREAM_STALL_TIMEOUT}s). "
             "Re-arming pull cycle."
         )
@@ -233,21 +237,21 @@ class StandaloneMonitor:
         @client.event
         def connect():
             self.connected = True
-            print(f"[MONITOR] Connected to {self.server_url}")
+            log.info(f"[MONITOR] Connected to {self.server_url}")
             self._set_status("connected")
             try:
                 client.emit("newdata", [self.server_output_name])
                 self._arm_stall_watchdog()
                 self._set_status("subscribed")
-                print(f"[MONITOR] Subscribed to {self.server_output_name}")
+                log.info(f"[MONITOR] Subscribed to {self.server_output_name}")
             except Exception as e:
-                print(f"[MONITOR] Subscription error: {e}")
+                log.error(f"[MONITOR] Subscription error: {e}")
 
         @client.event
         def disconnect():
             self.connected = False
             self._disarm_stall_watchdog()
-            print("[MONITOR] Disconnected")
+            log.info("[MONITOR] Disconnected")
             self._set_status("disconnected")
 
         @client.event
@@ -255,7 +259,7 @@ class StandaloneMonitor:
             self.connected = False
             self._disarm_stall_watchdog()
             msg = str(data)[:120]
-            print(f"[MONITOR] Connection error: {msg}")
+            log.error(f"[MONITOR] Connection error: {msg}")
             self._set_status("retrying")
 
         @client.event
@@ -284,7 +288,7 @@ class StandaloneMonitor:
                     pass
                 self._drop_count += 1
                 if self._drop_count % MONITOR_DROP_LOG_INTERVAL == 0:
-                    print(
+                    log.info(
                         f"[MONITOR] '{self.server_output_name}': "
                         f"{self._drop_count} frames dropped (queue full)"
                     )
@@ -308,7 +312,7 @@ class StandaloneMonitor:
             """Server keepalive — verify we are still talking to the right run."""
             server_sid = data.get("session_id") if isinstance(data, dict) else None
             if server_sid and self.session_id and server_sid != self.session_id:
-                print(
+                log.info(
                     f"[MONITOR] Heartbeat session mismatch "
                     f"(mine={self.session_id!r}, server={server_sid!r}). Exiting."
                 )
@@ -332,7 +336,7 @@ class StandaloneMonitor:
                 break
 
             try:
-                print(f"[MONITOR] Connecting to {url} …")
+                log.info(f"[MONITOR] Connecting to {url} …")
                 with self._sio_lock:
                     if self.sio:
                         try:
@@ -344,7 +348,7 @@ class StandaloneMonitor:
                 retry_delay = 1.0
             except Exception as e:
                 err = str(e)[:120]
-                print(f"[MONITOR] Connection failed ({err}), retry in {retry_delay:.1f}s")
+                log.warning(f"[MONITOR] Connection failed ({err}), retry in {retry_delay:.1f}s")
                 self._set_status("retrying")
                 self._stop_flag.wait(timeout=retry_delay)
                 retry_delay = min(retry_delay * 1.5, max_delay)
@@ -696,10 +700,10 @@ class StandaloneMonitor:
                     return arr
 
         except Exception as exc:
-            print(f"[MONITOR] Data conversion error: {exc}")
+            log.error(f"[MONITOR] Data conversion error: {exc}")
             traceback.print_exc()
 
-        print(f"[MONITOR] Unhandled payload type: '{data_type}'")
+        log.info(f"[MONITOR] Unhandled payload type: '{data_type}'")
         return None
 
     def _plot(self, arr: np.ndarray) -> bool:
@@ -743,7 +747,7 @@ class StandaloneMonitor:
                 if reduced.ndim == 2:
                     return p.plot_2d_image_clean(reduced)
         except Exception as exc:
-            print(f"[MONITOR] Plot error: {exc}")
+            log.error(f"[MONITOR] Plot error: {exc}")
             traceback.print_exc()
 
         return False
@@ -888,6 +892,9 @@ def main():
         help="Session ID of the simulation run that spawned this monitor (Issue 9)",
     )
     args = parser.parse_args()
+
+    from .logs import setup_logging
+    setup_logging(os.environ.get("SPECULA_STUDIO_LOG_LEVEL", "INFO"))
 
     monitor = StandaloneMonitor(
         server_url         = args.server_url,

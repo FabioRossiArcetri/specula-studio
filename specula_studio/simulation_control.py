@@ -1,6 +1,7 @@
 import json
 import os
-import re
+import shutil
+import tempfile
 import threading
 import time
 import uuid
@@ -10,6 +11,10 @@ import yaml
 
 from .simulation_backend import RemoteBackend, InProcessBackend, SimulationBackend
 from .theme_manager import ThemeManager
+import logging
+
+log = logging.getLogger(__name__)
+
 
 _DISPLAY_SERVER_PORT      = 5000
 _DISPLAY_SERVER_NODE_NAME = "specula_studio_display_server"
@@ -19,17 +24,6 @@ _REMOTE_SERVER_INFO_FILE = os.path.join(
     "specula_studio_remote_server.json",
 )
 
-_URL_RE = re.compile(
-    r'https?://(?:0\.0\.0\.0|127\.0\.0\.1|localhost):(\d{4,5})',
-    re.IGNORECASE,
-)
-_PORT_KW_RE = re.compile(
-    r'(?:display[_\s]?server|socket\.?io|server|running|listening|started)'
-    r'.{0,80}?[:\s](\d{4,5})\b',
-    re.IGNORECASE,
-)
-
-
 class SimulationControl:
     def __init__(self, editor):
         self.editor        = editor
@@ -38,6 +32,7 @@ class SimulationControl:
         self.is_running    = False
         self._reconnect_timer = None
         self._backend: SimulationBackend | None = None
+        self._run_dir: str | None = None
 
         # Session ID — generated once per run, injected into the DisplayServer
         # YAML block so SPECULA re-uses it. Written to the coordination file and
@@ -69,28 +64,21 @@ class SimulationControl:
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(payload, f)
             os.replace(tmp, self._server_url_file)
-            print(
+            log.info(
                 f"[SIMULATION] Wrote server URL file: {url} "
                 f"(session={self._session_id})"
             )
         except Exception as e:
-            print(f"[SIMULATION] Could not write server URL file: {e}")
+            log.warning(f"[SIMULATION] Could not write server URL file: {e}")
 
     # ── YAML Display Window ───────────────────────────────────────────────────
 
     def _get_current_yaml_content(self):
         try:
-            temp_path = "_temp_yaml_display.yml"
-            self.editor.fh.export_simulation(temp_path, include_defaults=False)
-            with open(temp_path, encoding="utf-8") as f:
-                yaml_content = f.read()
-            try:
-                os.remove(temp_path)
-            except Exception:
-                pass
-            return yaml_content
+            return self.editor.fh.export_to_yaml_string(include_defaults=False)
         except Exception as e:
-            return f"Error generating YAML:\n{str(e)}"
+            log.exception("Error generating YAML")
+            return f"Error generating YAML:\n{e}"
 
     def show_yaml_window(self):
         yaml_content = self._get_current_yaml_content()
@@ -129,13 +117,21 @@ class SimulationControl:
                     process = subprocess.Popen(["xsel", "-b", "-i"], stdin=subprocess.PIPE)
             process.communicate(content.encode("utf-8"))
         except Exception as e:
-            print(f"[SIMULATION] Failed to copy to clipboard: {e}")
+            log.warning(f"[SIMULATION] Failed to copy to clipboard: {e}")
 
     # ── Control window ────────────────────────────────────────────────────────
 
     def _get_sim_path(self):
-        name = getattr(self.editor, "current_scene_name", "untitled") or "untitled"
-        return f"{name}_simul.yml"
+        """Per-run YAML path inside a private temporary directory.
+
+        The previous run's directory is removed first, so at most one set of
+        run files exists at any time (kept until the next run for debugging).
+        """
+        if self._run_dir and os.path.isdir(self._run_dir):
+            shutil.rmtree(self._run_dir, ignore_errors=True)
+        self._run_dir = tempfile.mkdtemp(prefix="specula_studio_run_")
+        name = getattr(self.editor, "current_simulation_name", None) or "untitled"
+        return os.path.join(self._run_dir, f"{name}_simul.yml")
 
     def show_control_window(self):
         if dpg.does_item_exist("sim_control_window"):
@@ -228,7 +224,7 @@ class SimulationControl:
                     )
 
     def _on_backend_mode_changed(self, sender, app_data):
-        print(f"[SIMULATION] Backend mode changed to: {app_data}")
+        log.info(f"[SIMULATION] Backend mode changed to: {app_data}")
 
     def append_terminal(self, text):
         self.terminal_data.append(text)
@@ -251,9 +247,6 @@ class SimulationControl:
                 del node_dict["gui_pos"]
         return yaml_data
 
-    def _strip_gui_fields(self, yaml_data: dict) -> dict:
-        return self._strip_studio_fields(yaml_data)
-
     def _inject_display_server_node(self, yaml_data: dict) -> bool:
         """
         Inject (or update) a DisplayServer node.
@@ -267,7 +260,7 @@ class SimulationControl:
         for node_name, node_dict in yaml_data.items():
             if isinstance(node_dict, dict) and node_dict.get("class") == "DisplayServer":
                 node_dict["session_id"] = self._session_id
-                print(
+                log.info(
                     f"[SIMULATION] DisplayServer '{node_name}' already present — "
                     f"injected session_id={self._session_id}"
                 )
@@ -283,7 +276,7 @@ class SimulationControl:
                 break
 
         if simul_params_name is None:
-            print("[SIMULATION] Warning: No SimulParams block found — cannot inject DisplayServer.")
+            log.warning("[SIMULATION] Warning: No SimulParams block found — cannot inject DisplayServer.")
             return False
 
         ds_name = _DISPLAY_SERVER_NODE_NAME
@@ -298,7 +291,7 @@ class SimulationControl:
             "mode":       "data",
             "session_id": self._session_id,   # ← key fix: single source of truth
         }
-        print(
+        log.info(
             f"[SIMULATION] Injected DisplayServer '{ds_name}' "
             f"(port={_DISPLAY_SERVER_PORT}, session_id={self._session_id})"
         )
@@ -315,23 +308,11 @@ class SimulationControl:
                 self._inject_display_server_node(yaml_data)
             with open(file_path, "w", encoding="utf-8") as f:
                 yaml.dump(yaml_data, f, sort_keys=False, default_flow_style=False)
-            print(f"[SIMULATION] Prepared simulation YAML: {file_path}")
+            log.info(f"[SIMULATION] Prepared simulation YAML: {file_path}")
         except Exception as e:
-            print(f"[SIMULATION] Warning: could not prepare YAML: {e}")
-
-    def _clean_simulation_yaml(self, file_path):
-        self._prepare_simulation_yaml(file_path)
+            log.warning(f"[SIMULATION] Warning: could not prepare YAML: {e}")
 
     # ── Port / URL detection ──────────────────────────────────────────────────
-
-    def _try_extract_port(self, line: str):
-        for pattern in (_URL_RE, _PORT_KW_RE):
-            m = pattern.search(line)
-            if m:
-                port = int(m.group(1))
-                if 1024 <= port <= 65535:
-                    return port
-        return None
 
     def _on_display_server_port_found(self, port: int, remote_ip: str = "localhost"):
         if remote_ip in ("localhost", "127.0.0.1", ""):
@@ -339,7 +320,7 @@ class SimulationControl:
         else:
             new_url = f"http://{remote_ip}:{port}"
 
-        print(f"[SIMULATION] Display server confirmed at {new_url}")
+        log.info(f"[SIMULATION] Display server confirmed at {new_url}")
         self.append_terminal(f"[INFO] Display server running at {new_url}\n")
 
         sio = self.editor.nm.sio_client
@@ -376,7 +357,7 @@ class SimulationControl:
             sio = self.editor.nm.sio_client
             if sio is None or sio.connected:
                 return
-            print(f"[SIMULATION] Fallback reconnect attempt {attempt_no} → {expected_url}")
+            log.info(f"[SIMULATION] Fallback reconnect attempt {attempt_no} → {expected_url}")
             sio.server_url = expected_url
             sio.reconnect()
             if not sio.connected and attempt_no == 1:
@@ -391,7 +372,7 @@ class SimulationControl:
 
         # ── Generate session ID first — everything else derives from it ────────
         self._session_id = str(uuid.uuid4())
-        print(f"[SIMULATION] New run session_id={self._session_id}")
+        log.info(f"[SIMULATION] New run session_id={self._session_id}")
         self._clear_server_url_file()
 
         backend_mode         = (
@@ -402,7 +383,10 @@ class SimulationControl:
         is_remote            = (backend_mode == "Remote")
 
         temp_path = self._get_sim_path()
-        self.editor.fh.export_simulation(temp_path, include_defaults=True)
+        # Only explicitly-set values are written: SPECULA applies its own
+        # constructor defaults, which are authoritative (template defaults may
+        # be stale for the installed SPECULA version).
+        self.editor.fh.export_simulation(temp_path, include_defaults=False)
         # _inject_display_server_node now also stamps session_id into the block
         self._prepare_simulation_yaml(
             temp_path,
@@ -458,7 +442,8 @@ class SimulationControl:
         if hasattr(self.editor, "override_manager"):
             enabled = self.editor.override_manager.get_enabled_overrides()
             if enabled:
-                cmd_args["overrides"] = self.editor.override_manager.get_override_string()
+                # The editor graph already contains the merged overrides, so
+                # the exported YAML is complete; nothing extra to pass.
                 self.append_terminal(f"[INFO] Applied {len(enabled)} override file(s)\n")
 
         if remote_ip in ("localhost", "127.0.0.1", ""):
@@ -506,10 +491,18 @@ class SimulationControl:
             self.append_terminal("[WARNING] Number of steps must be at least 1\n")
             return
         self.append_terminal(f"[INFO] Advancing {n_steps} step(s)...\n")
-        for i in range(n_steps):
-            self._backend.step()
-            if i < n_steps - 1:
-                time.sleep(0.05)
+        backend = self._backend
+
+        def _advance():
+            # Runs off the GUI thread so the editor and monitors stay live.
+            for i in range(n_steps):
+                if backend is not self._backend or not backend.is_running:
+                    break
+                backend.step()
+                if i < n_steps - 1:
+                    time.sleep(0.05)
+
+        threading.Thread(target=_advance, daemon=True, name="advance-n-steps").start()
 
     def abort_sim(self, sender=None, app_data=None):
         if self._backend is not None:

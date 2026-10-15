@@ -51,6 +51,10 @@ import dearpygui.dearpygui as dpg
 
 from .dpg_utils import apply_link_style
 from .theme_manager import ThemeManager
+import logging
+
+log = logging.getLogger(__name__)
+
 
 # ── Documentation helpers (gracefully absent if SPECULA not installed) ─────────
 try:
@@ -118,6 +122,7 @@ class PropertyPanel:
         monitor_manager,
         delink_callback,
         refresh_node_theme,
+        rename_node=None,
     ):
         self.graph              = graph
         self.all_templates      = all_templates
@@ -125,6 +130,7 @@ class PropertyPanel:
         self.monitors           = monitor_manager
         self._delink_callback   = delink_callback
         self._refresh_node_theme = refresh_node_theme
+        self._rename_node       = rename_node
         self.theme_manager = ThemeManager()
 
     # =========================================================================
@@ -161,9 +167,13 @@ class PropertyPanel:
             dpg.add_input_text(
                 default_value=node_name,
                 width=150,
+                on_enter=True,
+                hint="press Enter to rename",
                 callback=self._update_node_name,
                 user_data=node_uuid,
             )
+        dpg.add_text("", tag="_panel_rename_error", parent=panel_tag, show=False,
+                     color=tm.get_color("panel_label_required"))
 
         # Class name with tooltip showing summary
         cls_lbl = dpg.add_text(
@@ -500,7 +510,7 @@ class PropertyPanel:
         dpg.delete_item(panel_tag, children_only=True)
 
         if link_id not in self.registry.link_registry:
-            print(f"[PANEL] Link {link_id} not in registry")
+            log.info(f"[PANEL] Link {link_id} not in registry")
             return
 
         src_uuid, src_attr, dst_uuid, dst_attr = self.registry.link_registry[link_id]
@@ -775,15 +785,18 @@ class PropertyPanel:
 
     def _update_node_name(self, sender, app_data, user_data):
         node_uuid = user_data
-        new_name  = app_data
-        if node_uuid in self.graph.nodes:
-            self.graph.nodes[node_uuid]["name"] = new_name
-            dpg_id = self.registry.uuid_to_dpg.get(node_uuid)
-            if dpg_id:
-                dpg.set_item_label(
-                    dpg_id,
-                    f"{new_name} ({self.graph.nodes[node_uuid]['type']})",
-                )
+        new_name  = app_data.strip()
+        if node_uuid not in self.graph.nodes or self._rename_node is None:
+            return
+        error = self._rename_node(node_uuid, new_name)
+        if dpg.does_item_exist("_panel_rename_error"):
+            dpg.set_value("_panel_rename_error", error or "")
+            dpg.configure_item("_panel_rename_error", show=bool(error))
+        if error:
+            dpg.set_value(sender, self.graph.nodes[node_uuid].get("name", ""))
+        else:
+            # connection lists in the panel show names: redraw it
+            self.update_node_panel(node_uuid, "property_panel")
 
     def _parse_value(self, value):
         if not isinstance(value, str):
@@ -820,7 +833,7 @@ class PropertyPanel:
                     )
                     final_val = ast.literal_eval(yaml_ready)
                 except Exception:
-                    print(f"Warning: Invalid list syntax for {param_name}")
+                    log.warning(f"Warning: Invalid list syntax for {param_name}")
                     return
             elif target_type in ["float", "double", "number"]:
                 if not isinstance(final_val, float):
@@ -839,7 +852,7 @@ class PropertyPanel:
             self._refresh_node_theme(node_uuid)
 
         except Exception as e:
-            print(f"Error updating parameter {param_name}: {e}")
+            log.error(f"Error updating parameter {param_name}: {e}")
 
     def _update_data_object_param(self, sender, app_data, user_data):
         node_uuid, param_name = user_data
@@ -987,7 +1000,7 @@ class PropertyPanel:
                     if dpg.does_item_exist(input_tag):
                         dpg.set_value(input_tag, bare_name)
                 except Exception as exc:
-                    print(f"[BROWSE] Could not set input tag {input_tag}: {exc}")
+                    log.warning(f"[BROWSE] Could not set input tag {input_tag}: {exc}")
 
                 # Route to the right callback depending on widget-tag suffix
                 try:
@@ -1004,7 +1017,7 @@ class PropertyPanel:
                             None, bare_name, (node_uuid, param_folder)
                         )
                 except Exception as exc:
-                    print(f"[BROWSE] Error updating node value: {exc}")
+                    log.error(f"[BROWSE] Error updating node value: {exc}")
 
             try:
                 dpg.hide_item(dialog_tag)
@@ -1019,7 +1032,7 @@ class PropertyPanel:
                 root_dir = nd.get("values", {}).get("root_dir")
                 if root_dir:
                     initial_dir = os.path.join(str(root_dir), param_folder)
-                    print(f"[BROWSE] root_dir='{root_dir}', "
+                    log.info(f"[BROWSE] root_dir='{root_dir}', "
                           f"param='{param_name}', folder='{param_folder}', "
                           f"initial_dir='{initial_dir}'")
                     break
@@ -1116,7 +1129,7 @@ class PropertyPanel:
                     try:
                         dpg.configure_item(attr_id, show=visible)
                     except Exception as exc:
-                        print(f"[PANEL] _set_ref_pin_visible: {exc}")
+                        log.info(f"[PANEL] _set_ref_pin_visible: {exc}")
                 break
 
     def _disconnect_ref_links(self, node_uuid: str, attr_name: str):

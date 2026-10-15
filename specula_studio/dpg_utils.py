@@ -2,6 +2,9 @@ import dearpygui.dearpygui as dpg
 from collections import deque
 from . import render_scale
 from .theme_manager import ThemeManager
+import logging
+
+log = logging.getLogger(__name__)
 
 
 def create_node_theme(
@@ -120,24 +123,13 @@ def apply_link_style(link_id: int, color: list, thickness: float = 1.0) -> None:
     dpg.bind_item_theme(link_id, link_theme)
 
 
-def set_zebra_theme():
-    """Apply a zebra-stripe theme for tables (file dialogs, property tables)."""
-    tm = ThemeManager()
-    with dpg.theme() as global_theme:
-        with dpg.theme_component(dpg.mvAll):
-            dpg.add_theme_color(dpg.mvThemeCol_TableRowBg,    tm.get_color("table_row_bg"),    category=dpg.mvThemeCat_Core)
-            dpg.add_theme_color(dpg.mvThemeCol_TableRowBgAlt, tm.get_color("table_row_bg_alt"), category=dpg.mvThemeCat_Core)
-            dpg.add_theme_color(dpg.mvThemeCol_TableHeaderBg, tm.get_color("table_header_bg"),  category=dpg.mvThemeCat_Core)
-    dpg.bind_theme(global_theme)
-
-
 def auto_layout_nodes(graph, uuid_to_dpg, debug=False):
     """Organize nodes into a grid layout using actual node sizes to prevent overlap."""
     if debug:
-        print(f"[AUTO_LAYOUT] Starting auto layout with {len(graph.nodes)} nodes")
+        log.debug(f"[AUTO_LAYOUT] Starting auto layout with {len(graph.nodes)} nodes")
 
     if not graph.nodes:
-        print("[AUTO_LAYOUT] No nodes to layout")
+        log.debug("[AUTO_LAYOUT] No nodes to layout")
         return
 
     nodes = list(graph.nodes.keys())
@@ -149,24 +141,24 @@ def auto_layout_nodes(graph, uuid_to_dpg, debug=False):
 
         if dst_attr.endswith("_ref") or dst_attr == "layer_list" or "params" in dst_attr.lower():
             if debug:
-                print(f"[AUTO_LAYOUT] Skipping reference: {src}.{src_attr} -> {dst}.{dst_attr}")
+                log.debug(f"[AUTO_LAYOUT] Skipping reference: {src}.{src_attr} -> {dst}.{dst_attr}")
             continue
 
         conn_props = graph.connection_properties.get(conn, {})
         if conn_props.get('delay', 0) == -1:
             if debug:
-                print(f"[AUTO_LAYOUT] Skipping feedback: {src}.{src_attr} -> {dst}.{dst_attr}")
+                log.debug(f"[AUTO_LAYOUT] Skipping feedback: {src}.{src_attr} -> {dst}.{dst_attr}")
             continue
 
         if ":-" in str(src_attr):
             if debug:
-                print(f"[AUTO_LAYOUT] Skipping feedback pattern: {src}.{src_attr} -> {dst}.{dst_attr}")
+                log.debug(f"[AUTO_LAYOUT] Skipping feedback pattern: {src}.{src_attr} -> {dst}.{dst_attr}")
             continue
 
         clean_connections.append((src, dst))
 
     if debug:
-        print(f"[AUTO_LAYOUT] Using {len(clean_connections)} connections for layout")
+        log.debug(f"[AUTO_LAYOUT] Using {len(clean_connections)} connections for layout")
 
     # --- Topological sort → assign depth levels ---
     adj       = {n: [] for n in nodes}
@@ -200,7 +192,7 @@ def auto_layout_nodes(graph, uuid_to_dpg, debug=False):
         if node not in levels:
             levels[node] = 0
             if debug:
-                print(f"[AUTO_LAYOUT] Node {node} unleveled (cycle/disconnected), assigning level 0")
+                log.debug(f"[AUTO_LAYOUT] Node {node} unleveled (cycle/disconnected), assigning level 0")
 
     # --- Group by level ---
     level_groups: dict = {}
@@ -251,18 +243,18 @@ def auto_layout_nodes(graph, uuid_to_dpg, debug=False):
             dpg_id = uuid_to_dpg.get(node_id)
             if not dpg_id or not dpg.does_item_exist(dpg_id):
                 if debug:
-                    print(f"[AUTO_LAYOUT] Skipping {node_id}: no valid DPG ID")
+                    log.debug(f"[AUTO_LAYOUT] Skipping {node_id}: no valid DPG ID")
                 continue
 
             w, h = node_sizes[node_id]
             node_name = graph.nodes[node_id].get('name', node_id[:4])
 
             if debug:
-                print(f"[AUTO_LAYOUT] [{lvl}] {node_name} → ({x:.0f}, {cursor_y:.0f})  size=({w:.0f}x{h:.0f})")
+                log.debug(f"[AUTO_LAYOUT] [{lvl}] {node_name} → ({x:.0f}, {cursor_y:.0f})  size=({w:.0f}x{h:.0f})")
 
             dpg.set_item_pos(dpg_id, [x, cursor_y])
             cursor_y += h + pad_y
             positioned += 1
 
     if debug:
-        print(f"[AUTO_LAYOUT] Done. Positioned {positioned}/{len(nodes)} nodes across {len(sorted_levels)} columns")
+        log.debug(f"[AUTO_LAYOUT] Done. Positioned {positioned}/{len(nodes)} nodes across {len(sorted_levels)} columns")

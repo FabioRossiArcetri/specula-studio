@@ -24,6 +24,10 @@ Scale factors
   MEDIUM → 1.00  (effective ~18 px)
   LARGE  → 1.80  (effective ~32 px)
 """
+import logging
+
+log = logging.getLogger(__name__)
+
 
 RENDER_SIZES = ["MICRO", "SMALL", "MEDIUM", "LARGE"]
 DEFAULT_RENDER_SIZE = "MEDIUM"
@@ -92,7 +96,7 @@ def set_size(size: str) -> None:
     if size in SCALE_DEFS:
         _current_size = size
     else:
-        print(f"[RENDER_SCALE] Unknown size '{size}'; keeping '{_current_size}'")
+        log.warning(f"[RENDER_SCALE] Unknown size '{size}'; keeping '{_current_size}'")
 
 
 def get_size() -> str:

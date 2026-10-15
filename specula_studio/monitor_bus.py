@@ -25,6 +25,10 @@ Changes vs. previous version
 from __future__ import annotations
 
 import threading
+import logging
+
+log = logging.getLogger(__name__)
+
 
 
 class MonitorBus:
@@ -61,21 +65,20 @@ class MonitorBus:
 
     def push(self, topic: str, payload: dict) -> None:
         """Push data to all subscribers of a topic."""
-        callbacks = self._subscribers.get(topic, [])
-        if not callbacks:
-            print(f"[BUS] No subscribers for topic '{topic}'")
-            return
-
-        print(f"[BUS] Pushing to topic '{topic}': {len(callbacks)} subscriber(s)")
-        self._push_counts[topic] = self._push_counts.get(topic, 0) + 1
+        with self._lock:
+            callbacks = list(self._subscribers.get(topic, ()))
+            if not callbacks:
+                return
+            self._push_counts[topic] = self._push_counts.get(topic, 0) + 1
 
         for callback in callbacks:
             try:
                 callback(payload)
             except _DropFrame:
-                self._drop_counts[topic] = self._drop_counts.get(topic, 0) + 1
+                with self._lock:
+                    self._drop_counts[topic] = self._drop_counts.get(topic, 0) + 1
             except Exception as e:
-                print(f"[BUS] Error calling subscriber for '{topic}': {e}")
+                log.warning("Error calling subscriber for '%s': %s", topic, e)
 
     # ── Introspection ──────────────────────────────────────────────────────────
 
