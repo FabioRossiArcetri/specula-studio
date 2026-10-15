@@ -30,7 +30,7 @@ class History:
         self.limit = limit
         self._undo: list = []
         self._redo: list = []
-        self._current = None          # (state, fingerprint)
+        self._current: tuple | None = None          # (state, fingerprint)
 
     @property
     def current_fingerprint(self) -> str | None:

@@ -31,6 +31,8 @@ dev = [
     "deepdiff>=6.7",
     "pytest>=8.0",
     "ruff>=0.4",
+    "mypy>=1.8",
+    "types-PyYAML",
 ]
 
 [project.scripts]
@@ -71,6 +73,20 @@ ignore = [
     "E702",
     "E731",
 ]
+
+# ── Mypy (the DearPyGui-free core is fully checked) ──────────────────────────
+
+[tool.mypy]
+python_version = "3.11"
+files = [
+    "specula_studio/core",
+    "specula_studio/settings.py",
+    "specula_studio/logs.py",
+    "specula_studio/monitor_data.py",
+]
+check_untyped_defs = true
+ignore_missing_imports = true
+warn_unused_ignores = true
 
 # ── Pytest ───────────────────────────────────────────────────────────────────
 

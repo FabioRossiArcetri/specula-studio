@@ -16,6 +16,10 @@ LOG_FORMAT = "%(asctime)s %(levelname)-7s %(name)s: %(message)s"
 LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
 
 
+class _ConsoleHandler(logging.StreamHandler):
+    """Marker subclass so setup_logging() can find its own console handler."""
+
+
 class RingBufferHandler(logging.Handler):
     """Thread-safe handler keeping the last *capacity* formatted records."""
 
@@ -59,9 +63,8 @@ def setup_logging(level: str | int = "INFO") -> RingBufferHandler:
     logger.propagate = False
     formatter = logging.Formatter(LOG_FORMAT, datefmt="%H:%M:%S")
 
-    if not any(getattr(h, "_studio_console", False) for h in logger.handlers):
-        console = logging.StreamHandler()
-        console._studio_console = True
+    if not any(isinstance(h, _ConsoleHandler) for h in logger.handlers):
+        console = _ConsoleHandler()
         console.setFormatter(formatter)
         logger.addHandler(console)
 

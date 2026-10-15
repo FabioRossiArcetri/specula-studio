@@ -47,7 +47,7 @@ CATALOG_FORMAT = 2
 try:
     from platformdirs import user_cache_dir
 except ImportError:  # pragma: no cover
-    def user_cache_dir(appname: str) -> str:
+    def user_cache_dir(appname: str) -> str:  # type: ignore[misc]
         base = os.environ.get("XDG_CACHE_HOME") or os.path.join(
             os.path.expanduser("~"), ".cache")
         return os.path.join(base, appname)
@@ -141,7 +141,8 @@ def build_catalog(root: pathlib.Path, runtime: bool = True,
             if cand in parser.found_classes:
                 referenced.add(cand)
 
-    data, proc = OrderedDict(), OrderedDict()
+    data: OrderedDict = OrderedDict()
+    proc: OrderedDict = OrderedDict()
     for name in sorted(parser.found_classes):
         info = dict(parser.found_classes[name])
         category = info.pop("category", "other")

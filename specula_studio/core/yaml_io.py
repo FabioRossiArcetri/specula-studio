@@ -37,18 +37,22 @@ _DATA_TYPE_KEYWORDS = ("Matrix", "Vector", "Atmosphere", "Telescope", "Detector"
 
 # ── YAML text helpers ─────────────────────────────────────────────────────────
 
-def ordered_load(stream, Loader=yaml.SafeLoader, object_pairs_hook=OrderedDict):
+class _OrderedSafeLoader(yaml.SafeLoader):
+    """SafeLoader building OrderedDicts (keeps the object order of the file)."""
+
+
+def _construct_ordered_mapping(loader, node):
+    loader.flatten_mapping(node)
+    return OrderedDict(loader.construct_pairs(node))
+
+
+_OrderedSafeLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_ordered_mapping)
+
+
+def ordered_load(stream):
     """``yaml.safe_load`` preserving mapping order in OrderedDicts."""
-    class OrderedLoader(Loader):
-        pass
-
-    def construct_mapping(loader, node):
-        loader.flatten_mapping(node)
-        return object_pairs_hook(loader.construct_pairs(node))
-
-    OrderedLoader.add_constructor(
-        yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, construct_mapping)
-    return yaml.load(stream, OrderedLoader)
+    return yaml.load(stream, _OrderedSafeLoader)  # noqa: S506 - safe loader subclass
 
 
 class _CleanDumper(yaml.SafeDumper):
@@ -84,7 +88,7 @@ def dump_yaml(data) -> str:
                      default_flow_style=False, allow_unicode=True)
 
 
-def read_yaml_file(path) -> OrderedDict | None:
+def read_yaml_file(path) -> dict | None:
     try:
         with open(path, encoding="utf-8") as f:
             data = ordered_load(f)

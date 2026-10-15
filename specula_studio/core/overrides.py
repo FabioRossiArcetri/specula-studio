@@ -26,6 +26,7 @@ import logging
 import re
 from collections import OrderedDict
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -41,7 +42,7 @@ def remove_inputs(params: dict, obj_to_remove: str) -> dict:
     for obj in params.values():
         if not isinstance(obj, dict) or not isinstance(obj.get("inputs"), dict):
             continue
-        new_inputs = OrderedDict()
+        new_inputs: OrderedDict[str, Any] = OrderedDict()
         for input_name, source in obj["inputs"].items():
             if isinstance(source, str):
                 if output_owner(source) == obj_to_remove:

@@ -48,8 +48,9 @@ different file. Settings from older versions are migrated automatically.
 ## Development
 
 ```bash
-pytest          # unit tests + golden round-trip tests (no display needed)
+pytest          # unit, golden round-trip and headless UI tests (no display needed)
 ruff check .    # lint
+mypy            # type check of the DearPyGui-free core
 ```
 
 `tests/golden/` holds the YAML that loading and re-exporting each config in
