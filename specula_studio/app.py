@@ -7,16 +7,18 @@ menus and dialogs are implemented in the mixins of :mod:`specula_studio.ui`.
 """
 
 import argparse
+import copy
 import logging
 import os
 import pathlib
 
 import dearpygui.dearpygui as dpg
 
-from . import __version__, render_scale, settings
+from . import __version__, help_provider, render_scale, settings
+from .core import catalog
 from .core.model import Graph
 from .core.overrides import OverrideManager
-from .core.templates import TEMPLATES_DIR, load_template_dir
+from .core.templates import TEMPLATES_DIR, load_template_dir  # noqa: F401
 from .file_handler import FileHandler, auto_layout_nodes
 from .logs import LEVELS, setup_logging
 from .node_manager import NodeManager
@@ -39,11 +41,27 @@ class SpeculaEditor(
     OverridesMixin,
     LogWindowMixin,
 ):
-    def __init__(self, yaml_folder=TEMPLATES_DIR):
-        # 1. Templates (class metadata)
-        self.data_obj_templates = load_template_dir(os.path.join(yaml_folder, 'data_objects'))
-        self.proc_obj_templates = load_template_dir(os.path.join(yaml_folder, 'processing_objects'))
-        self.all_templates = {**self.data_obj_templates, **self.proc_obj_templates}
+    def __init__(self, yaml_folder=None):
+        self.preferences = settings.store()
+
+        # 1. Class catalog (metadata of every SPECULA class)
+        self._catalog_build = None
+        if yaml_folder is None:
+            data, proc, self.catalog_info, pending = catalog.load_catalog(
+                prefer_installed=self.preferences.get("class_source") != "bundled")
+            if pending is not None:
+                self._catalog_build = catalog.start_build(pending)
+        else:   # explicit template folder (tests, tools)
+            data = catalog.annotate_optional_inputs(
+                load_template_dir(os.path.join(yaml_folder, 'data_objects')))
+            proc = catalog.annotate_optional_inputs(
+                load_template_dir(os.path.join(yaml_folder, 'processing_objects')))
+            self.catalog_info = catalog.CatalogInfo("bundled", str(yaml_folder))
+        self.data_obj_templates = data
+        self.proc_obj_templates = proc
+        self.all_templates = {**data, **proc}
+        help_provider.set_catalog(self.all_templates)
+        log.info("Class catalog: %s", self.catalog_info)
 
         # 2. Model, canvas and file I/O
         self.graph = Graph(self.all_templates)
@@ -65,8 +83,6 @@ class SpeculaEditor(
         self.pending_deletion_type = None
         self.pending_deletion_items = []
 
-        # 4. Persistent preferences (single settings file, see settings.py)
-        self.preferences = settings.store()
         self._recent_menu_items: list = []
         self._log_window_version = -1
         self._init_edit_state()
@@ -205,13 +221,11 @@ class SpeculaEditor(
 
                 with dpg.menu(label="Add Objects"):
                     dpg.add_menu_item(label="Add Multiple Objects", callback=self._show_add_multiple_dialog)
-                    with dpg.menu(label="Processing Objects"):
-                        for node_type in sorted(self.proc_obj_templates.keys()):
-                            dpg.add_menu_item(label=node_type, callback=self._on_menu_create, user_data=node_type)
-
-                    with dpg.menu(label="Data Objects"):
-                        for node_type in sorted(self.data_obj_templates.keys()):
-                            dpg.add_menu_item(label=node_type, callback=self._on_menu_create, user_data=node_type)
+                    with dpg.menu(label="Processing Objects", tag="add_proc_menu"):
+                        pass
+                    with dpg.menu(label="Data Objects", tag="add_data_menu"):
+                        pass
+                    self._populate_add_menus()
 
                 with dpg.menu(label="Overrides", tag="overrides_menu"):
                     dpg.add_menu_item(label="Load Override File(s)",
@@ -242,6 +256,11 @@ class SpeculaEditor(
                         tag="help_menu_item_selected",
                         callback=self._show_help_for_selected,
                     )
+                    dpg.add_separator()
+                    dpg.add_menu_item(label="Class catalog: …", tag="catalog_info_item",
+                                      enabled=False)
+                    dpg.add_menu_item(label="Regenerate Class Catalog",
+                                      callback=self._regenerate_catalog)
                     dpg.add_separator()
                     dpg.add_menu_item(
                         label="About SPECULA Studio",
@@ -301,6 +320,75 @@ class SpeculaEditor(
         dpg.set_item_height("specula_editor_parent", new_height)
         dpg.set_item_height("property_panel", new_height)
 
+
+    # ── Class catalog ────────────────────────────────────────────────────────
+
+    def _populate_add_menus(self):
+        for tag, templates in (("add_proc_menu", self.proc_obj_templates),
+                               ("add_data_menu", self.data_obj_templates)):
+            if not dpg.does_item_exist(tag):
+                continue
+            dpg.delete_item(tag, children_only=True)
+            for node_type in sorted(templates):
+                dpg.add_menu_item(label=node_type, parent=tag,
+                                  callback=self._on_menu_create, user_data=node_type)
+        if dpg.does_item_exist("_mo_proc_listbox"):
+            dpg.configure_item("_mo_proc_listbox", items=sorted(self.proc_obj_templates))
+            dpg.configure_item("_mo_data_listbox", items=sorted(self.data_obj_templates))
+        if dpg.does_item_exist("catalog_info_item"):
+            dpg.configure_item("catalog_info_item",
+                               label=f"Class catalog: {self.catalog_info.source}")
+
+    def _regenerate_catalog(self, *_):
+        root = catalog.specula_root()
+        if root is None:
+            log.warning("SPECULA is not installed: the bundled templates stay in use")
+            return
+        if self._catalog_build is not None and self._catalog_build.poll() is None:
+            log.info("The class catalog is already being generated")
+            return
+        try:
+            catalog.cache_path(root).unlink()
+        except OSError:
+            pass
+        self._catalog_build = catalog.start_build(root)
+
+    def _poll_catalog_build(self):
+        proc = self._catalog_build
+        if proc is None or proc.poll() is None:
+            return
+        self._catalog_build = None
+        if proc.returncode != 0:
+            err = (proc.stderr.read() if proc.stderr else "")[-2000:]
+            log.warning("Class catalog generation failed (bundled templates stay in use): %s", err)
+            return
+        data, proc_t, info, _ = catalog.load_catalog(prefer_installed=True)
+        if info.source != "installed":
+            log.warning("Class catalog generation produced no usable cache")
+            return
+        self._apply_catalog(data, proc_t, info)
+
+    def _apply_catalog(self, data: dict, proc: dict, info) -> None:
+        """Switch to a new class catalog in place (all views share the dicts)."""
+        self.data_obj_templates.clear()
+        self.data_obj_templates.update(data)
+        self.proc_obj_templates.clear()
+        self.proc_obj_templates.update(proc)
+        self.all_templates.clear()
+        self.all_templates.update({**data, **proc})
+        self.catalog_info = info
+        help_provider.set_catalog(self.all_templates)
+        # node records carry copies of their template's pin/parameter lists
+        for node in self.graph.nodes.values():
+            tpl = self.all_templates.get(node.get("type"))
+            if tpl:
+                node["inputs"] = copy.deepcopy(tpl.get("inputs", {}))
+                node["outputs"] = list(tpl.get("outputs", []))
+                node["parameters"] = copy.deepcopy(tpl.get("parameters", {}))
+        self._populate_add_menus()
+        if self.graph.nodes:
+            self.nm.rebuild_all_nodes_ui()
+        log.info("Class catalog switched to: %s", info)
 
     # ── File menu ────────────────────────────────────────────────────────────
 
@@ -373,6 +461,7 @@ class SpeculaEditor(
                     _MplBridge.tick()
                 self._refresh_log_window()
                 self._poll_history()
+                self._poll_catalog_build()
                 dpg.render_dearpygui_frame()
         finally:
             self.shutdown()
@@ -410,7 +499,7 @@ def main(argv=None):
     level = "DEBUG" if args.verbose else (
         args.log_level or settings.store().get("log_level", "INFO"))
     setup_logging(level)
-    editor = SpeculaEditor(yaml_folder=str(TEMPLATES_DIR))
+    editor = SpeculaEditor()
     editor.run()
 
 

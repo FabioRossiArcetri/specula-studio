@@ -17,6 +17,7 @@ os.environ.setdefault(
     "SPECULA_STUDIO_SETTINGS",
     os.path.join(tempfile.mkdtemp(prefix="specula_studio_test_"), "settings.json"),
 )
+os.environ.setdefault("SPECULA_STUDIO_CACHE", tempfile.mkdtemp(prefix="specula_studio_cache_"))
 
 import sys
 
@@ -75,6 +76,12 @@ def main(path):
         editor._on_key_press(None, key)
     steps.append("keys")
     step("poll", editor._poll_history, True)
+    from specula_studio.core import catalog
+    root = catalog.specula_root()
+    if root is not None:
+        data, proc = catalog.build_catalog(root, runtime=False)
+        step("catalog_swap", editor._apply_catalog, data, proc,
+             catalog.CatalogInfo("installed", str(root)))
     step("new", editor._startup_create_new, None, None)
     dpg.destroy_context()
     print("@@STEPS@@" + ",".join(steps))

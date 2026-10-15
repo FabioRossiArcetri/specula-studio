@@ -52,11 +52,13 @@ intentional, regenerate the golden files with
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the code layout.
 
-The class templates in `specula_studio/specula_yaml_docs/` are generated from
-the SPECULA sources with:
+Class metadata (parameters, inputs, outputs, help) is generated from the
+installed SPECULA in the background and cached (see *Help → Regenerate Class
+Catalog*). The bundled templates in `specula_studio/specula_yaml_docs/` are
+the fallback when SPECULA is not installed; refresh them with:
 
 ```bash
-specula-studio-parse <path/to/SPECULA/specula> specula_studio/specula_yaml_docs
+specula-studio-parse [path/to/SPECULA/specula] specula_studio/specula_yaml_docs
 ```
 
 ## License

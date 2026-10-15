@@ -7,6 +7,8 @@ specula_studio/
     model.py            Graph: nodes, connections, snapshots
     yaml_io.py          SPECULA YAML  <->  Graph (load / export / dump)
     templates.py        bundled class templates (specula_yaml_docs/)
+    catalog.py          class catalog of the installed SPECULA (cached), fallback
+                        to the bundled templates; catalog_parser.py extracts it
     validation.py       incomplete-node rules -> Issue objects
     overrides.py        override files: SPECULA combine rules, preview, rebase
     history.py          undo/redo states + "unsaved changes" fingerprint
@@ -40,6 +42,18 @@ specula_studio/
   *base*, then reloads `base + overrides`.  Edits made during this preview
   are folded back into the base (`rebase_edits`) when saving or toggling,
   so saved files never contain override values.
+
+## Class catalog
+
+The parameters / inputs / outputs / help of every SPECULA class come from the
+*installed* SPECULA: on first start (or after SPECULA changes) the catalog is
+generated in a subprocess (`python -m specula_studio.core.catalog`) — so the
+editor process never imports SPECULA or touches a GPU just to show metadata —
+and cached in the user cache dir, keyed on the sources' sizes and mtimes.
+Until it is ready, and when SPECULA is not installed, the bundled templates
+are used; the switch happens live.  Input optionality is read from the
+catalog ("(optional)" in SPECULA's input descriptions) instead of
+instantiating classes.
 
 ## Tests
 

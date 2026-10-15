@@ -16,3 +16,5 @@ os.environ.setdefault(
     "SPECULA_STUDIO_SETTINGS",
     os.path.join(tempfile.mkdtemp(prefix="specula_studio_test_"), "settings.json"),
 )
+os.environ.setdefault(
+    "SPECULA_STUDIO_CACHE", tempfile.mkdtemp(prefix="specula_studio_cache_"))

@@ -315,8 +315,27 @@ def _apply_standard_params(params: dict) -> None:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-@lru_cache(maxsize=256)
+# Class catalog (see core.catalog) — help pre-extracted in the catalog
+# subprocess is used first, so the editor does not need to import SPECULA.
+_CATALOG: dict = {}
+
+
+def set_catalog(templates: dict) -> None:
+    """Use *templates* (the active class catalog) as first source of help."""
+    global _CATALOG
+    _CATALOG = templates
+    is_input_optional.cache_clear()
+
+
 def get_class_help(class_name: str) -> dict:
+    tpl = _CATALOG.get(class_name)
+    if isinstance(tpl, dict) and isinstance(tpl.get("help"), dict):
+        return tpl["help"]
+    return _live_class_help(class_name)
+
+
+@lru_cache(maxsize=256)
+def _live_class_help(class_name: str) -> dict:
     """
     Return a structured help dictionary for *class_name*.
 
@@ -524,28 +543,21 @@ def is_input_optional(class_name: str, input_name: str) -> bool:
     """
     Return True if *input_name* is optional for *class_name*.
 
-    Strategy (in order of reliability):
-    1. Instantiate the class with all-None kwargs and read .optional directly.
-    2. Parse desc string from input_names() for the word "optional".
-    3. Default False (conservative).
+    SPECULA marks optional inputs with "(optional)" in the description
+    returned by ``input_names()`` (and enforces it in ``sanity_check``).
+    The class catalog carries that flag; the live class is consulted only
+    for classes the catalog does not know.  Classes are never instantiated.
     """
+    tpl = _CATALOG.get(class_name)
+    if isinstance(tpl, dict):
+        meta = (tpl.get("inputs") or {}).get(input_name)
+        if isinstance(meta, dict):
+            if "optional" in meta:
+                return bool(meta["optional"])
+            return "optional" in str(meta.get("desc", "")).lower()
+
     klass = _find_class(class_name)
-    if klass is None:
-        return False
-
-    # Strategy 1
-    try:
-        sig    = inspect.signature(klass.__init__)
-        kwargs = {p: None for p in sig.parameters if p != "self"}
-        obj    = klass(**kwargs)
-        inputs = getattr(obj, "inputs", {})
-        if input_name in inputs:
-            return bool(getattr(inputs[input_name], "optional", False))
-    except Exception:
-        pass
-
-    # Strategy 2
-    if hasattr(klass, "input_names") and callable(klass.input_names):
+    if klass is not None and callable(getattr(klass, "input_names", None)):
         try:
             inames = klass.input_names() or {}
             if input_name in inames:
@@ -553,5 +565,4 @@ def is_input_optional(class_name: str, input_name: str) -> bool:
                 return "optional" in desc.lower()
         except Exception:
             pass
-
     return False

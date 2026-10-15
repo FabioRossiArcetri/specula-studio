@@ -44,6 +44,7 @@ DEFAULTS: dict = {
     "recent_files": [],
     "theme": "dark",
     "log_level": "INFO",
+    "class_source": "installed",  # "installed" (SPECULA catalog) | "bundled"
     "remote_hosts": [],         # [{"host": ..., "user": ...}], most recent first
 }
 

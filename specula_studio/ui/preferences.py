@@ -90,7 +90,7 @@ class PreferencesMixin:
     def _create_preferences_dialog(self):
         with dpg.window(
             label="Preferences", tag="preferences_dialog",
-            modal=True, show=False, width=540, height=650, no_resize=True
+            modal=True, show=False, width=540, height=760, no_resize=True
         ):
             dpg.add_text("Preferences", color=self.theme_manager.get_color("dialog_title"))
             dpg.add_separator()
@@ -187,6 +187,28 @@ class PreferencesMixin:
                     color=self.theme_manager.get_color("text_hint"),
                     wrap=490,
                 )
+
+            dpg.add_spacer(height=16)
+            dpg.add_separator()
+            dpg.add_spacer(height=12)
+
+            # ── Class metadata source ─────────────────────────────────────────
+            dpg.add_text("Class Metadata", color=self.theme_manager.get_color("section_header"))
+            dpg.add_radio_button(
+                items=["Installed SPECULA", "Bundled templates"],
+                tag="pref_class_source_radio",
+                default_value=("Bundled templates"
+                               if self.preferences.get("class_source") == "bundled"
+                               else "Installed SPECULA"),
+                callback=self._on_class_source_changed,
+            )
+            dpg.add_text(
+                f"In use: {self.catalog_info}\n"
+                "The catalog of the installed SPECULA is generated in the\n"
+                "background and cached; changes apply at the next start.",
+                color=self.theme_manager.get_color("text_hint"),
+                wrap=490,
+            )
 
             dpg.add_spacer(height=20)
             dpg.add_separator()
@@ -306,3 +328,9 @@ class PreferencesMixin:
         self.preferences['include_defaults'] = app_data
         self._save_settings()
         log.info(f"[PREFERENCES] Include Defaults set to: {app_data}")
+
+    def _on_class_source_changed(self, sender, app_data):
+        self.preferences['class_source'] = "bundled" if app_data.startswith("Bundled") else "installed"
+        self._save_settings()
+        log.info("Class metadata source set to %s (applies at next start)",
+                 self.preferences['class_source'])
