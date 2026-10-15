@@ -21,6 +21,7 @@ atmo1:
   L0: 10
   heights: [0.0]
   Cn2: [1.0]
+  fov: 0.0
   inputs: {seeing: seeing.output, wind_speed: wind_speed.output, wind_direction: wind_direction.output}
   simul_params_ref: main
 prop1:
@@ -42,6 +43,9 @@ atmo2:
   class: AtmoInfiniteEvolution
   outputs: [layer_list]
   L0: [10]
+  heights: [0.0]
+  Cn2: [1.0]
+  fov: 0.0
   seed: 12345
   inputs: {seeing: seeing.output, wind_speed: wind_speed.output, wind_direction: wind_direction.output}
   simul_params_ref: main

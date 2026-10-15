@@ -25,7 +25,6 @@ from __future__ import annotations
 import copy
 import logging
 
-from .syntax import REQUIRED
 
 log = logging.getLogger(__name__)
 
@@ -63,11 +62,9 @@ class Graph:
             "filename_map": {},
         }
 
-        # Initialize default values.  "REQUIRED" is a template marker meaning
-        # "no default" — it must never be stored (or exported) as a value.
-        for param, meta in self.nodes[node_uuid]["parameters"].items():
-            if isinstance(meta, dict) and "default" in meta and meta["default"] != REQUIRED:
-                self.nodes[node_uuid]["values"][param] = copy.deepcopy(meta["default"])
+        # "values" holds only what the user (or the file) set explicitly;
+        # template defaults are shown as hints and written on export only
+        # when "include defaults" is requested.
 
     def remove_node(self, node_id):
         """Delete a node and its connections."""

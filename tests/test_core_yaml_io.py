@@ -17,15 +17,15 @@ def test_core_roundtrip_matches_golden(fixture, variant):
 
 
 @pytest.mark.parametrize("fixture", base_fixtures(), ids=lambda p: p.stem)
-def test_roundtrip_is_semantically_lossless(fixture):
-    """Everything in the source survives, except values equal to a default."""
+def test_roundtrip_is_lossless(fixture):
+    """Every object and key of the source survives load + export unchanged
+    (single inputs may come back as one-element lists)."""
     src = yaml.safe_load(fixture.read_text())
     out = core_export(fixture, include_defaults=False)
     assert list(out) == list(src)
     for name, obj in src.items():
+        assert set(out[name]) == set(obj), name
         for key, val in obj.items():
-            if key not in out[name]:
-                continue          # dropped because it equals the template default
             got = out[name][key]
             if key == "inputs":
                 norm = {k: v if isinstance(v, list) else [v] for k, v in val.items()}

@@ -62,3 +62,33 @@ instantiating classes.
   (driven by `tests/fakedpg.py`).
 * `tests/helpers/real_dpg_smoke.py` builds the complete window with the real
   DearPyGui, headless (only viewport / frame-sync calls are stubbed).
+
+## Running SPECULA
+
+`SimulationControl` writes each run into a private temporary directory:
+the simulation (`<name>_simul.yml`), copies of the enabled override files
+(passed to SPECULA after the base file, so SPECULA itself applies them,
+including `_<N>` keys for `--nsimul` runs) and `server.json` for monitor
+subprocesses.  `main.root_dir / total_time / time_step` are filled with
+SimulParams' defaults when missing, because `Simul` reads them from the YAML.
+
+* **In-process** (`InProcessBackend`): `Simul(*files).run()` in a thread.
+  Before each run every `specula.*` submodule imported earlier is dropped and
+  `specula.init(device, precision)` is called first — SPECULA modules copy
+  `xp` / `global_precision` at import time.  `LoopControl.run/iter` are
+  wrapped only during the run: probes for open monitors are added before the
+  first step, later ones between steps, and abort stops the loop.  Probes read
+  `array_for_display()` (as SPECULA's DisplayServer does) into a CPU copy.
+* **Local / SSH** (`RemoteBackend`): the `specula` command, with a
+  DisplayServer (data mode, session id) injected.  Port `0` lets SPECULA pick a
+  free port, read back from its `[SPECULA_PORT:n]` output line.  Remote runs
+  use a private `/tmp/specula_studio_*` directory and `ssh -tt`, so aborting
+  also stops the remote process; the directory is removed afterwards.
+
+### Possible SPECULA-side hooks
+
+The in-process backend would not need to wrap `LoopControl` if SPECULA
+offered (1) a way to build a `Simul` without running it and get its
+`LoopControl`, and (2) a public `LoopControl.add_observer(obj)` / per-step
+callback and a `stop()` method.  Stepping could then use a callback instead
+of replacing `sys.stdin`.

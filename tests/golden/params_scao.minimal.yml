@@ -1,10 +1,12 @@
 main: {class: SimulParams, pixel_pupil: 160, pixel_pitch: 0.05, root_dir: ./calib/SCAO,
-  total_time: 0.05}
+  total_time: 0.05, time_step: 0.001}
 seeing: {class: WaveGenerator, constant: 0.8}
 wind_speed:
   class: WaveGenerator
   constant: [20.0]
-wind_direction: {class: WaveGenerator}
+wind_direction:
+  class: WaveGenerator
+  constant: [0.0]
 on_axis_source:
   class: Source
   polar_coordinates: [0.0, 0.0]
@@ -17,6 +19,7 @@ atmo:
   L0: 40
   heights: [119.0]
   Cn2: [1.0]
+  fov: 0.0
   inputs: {seeing: seeing.output, wind_speed: wind_speed.output, wind_direction: wind_direction.output}
   simul_params_ref: main
 prop:
@@ -33,6 +36,7 @@ pyramid:
   fov: 2.0
   pup_diam: 30.0
   output_resolution: 80
+  mod_amp: 3.0
   pup_dist: 36.0
   inputs: {in_ef: prop.out_on_axis_source_ef}
   simul_params_ref: main

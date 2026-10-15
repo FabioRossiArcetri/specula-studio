@@ -1,5 +1,5 @@
 main: {class: SimulParams, pixel_pupil: 512, pixel_pitch: 0.0762, root_dir: ./calib/SCAO_ELT,
-  total_time: 0.05}
+  total_time: 0.05, time_step: 0.001}
 seeing:
   class: WaveGenerator
   outputs: [output]
@@ -11,6 +11,7 @@ wind_speed:
 wind_direction:
   class: WaveGenerator
   outputs: [output]
+  constant: [0.0]
 on_axis_source:
   class: Source
   polar_coordinates: [0.0, 0.0]
@@ -23,6 +24,7 @@ atmo:
   L0: 40
   heights: [119.0]
   Cn2: [1.0]
+  fov: 0.0
   inputs: {seeing: seeing.output, wind_speed: wind_speed.output, wind_direction: wind_direction.output}
   simul_params_ref: main
 prop:

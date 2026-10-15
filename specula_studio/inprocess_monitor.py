@@ -1,48 +1,18 @@
 """
 inprocess_monitor.py
 ====================
-In-process monitor window rendered inside the main DPG context.
+Monitor window inside the editor, used for in-process runs.
 
-Unlike the subprocess-based ``StandaloneMonitor`` (monitor_window.py),
-``InProcessMonitor`` opens a regular DPG window inside the already-running
-editor viewport.  This avoids the overhead of spawning an OS subprocess per
-monitored output while keeping the same ``DPGPlotter``-based visualisation.
-
-Data flow (probe-based in-process mode)
-----------------------------------------
-1. A ``MonitorProbeObj`` (injected into the specula ``LoopControl`` by
-   ``InProcessBackend._run_direct``) runs on the simulation thread after
-   every step in which the watched output is updated.
-2. ``MonitorProbeObj.trigger()`` extracts a CPU float32 numpy array and
-   calls ``MonitorBus.push(topic, payload)``.
-3. ``MonitorBus`` calls ``InProcessMonitor._on_data(payload)`` on the
-   simulation thread; ``_on_data`` enqueues the payload in a thread-safe
-   ``Queue``.
-4. ``MonitorManager`` calls ``render_frame()`` on every DPG frame (main
-   thread) via a recurring frame-callback.  ``render_frame()`` drains the
-   queue and updates the ``DPGPlotter``.
-
-Thread safety
--------------
-Only ``_on_data`` (enqueue) is called from the simulation thread.
-All DPG operations happen exclusively in ``render_frame()`` (main thread).
-Changes vs. previous version
------------------------------
-* Drop counter: ``_on_data`` raises ``_DropFrame`` (caught by MonitorBus.push)
-  instead of silently discarding the oldest item locally, so the bus can
-  aggregate drop counts across all monitors and log them periodically (Issue 6).
-* ``render_frame`` throttles rendering but no longer wastes CPU dequeuing-then-
-  discarding items faster than the display rate: if the minimum update interval
-  has not elapsed, it drains at most one additional item from the queue and
-  returns immediately (Issue 6).
-* ``_on_data`` uses a non-blocking ``put`` with the ``_DropFrame`` signal so
-  the simulation thread is never blocked on a full queue (Issue 6).
+Data flow: a ``MonitorProbeObj`` in SPECULA's loop (simulation thread) pushes
+payloads to the ``MonitorBus``; :meth:`InProcessMonitor._on_data` only
+enqueues them; :meth:`render_frame` (GUI thread, every frame) drains the
+queue and draws with a ``DPGPlotter``.  A full queue drops frames instead of
+blocking the simulation.
 """
 
 from __future__ import annotations
 
 import time
-import traceback
 from queue import Empty, Full, Queue
 from typing import TYPE_CHECKING
 
@@ -51,6 +21,7 @@ import numpy as np
 
 from .constants import MAX_QUEUE_ITEMS_PER_FRAME, MONITOR_QUEUE_SIZE
 from .dpg_plotting import DPGPlotter
+from .monitor_data import describe_array, min_update_interval, payload_to_array, plot_array
 from .monitor_bus import _DropFrame
 from .theme_manager import ThemeManager
 import logging
@@ -73,20 +44,12 @@ class InProcessMonitor:
         output_name: str,
         server_output_name: str,
         monitor_bus,
-        is_direct_mode: bool = False,
     ) -> None:
         self.monitor_id         = monitor_id
         self.node_uuid          = node_uuid
         self.node_name          = node_name
         self.output_name        = output_name
         self.server_output_name = server_output_name
-        self.is_direct_mode     = is_direct_mode
-
-        # FIX: Store the canonical topic separately for direct mode.
-        # In direct mode, this is the ONLY topic the monitor subscribes to,
-        # and it should NEVER change (probes are attached here, not elsewhere).
-        self._canonical_topic = server_output_name if is_direct_mode else None
-
         self._bus        = monitor_bus
         self._data_queue: Queue = Queue(maxsize=MONITOR_QUEUE_SIZE)
 
@@ -102,6 +65,7 @@ class InProcessMonitor:
         self._time_tag     = f"ipm_time_{monitor_id}"
 
         self._plotter: DPGPlotter | None = None
+        self._vector_mode = "snapshot"
         self.is_open             = False
         self.update_count        = 0
         self.last_update         = 0.0
@@ -154,6 +118,11 @@ class InProcessMonitor:
                 color=tm.get_color("monitor_status_waiting"),
                 tag=f"ipm_status_{self.monitor_id}",
             )
+            dpg.add_combo(
+                ["Vector: Snapshot", "Vector: Time History"],
+                default_value="Vector: Snapshot", width=220,
+                callback=self._on_vector_mode,
+            )
             dpg.add_separator()
             dpg.add_text(
                 "Waiting for data …",
@@ -196,37 +165,6 @@ class InProcessMonitor:
         self.is_open  = False
         self._probe   = None
 
-    def retarget_server_output(self, new_server_output_name: str) -> bool:
-        """
-        Retarget this monitor to a different server output.
-
-        FIX: In direct mode, this is a NO-OP. Direct monitors are pinned to their
-        canonical topic (where probes are injected) and cannot be retargeted by
-        Socket.IO rebinding logic.
-        """
-        # In direct mode, NEVER retarget. The canonical topic is authoritative.
-        #if self.is_direct_mode:
-        #    return False
-
-        if not new_server_output_name or new_server_output_name == self.server_output_name:
-            return False
-        old = self.server_output_name
-        try:
-            self._bus.unsubscribe(old, self._on_data)
-        except Exception as exc:
-            log.warning(f"[IPMonitor] unsubscribe failed for '{old}': {exc}")
-        self.server_output_name = new_server_output_name
-        self._probe = None
-        try:
-            self._bus.subscribe(self.server_output_name, self._on_data)
-        except Exception as exc:
-            log.warning(f"[IPMonitor] subscribe failed for '{self.server_output_name}': {exc}")
-            return False
-        if dpg.does_item_exist(self._output_tag):
-            dpg.set_value(self._output_tag, f"Output:  {self.server_output_name}")
-        self._set_status("subscribed")
-        return True
-
     # ── Per-frame rendering ────────────────────────────────────────────────────
 
     def render_frame(self) -> bool:
@@ -266,94 +204,28 @@ class InProcessMonitor:
 
         return True
 
-    # ── Data conversion ────────────────────────────────────────────────────────
-
-    def _raw_to_numpy(self, inner_payload: dict) -> np.ndarray | None:
-        data_type  = inner_payload.get("type")
-        data_value = inner_payload.get("data")
-        shape      = inner_payload.get("shape")
-
-        if data_value is None:
-            return None
-
-        try:
-            if data_type in ("1d_array", "2d_array", "scalar", "nd_array") or data_type is None:
-                if isinstance(data_value, np.ndarray):
-                    arr = data_value.astype(np.float32, copy=False)
-                elif isinstance(data_value, list):
-                    arr = np.array(data_value, dtype=np.float32)
-                else:
-                    arr = np.array([float(data_value)], dtype=np.float32)
-
-                if shape is not None and data_type != "scalar":
-                    try:
-                        tshape = tuple(shape) if isinstance(shape, list) else shape
-                        if np.prod(tshape) == arr.size:
-                            arr = arr.reshape(tshape)
-                    except Exception:
-                        pass
-                return arr
-
-            if data_type == "multi_data":
-                if isinstance(data_value, list) and data_value:
-                    first = data_value[0]
-                    arr = (
-                        np.array(first, dtype=np.float32)
-                        if isinstance(first, list)
-                        else first.astype(np.float32)
-                    )
-                    shapes = inner_payload.get("shapes")
-                    if shapes and np.prod(shapes[0]) == arr.size:
-                        arr = arr.reshape(tuple(shapes[0]))
-                    return arr
-
-        except Exception as exc:
-            log.error(f"[IPMonitor] Data conversion error: {exc}")
-            traceback.print_exc()
-
-        return None
-
     # ── Plotting ───────────────────────────────────────────────────────────────
+
+    def _raw_to_numpy(self, payload: dict) -> np.ndarray | None:
+        return payload_to_array(payload)
 
     def _plot(self, arr: np.ndarray) -> bool:
         if dpg.does_item_exist(self._pholder_tag):
             dpg.delete_item(self._pholder_tag)
-
         if self._plotter is None:
             self._plotter = DPGPlotter(parent_tag=self._plot_grp_tag, width=880, height=500)
-
-        p    = self._plotter
-        ndim = arr.ndim
-        size = arr.size
-
+            self._plotter.set_vector_mode(self._vector_mode)
+        self.min_update_interval = min_update_interval(arr)
         try:
-            if ndim == 0 or (ndim == 1 and size == 1):
-                return p.plot_history(float(arr.item()))
-            if ndim == 1:
-                ok = p.plot_vector(arr)
-                return ok if ok else p.plot_scatter(arr)
-            if ndim == 2:
-                h, w = arr.shape
-                px   = h * w
-                self.min_update_interval = (
-                    0.5  if px > 1_000_000 else
-                    0.25 if px > 250_000   else
-                    0.1  if px > 10_000    else 0.05
-                )
-                return p.plot_2d_image_clean(arr)
-            if ndim >= 3:
-                reduced = (
-                    np.mean(arr, axis=tuple(range(arr.ndim - 2)))
-                    if arr.shape[-1] <= 3
-                    else arr.reshape(-1, arr.shape[-1])[:1000]
-                )
-                if reduced.ndim == 2:
-                    return p.plot_2d_image_clean(reduced)
-        except Exception as exc:
-            log.error(f"[IPMonitor] Plot error: {exc}")
-            traceback.print_exc()
+            return plot_array(self._plotter, arr)
+        except Exception:
+            log.exception("Monitor plot error")
+            return False
 
-        return False
+    def _on_vector_mode(self, sender, app_data):
+        self._vector_mode = "history" if "Time" in app_data else "snapshot"
+        if self._plotter is not None:
+            self._plotter.set_vector_mode(self._vector_mode)
 
     # ── Status / info helpers ──────────────────────────────────────────────────
 
@@ -373,18 +245,7 @@ class InProcessMonitor:
 
     def _update_info_labels(self, arr: np.ndarray) -> None:
         tm = ThemeManager()
-        dtype_str = (
-            f"ndarray ({arr.dtype})"
-            if isinstance(arr, np.ndarray)
-            else type(arr).__name__
-        )
-        shape_str = str(arr.shape) if hasattr(arr, "shape") else "scalar"
-        range_str = (
-            f"[{arr.min():.4g}, {arr.max():.4g}]"
-            if isinstance(arr, np.ndarray) and arr.size > 0
-            and np.issubdtype(arr.dtype, np.number)
-            else "N/A"
-        )
+        dtype_str, shape_str, range_str = describe_array(arr)
         ts = time.strftime("%H:%M:%S")
         for tag, text in (
             (self._type_tag, f"Type:    {dtype_str}"),

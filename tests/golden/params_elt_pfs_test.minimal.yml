@@ -1,5 +1,5 @@
 main: {class: SimulParams, pixel_pupil: 128, pixel_pitch: 0.301, root_dir: ./calib/,
-  total_time: 0.02, time_step: 0.002, zenithAngleInDeg: 30.0}
+  total_time: 0.02, time_step: 0.002, zenithAngleInDeg: 30.0, display_server: false}
 zern_ifunc: {class: IFunc, type_str: zernike, npixels: 128, obsratio: 0.283, nmodes: 50}
 time_hist:
   class: TimeHistory

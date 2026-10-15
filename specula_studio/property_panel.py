@@ -1253,7 +1253,8 @@ class PropertyPanel:
             _add_tooltip(lbl, param_tip)
 
             if type_hint in ("bool", "boolean"):
-                bool_val = bool(val) if val is not None else False
+                # unset → show what SPECULA will use (the default)
+                bool_val = bool(val) if val is not None else default_val is True
                 dpg.add_checkbox(
                     default_value=bool_val,
                     callback=self._update_param,

@@ -1,8 +1,9 @@
 main: {class: SimulParams, pixel_pupil: 64, pixel_pitch: 0.01, root_dir: ./calib/,
-  total_time: 1.0}
+  total_time: 1.0, time_step: 0.001}
 disturbance:
   class: WaveGenerator
   outputs: [output]
+  wave_type: SIN
   amp: [5.0, 5.0]
   freq: [50.0, 50.0]
 noise:

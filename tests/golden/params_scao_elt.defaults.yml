@@ -1,23 +1,59 @@
-main: {class: SimulParams, pixel_pupil: 512, pixel_pitch: 0.0762, root_dir: ./calib/SCAO_ELT,
-  total_time: 0.05, time_step: 0.001}
+main:
+  class: SimulParams
+  pixel_pupil: 512
+  pixel_pitch: 0.0762
+  root_dir: ./calib/SCAO_ELT
+  total_time: 0.05
+  time_step: 0.001
+  zenithAngleInDeg: 0
+  display_server: false
+  stepping: false
+  add_modules: []
 seeing:
   class: WaveGenerator
   outputs: [output]
+  wave_type: SIN
+  amp: [0.0]
+  freq: [0.0]
+  offset: [0.0]
   constant: 0.8
+  slope: [0.0]
+  output_size: 1
 wind_speed:
   class: WaveGenerator
   outputs: [output]
+  wave_type: SIN
+  amp: [0.0]
+  freq: [0.0]
+  offset: [0.0]
   constant: [20.0]
+  slope: [0.0]
+  output_size: 1
 wind_direction:
   class: WaveGenerator
   outputs: [output]
+  wave_type: SIN
+  amp: [0.0]
+  freq: [0.0]
+  offset: [0.0]
   constant: [0.0]
+  slope: [0.0]
+  output_size: 1
 on_axis_source:
   class: Source
   polar_coordinates: [0.0, 0.0]
   magnitude: 8
   wavelengthInNm: 750
-pupilstop: {class: Pupilstop, simul_params_ref: main}
+  height: .inf
+  zero_point: 0
+  error_coord: [0.0, 0.0]
+pupilstop:
+  class: Pupilstop
+  mask_diam: 1.0
+  shiftXYinPixel: [0.0, 0.0]
+  rotInDeg: 0.0
+  magnification: 1.0
+  simul_params_ref: main
 atmo:
   class: AtmoEvolution
   outputs: [layer_list]
@@ -25,11 +61,21 @@ atmo:
   heights: [119.0]
   Cn2: [1.0]
   fov: 0.0
+  pixel_phasescreens: 8192
+  seed: 1
+  extra_delta_time: 0
+  pupil_position: [0, 0]
   inputs: {seeing: seeing.output, wind_speed: wind_speed.output, wind_direction: wind_direction.output}
   simul_params_ref: main
 prop:
   class: AtmoPropagation
   outputs: [out_on_axis_source_ef]
+  doFresnel: false
+  wavelengthInNm: 500.0
+  enable_chromatic_effect: false
+  mergeLayersContrib: true
+  upwards: false
+  padding_factor: 1
   inputs:
     atmo_layer_list: [atmo.layer_list]
     common_layer_list: [pupilstop, 'dm.out_layer:-1']
@@ -43,7 +89,21 @@ pyramid:
   pup_diam: 90.0
   output_resolution: 240
   mod_amp: 4.0
+  mod_type: circular
+  fov_errinf: 0.1
+  fov_errsup: 2
   pup_dist: 108.0
+  pup_margin: 2
+  fft_res: 3.0
+  pup_shifts: [0.0, 0.0]
+  pyr_edge_def_ld: 0.0
+  pyr_tip_def_ld: 0.0
+  pyr_tip_maya_ld: 0.0
+  rotAnglePhInDeg: 0.0
+  xShiftPhInPixel: 0.0
+  yShiftPhInPixel: 0.0
+  magnification: 1.0
+  force_extrapolation: false
   inputs: {in_ef: prop.out_on_axis_source_ef}
   simul_params_ref: main
 detector:
@@ -52,16 +112,34 @@ detector:
   size: [240, 240]
   dt: 0.001
   bandw: 155
+  binning: 1
   photon_noise: true
   readout_noise: true
+  excess_noise: false
+  darkcurrent_noise: false
+  background_noise: false
+  cic_noise: false
+  cte_noise: false
   readout_level: 1.0
+  darkcurrent_level: 0.0
+  background_level: 0.0
+  cic_level: 0
   quantum_eff: 0.32
+  photon_seed: 1
+  readout_seed: 2
+  excess_seed: 3
+  excess_delta: 1.0
+  start_time: 0
+  ADU_bias: 400
   inputs: {in_i: pyramid.out_i}
   simul_params_ref: main
 slopec:
   class: PyrSlopec
   outputs: [out_slopes, out_pupdata, total_counts, subap_counts]
   pupdata_object: hiresA_ps512p0.076_pyr90x90_wl798_fv2.1_ft3.0_bn1_th0.30a0.30b
+  shlike: false
+  thr_value: 0
+  slopes_from_intensity: false
   sn_object: hiresA_ps512p0.076_pyr90x90_wl798_fv2.1_ft3.0_ma4_bn1_th0.30a0.30b
   inputs: {in_pixels: detector.out_pixels}
 rec:
@@ -73,6 +151,7 @@ control:
   class: Integrator
   outputs: [out_comm]
   delay: 2
+  integration: true
   int_gain_data: g0.50_4094
   inputs: {delta_comm: rec.out_modes}
 dm:
@@ -80,6 +159,7 @@ dm:
   outputs: [out_layer]
   height: 0
   ifunc_object: EELT512nm4094klnogapRoundObs
+  sign: -1
   inputs: {in_command: control.out_comm}
   simul_params_ref: main
 psf:
@@ -88,10 +168,18 @@ psf:
   wavelengthInNm: 1650
   nd: 3
   start_time: 0.05
+  compute_profile_metrics: false
+  compute_metrics_in_trigger: false
   inputs: {in_ef: prop.out_on_axis_source_ef}
   simul_params_ref: main
 data_store:
   class: DataStore
   store_dir: ./output
+  split_size: 0
+  first_suffix: 0
+  data_format: fits
+  start_time: 0
+  create_tn: true
+  downsample_factor: 1
   inputs:
     input_list: [res_ef-prop.out_on_axis_source_ef]

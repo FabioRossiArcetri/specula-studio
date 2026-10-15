@@ -19,6 +19,7 @@ os.environ.setdefault(
 )
 os.environ.setdefault("SPECULA_STUDIO_CACHE", tempfile.mkdtemp(prefix="specula_studio_cache_"))
 
+import os
 import sys
 
 import dearpygui.dearpygui as dpg
@@ -83,6 +84,41 @@ def main(path):
         step("catalog_swap", editor._apply_catalog, data, proc,
              catalog.CatalogInfo("installed", str(root)))
     step("new", editor._startup_create_new, None, None)
+
+    # ── in-process run with a live monitor (needs SPECULA) ────────────────────
+    import importlib.util
+    if importlib.util.find_spec("specula") is not None:
+        import tempfile
+        import time
+
+        import yaml
+
+        sim = os.path.join(tempfile.mkdtemp(), "tiny.yml")
+        with open(sim, "w") as f:
+            yaml.safe_dump({
+                "main": {"class": "SimulParams", "root_dir": ".", "pixel_pupil": 8,
+                         "pixel_pitch": 0.1, "total_time": 0.2, "time_step": 0.001},
+                "gen": {"class": "WaveGenerator", "constant": [1.0], "slope": [10.0]},
+            }, f)
+        editor._open_simulation(sim)
+        dpg.set_value("sim_stepping", False)
+        dpg.set_value("sim_cpu", True)
+        editor.sim_control.start_sim()
+        gen = editor.graph.find_by_name("gen")
+        nm.monitors.open_monitor(None, None, (gen, "output"))
+        t0 = time.time()
+        while time.time() - t0 < 120:
+            nm.monitors.tick()
+            if not editor.sim_control.is_running:
+                break
+            time.sleep(0.01)
+        for _ in range(5):
+            nm.monitors.tick()
+        monitors = list(nm.monitors._inprocess_monitors.values())
+        if not monitors or monitors[0].update_count == 0:
+            raise RuntimeError("monitor received no data: "
+                               + "".join(editor.sim_control.terminal_data)[-2000:])
+        steps.append("inprocess_run_monitor")
     dpg.destroy_context()
     print("@@STEPS@@" + ",".join(steps))
 

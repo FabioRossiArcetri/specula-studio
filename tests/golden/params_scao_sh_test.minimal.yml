@@ -1,8 +1,9 @@
 main: {class: SimulParams, pixel_pupil: 64, pixel_pitch: 0.015625, root_dir: ./calib/,
-  total_time: 0.01}
+  total_time: 0.01, time_step: 0.001}
 seeing:
   class: WaveGenerator
   outputs: [output]
+  wave_type: SIN
   constant: 0.6
 wind_speed:
   class: WaveGenerator
@@ -24,6 +25,7 @@ atmo:
   L0: 25
   heights: [0.0]
   Cn2: [1.0]
+  fov: 0.0
   pixel_phasescreens: 1024
   inputs: {seeing: seeing.output, wind_speed: wind_speed.output, wind_direction: wind_direction.output}
   simul_params_ref: main
@@ -89,6 +91,7 @@ psf:
   outputs: [out_psf, out_sr]
   wavelengthInNm: 1650
   nd: 8
+  start_time: 0.0
   inputs: {in_ef: prop.out_on_axis_source_ef}
   simul_params_ref: main
 data_store:

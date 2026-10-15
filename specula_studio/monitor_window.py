@@ -28,7 +28,6 @@ import json
 import os
 import threading
 import time
-import traceback
 from queue import Empty, Full, Queue
 
 import numpy as np
@@ -36,6 +35,7 @@ import socketio as sio_module
 import dearpygui.dearpygui as dpg
 
 from .dpg_plotting import DPGPlotter
+from .monitor_data import describe_array, min_update_interval, payload_to_array, plot_array
 from .constants import (
     MAX_QUEUE_ITEMS_PER_FRAME,
     MONITOR_QUEUE_SIZE,
@@ -651,60 +651,7 @@ class StandaloneMonitor:
     # =========================================================================
 
     def _raw_to_numpy(self, payload: dict) -> np.ndarray | None:
-        """
-        Convert the inner payload dict to a float32 numpy array.
-
-        Canonical inner payload (shared by both monitor paths):
-            {
-                "type":  "1d_array" | "2d_array" | "scalar" | "nd_array" | "multi_data",
-                "data":  <list or numpy array>,
-                "shape": <list of ints>   (optional),
-            }
-        """
-        data_type  = payload.get("type")
-        data_value = payload.get("data")
-        shape      = payload.get("shape")
-
-        if data_value is None:
-            return None
-
-        try:
-            if data_type in ("1d_array", "2d_array", "scalar", "nd_array") or data_type is None:
-                if isinstance(data_value, list):
-                    arr = np.array(data_value, dtype=np.float32)
-                elif isinstance(data_value, np.ndarray):
-                    arr = data_value.astype(np.float32, copy=False)
-                else:
-                    arr = np.array([float(data_value)], dtype=np.float32)
-
-                if shape is not None and data_type != "scalar":
-                    try:
-                        tshape = tuple(shape) if isinstance(shape, list) else shape
-                        if np.prod(tshape) == arr.size:
-                            arr = arr.reshape(tshape)
-                    except Exception:
-                        pass
-                return arr
-
-            if data_type == "multi_data":
-                if isinstance(data_value, list) and data_value:
-                    first = data_value[0]
-                    arr   = (
-                        np.array(first, dtype=np.float32)
-                        if isinstance(first, list)
-                        else np.asarray(first, dtype=np.float32)
-                    )
-                    shapes = payload.get("shapes")
-                    if shapes and np.prod(shapes[0]) == arr.size:
-                        arr = arr.reshape(tuple(shapes[0]))
-                    return arr
-
-        except Exception as exc:
-            log.error(f"[MONITOR] Data conversion error: {exc}")
-            traceback.print_exc()
-
-        log.info(f"[MONITOR] Unhandled payload type: '{data_type}'")
-        return None
+        return payload_to_array(payload)
 
     def _plot(self, arr: np.ndarray) -> bool:
         if dpg.does_item_exist(self._TAG_PHOLDER):
@@ -719,47 +666,15 @@ class StandaloneMonitor:
             mode_val = dpg.get_value(self._TAG_VEC_MODE)
             self.dpg_plotter.set_vector_mode("history" if "Time" in mode_val else "snapshot")
 
-        p    = self.dpg_plotter
-        ndim = arr.ndim
-        size = arr.size
-
+        self.min_update_interval = min_update_interval(arr)
         try:
-            if ndim == 0 or (ndim == 1 and size == 1):
-                return p.plot_history(float(arr.item()))
-            if ndim == 1:
-                ok = p.plot_vector(arr)
-                return ok if ok else p.plot_scatter(arr)
-            if ndim == 2:
-                h, w = arr.shape
-                px   = h * w
-                self.min_update_interval = (
-                    0.5  if px > 1_000_000 else
-                    0.25 if px > 250_000   else
-                    0.1  if px > 10_000    else 0.05
-                )
-                return p.plot_2d_image_clean(arr)
-            if ndim >= 3:
-                reduced = (
-                    np.mean(arr, axis=tuple(range(arr.ndim - 2)))
-                    if arr.shape[-1] <= 3
-                    else arr.reshape(-1, arr.shape[-1])[:1000]
-                )
-                if reduced.ndim == 2:
-                    return p.plot_2d_image_clean(reduced)
-        except Exception as exc:
-            log.error(f"[MONITOR] Plot error: {exc}")
-            traceback.print_exc()
-
-        return False
+            return plot_array(self.dpg_plotter, arr)
+        except Exception:
+            log.exception("Monitor plot error")
+            return False
 
     def _update_info_labels(self, arr: np.ndarray):
-        dtype_str = f"ndarray ({arr.dtype})" if isinstance(arr, np.ndarray) else type(arr).__name__
-        shape_str = str(arr.shape) if hasattr(arr, "shape") else "scalar"
-        range_str = (
-            f"[{arr.min():.4g}, {arr.max():.4g}]"
-            if isinstance(arr, np.ndarray) and arr.size > 0 and np.issubdtype(arr.dtype, np.number)
-            else "N/A"
-        )
+        dtype_str, shape_str, range_str = describe_array(arr)
         ts = time.strftime("%H:%M:%S")
         tm = self.theme_manager
         for tag, text in (

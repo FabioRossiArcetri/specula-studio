@@ -1,5 +1,5 @@
 main: {class: SimulParams, pixel_pupil: 160, pixel_pitch: 0.05, root_dir: ./calib/SCAO,
-  total_time: 0.01}
+  total_time: 0.01, time_step: 0.001}
 on_axis_source:
   class: Source
   polar_coordinates: [0.0, 0.0]

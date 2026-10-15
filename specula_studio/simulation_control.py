@@ -1,4 +1,19 @@
+"""
+Simulation control panel: starting, stepping and aborting SPECULA runs.
+
+A run writes its files into a private temporary directory:
+
+* ``<name>_simul.yml``   — the simulation (with an injected DisplayServer
+  when monitors are served over Socket.IO);
+* ``override<N>_*.yml``  — copies of the enabled override files, passed to
+  SPECULA after the base file so SPECULA applies them itself;
+* ``server.json``        — display-server URL + session id, read by the
+  subprocess monitor windows.
+"""
+
+import collections
 import json
+import logging
 import os
 import shutil
 import tempfile
@@ -7,131 +22,89 @@ import time
 import uuid
 
 import dearpygui.dearpygui as dpg
-import yaml
 
-from .simulation_backend import RemoteBackend, InProcessBackend, SimulationBackend
+from .core.run_prep import DEFAULT_DISPLAY_SERVER_PORT, write_run_files
+from .simulation_backend import (
+    InProcessBackend,
+    RemoteBackend,
+    SimulationBackend,
+    _resolve_remote_hostname,
+)
 from .theme_manager import ThemeManager
-import logging
 
 log = logging.getLogger(__name__)
 
+_LOCAL_HOSTS = ("localhost", "127.0.0.1", "")
+_TERMINAL_MAX_CHUNKS = 2000
 
-_DISPLAY_SERVER_PORT      = 5000
-_DISPLAY_SERVER_NODE_NAME = "specula_studio_display_server"
-
-_REMOTE_SERVER_INFO_FILE = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "specula_studio_remote_server.json",
-)
 
 class SimulationControl:
     def __init__(self, editor):
         self.editor        = editor
-        self.process       = None
-        self.terminal_data = []
+        self.terminal_data = collections.deque(maxlen=_TERMINAL_MAX_CHUNKS)
+        self._terminal_lock = threading.Lock()
         self.is_running    = False
-        self._reconnect_timer = None
         self._backend: SimulationBackend | None = None
         self._run_dir: str | None = None
-
-        # Session ID — generated once per run, injected into the DisplayServer
-        # YAML block so SPECULA re-uses it. Written to the coordination file and
-        # passed as --session-id to every subprocess monitor.
+        self._server_url_file: str | None = None
+        # Session id: one per run; written into the DisplayServer block, the
+        # coordination file and passed to every subprocess monitor, so stale
+        # monitors of a previous run never attach to a new server.
         self._session_id: str = ""
-
-        self._server_url_file: str = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            "specula_studio_server.json",
-        )
-        self._clear_server_url_file()
         self.theme_manager = ThemeManager()
 
     # ── Coordination file ─────────────────────────────────────────────────────
 
-    def _clear_server_url_file(self):
-        try:
-            if os.path.exists(self._server_url_file):
-                os.remove(self._server_url_file)
-        except Exception:
-            pass
-
     def _write_server_url_file(self, url: str):
         """Write URL + session_id atomically so monitors always see a consistent pair."""
+        if not self._server_url_file:
+            return
         try:
-            payload = {"url": url, "session_id": self._session_id}
-            # Write to a temp file then rename so monitors never see a partial write.
             tmp = self._server_url_file + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(payload, f)
+                json.dump({"url": url, "session_id": self._session_id}, f)
             os.replace(tmp, self._server_url_file)
-            log.info(
-                f"[SIMULATION] Wrote server URL file: {url} "
-                f"(session={self._session_id})"
-            )
-        except Exception as e:
-            log.warning(f"[SIMULATION] Could not write server URL file: {e}")
+            log.info("Display server URL %s (session %s)", url, self._session_id)
+        except OSError as exc:
+            log.warning("Could not write the server URL file: %s", exc)
 
-    # ── YAML Display Window ───────────────────────────────────────────────────
+    def _clear_server_url_file(self):
+        if self._server_url_file:
+            try:
+                os.remove(self._server_url_file)
+            except OSError:
+                pass
+
+    # ── YAML window ───────────────────────────────────────────────────────────
 
     def _get_current_yaml_content(self):
         try:
             return self.editor.fh.export_to_yaml_string(include_defaults=False)
-        except Exception as e:
+        except Exception as exc:
             log.exception("Error generating YAML")
-            return f"Error generating YAML:\n{e}"
+            return f"Error generating YAML:\n{exc}"
 
     def show_yaml_window(self):
         yaml_content = self._get_current_yaml_content()
-        window_tag   = f"yaml_display_window_{int(time.time() * 1000)}"
+        window_tag = f"yaml_display_window_{int(time.time() * 1000)}"
         with dpg.window(label="Simulation YAML", tag=window_tag, width=800, height=600):
             with dpg.group(horizontal=True):
-                dpg.add_button(
-                    label="Copy to Clipboard", width=120,
-                    callback=lambda: self._copy_yaml_to_clipboard(yaml_content),
-                )
-                dpg.add_button(
-                    label="Close", width=80,
-                    callback=lambda: dpg.delete_item(window_tag),
-                )
-                dpg.add_spacer()
+                dpg.add_button(label="Copy to Clipboard", width=140,
+                               callback=lambda: dpg.set_clipboard_text(yaml_content))
+                dpg.add_button(label="Close", width=80,
+                               callback=lambda: dpg.delete_item(window_tag))
             dpg.add_separator()
-            dpg.add_input_text(
-                tag=f"yaml_content_{window_tag}",
-                default_value=yaml_content,
-                multiline=True, readonly=True, width=-1, height=-1,
-            )
-
-    def _copy_yaml_to_clipboard(self, content):
-        try:
-            import subprocess
-            if os.name == "nt":
-                process = subprocess.Popen(["clip"], stdin=subprocess.PIPE)
-            elif os.uname().sysname == "Darwin":
-                process = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
-            else:
-                try:
-                    process = subprocess.Popen(
-                        ["xclip", "-selection", "clipboard"], stdin=subprocess.PIPE
-                    )
-                except FileNotFoundError:
-                    process = subprocess.Popen(["xsel", "-b", "-i"], stdin=subprocess.PIPE)
-            process.communicate(content.encode("utf-8"))
-        except Exception as e:
-            log.warning(f"[SIMULATION] Failed to copy to clipboard: {e}")
+            dpg.add_input_text(default_value=yaml_content, multiline=True, readonly=True,
+                               width=-1, height=-1)
 
     # ── Control window ────────────────────────────────────────────────────────
 
-    def _get_sim_path(self):
-        """Per-run YAML path inside a private temporary directory.
-
-        The previous run's directory is removed first, so at most one set of
-        run files exists at any time (kept until the next run for debugging).
-        """
+    def _new_run_dir(self) -> str:
+        """Fresh private directory for this run (the previous one is removed)."""
         if self._run_dir and os.path.isdir(self._run_dir):
             shutil.rmtree(self._run_dir, ignore_errors=True)
         self._run_dir = tempfile.mkdtemp(prefix="specula_studio_run_")
-        name = getattr(self.editor, "current_simulation_name", None) or "untitled"
-        return os.path.join(self._run_dir, f"{name}_simul.yml")
+        return self._run_dir
 
     def show_control_window(self):
         if dpg.does_item_exist("sim_control_window"):
@@ -140,18 +113,14 @@ class SimulationControl:
             return
 
         tm = self.theme_manager
+        hosts = self.editor.preferences.get("remote_hosts", [])
+        last = hosts[0] if hosts else {"host": "localhost", "user": ""}
 
-        with dpg.window(
-            label="Simulation Control Panel",
-            tag="sim_control_window",
-            width=900, height=600,
-        ):
+        with dpg.window(label="Simulation Control Panel", tag="sim_control_window",
+                        width=980, height=640):
             with dpg.group(horizontal=True):
-                with dpg.child_window(width=500):
-                    dpg.add_text(
-                        "Backend Mode",
-                        color=tm.get_color("control_section_header"),
-                    )
+                with dpg.child_window(width=520):
+                    dpg.add_text("Backend Mode", color=tm.get_color("control_section_header"))
                     dpg.add_combo(
                         label="Execution Mode",
                         items=["Remote", "In-Process"],
@@ -160,204 +129,144 @@ class SimulationControl:
                         callback=self._on_backend_mode_changed,
                     )
                     dpg.add_text(
-                        "Remote Server Configuration",
-                        color=tm.get_color("control_subsection_header"),
-                        tag="sim_remote_settings_label",
+                        "In-Process: runs inside the editor, monitors fed directly.\n"
+                        "Remote: runs the 'specula' command, locally (localhost)\n"
+                        "or over SSH; monitors connect to its DisplayServer.",
+                        color=tm.get_color("text_hint"),
                     )
-                    dpg.add_input_text(
-                        label="Server IP / Hostname", tag="sim_remote_ip",
-                        default_value="localhost",
-                        hint="localhost, 127.0.0.1, or remote host IP", width=-1,
-                    )
-                    dpg.add_input_text(
-                        label="SSH Username", tag="sim_remote_user",
-                        default_value="", hint="Leave empty to use current user", width=-1,
-                    )
+                    dpg.add_text("Remote Server Configuration",
+                                 color=tm.get_color("control_subsection_header"),
+                                 tag="sim_remote_settings_label")
+                    if hosts:
+                        dpg.add_combo(
+                            label="Recent hosts",
+                            items=[self._host_label(h) for h in hosts],
+                            default_value=self._host_label(last), width=-140,
+                            callback=self._on_recent_host,
+                        )
+                    dpg.add_input_text(label="Server IP / Hostname", tag="sim_remote_ip",
+                                       default_value=last.get("host", "localhost"),
+                                       hint="localhost, 127.0.0.1, or remote host", width=-140)
+                    dpg.add_input_text(label="SSH Username", tag="sim_remote_user",
+                                       default_value=last.get("user", ""),
+                                       hint="empty = current user", width=-140)
+                    dpg.add_input_int(label="Display server port", tag="sim_ds_port",
+                                      default_value=DEFAULT_DISPLAY_SERVER_PORT,
+                                      min_value=0, max_value=65535, width=-140)
+                    dpg.add_text("0 = pick a free port (requires a recent SPECULA)",
+                                 color=tm.get_color("text_hint"))
                     dpg.add_separator()
-                    dpg.add_text(
-                        "Simulation Arguments",
-                        color=tm.get_color("control_subsection_header"),
-                    )
+                    dpg.add_text("Simulation Arguments",
+                                 color=tm.get_color("control_subsection_header"))
                     dpg.add_input_int(label="N-Simul", tag="sim_nsimul", default_value=1, min_value=1)
                     dpg.add_checkbox(label="Use CPU", tag="sim_cpu")
                     dpg.add_input_int(label="GPU ID", tag="sim_target", default_value=0)
-                    dpg.add_combo(
-                        label="Precision", items=["0", "1"],
-                        tag="sim_precision", default_value="1",
-                    )
-                    dpg.add_combo(
-                        label="Log Level", items=["DEBUG", "INFO", "WARNING"],
-                        tag="sim_log", default_value="INFO",
-                    )
+                    dpg.add_combo(label="Precision", items=["0", "1"],
+                                  tag="sim_precision", default_value="1")
+                    dpg.add_combo(label="Log Level", items=["DEBUG", "INFO", "WARNING"],
+                                  tag="sim_log", default_value="INFO")
                     dpg.add_checkbox(label="Stepping Mode", tag="sim_stepping", default_value=True)
                     dpg.add_separator()
-                    dpg.add_button(
-                        label="START SIMULATION", callback=self.start_sim,
-                        width=-1, height=35,
-                    )
-                    dpg.add_button(
-                        label="Advance Step", callback=self.step_sim,
-                        width=-1, height=25,
-                    )
+                    dpg.add_button(label="START SIMULATION", callback=self.start_sim,
+                                   width=-1, height=35)
+                    dpg.add_button(label="Advance Step", callback=self.step_sim,
+                                   width=-1, height=25)
                     with dpg.group(horizontal=True):
-                        dpg.add_input_int(
-                            label="Steps", tag="sim_advance_n_steps",
-                            default_value=100, min_value=1, width=140,
-                        )
-                        dpg.add_button(
-                            label="Advance N Steps", callback=self.step_sim_n,
-                            width=-1, height=25,
-                        )
-                    dpg.add_button(
-                        label="Abort Simulation", callback=self.abort_sim,
-                        width=-1, height=25,
-                    )
+                        dpg.add_input_int(label="Steps", tag="sim_advance_n_steps",
+                                          default_value=100, min_value=1, width=140)
+                        dpg.add_button(label="Advance N Steps", callback=self.step_sim_n,
+                                       width=-1, height=25)
+                    dpg.add_button(label="Abort Simulation", callback=self.abort_sim,
+                                   width=-1, height=25)
+                    dpg.add_text("Status: idle", tag="sim_status_text",
+                                 color=tm.get_color("text_hint"))
 
                 with dpg.child_window(width=-1, tag="sim_terminal_child", border=True):
-                    dpg.add_text(
-                        "Terminal Output",
-                        color=tm.get_color("control_terminal_title"),
-                    )
-                    dpg.add_input_text(
-                        tag="sim_terminal", multiline=True,
-                        readonly=True, width=-1, height=-1,
-                    )
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("Terminal Output",
+                                     color=tm.get_color("control_terminal_title"))
+                        dpg.add_button(label="Clear", callback=self._clear_terminal)
+                        dpg.add_button(label="Save...", callback=self._save_terminal)
+                    dpg.add_input_text(tag="sim_terminal", multiline=True, readonly=True,
+                                       width=-1, height=-1)
+        self._refresh_terminal()
+
+    @staticmethod
+    def _host_label(h: dict) -> str:
+        return f"{h['user']}@{h['host']}" if h.get("user") else h.get("host", "")
+
+    def _on_recent_host(self, sender, app_data):
+        user, _, host = app_data.rpartition("@")
+        dpg.set_value("sim_remote_ip", host)
+        dpg.set_value("sim_remote_user", user)
 
     def _on_backend_mode_changed(self, sender, app_data):
-        log.info(f"[SIMULATION] Backend mode changed to: {app_data}")
+        log.info("Backend mode: %s", app_data)
+
+    def _set_status(self, text: str):
+        if dpg.does_item_exist("sim_status_text"):
+            dpg.set_value("sim_status_text", f"Status: {text}")
+
+    # ── Terminal ──────────────────────────────────────────────────────────────
 
     def append_terminal(self, text):
-        self.terminal_data.append(text)
-        if len(self.terminal_data) > 1000:
-            self.terminal_data.pop(0)
+        """Append output (called from any thread)."""
+        with self._terminal_lock:
+            self.terminal_data.append(text)
+        self._refresh_terminal()
+
+    def _refresh_terminal(self):
         if dpg.does_item_exist("sim_terminal"):
-            dpg.set_value("sim_terminal", "".join(self.terminal_data))
+            with self._terminal_lock:
+                content = "".join(self.terminal_data)
+            dpg.set_value("sim_terminal", content)
             try:
                 dpg.set_y_scroll("sim_terminal_child", -1.0)
             except Exception:
                 pass
 
-    # ── YAML preparation ──────────────────────────────────────────────────────
+    def _clear_terminal(self):
+        with self._terminal_lock:
+            self.terminal_data.clear()
+        self._refresh_terminal()
 
-    def _strip_studio_fields(self, yaml_data: dict) -> dict:
-        for key in [k for k in yaml_data if k.startswith("_")]:
-            del yaml_data[key]
-        for node_dict in yaml_data.values():
-            if isinstance(node_dict, dict) and "gui_pos" in node_dict:
-                del node_dict["gui_pos"]
-        return yaml_data
-
-    def _inject_display_server_node(self, yaml_data: dict) -> bool:
-        """
-        Inject (or update) a DisplayServer node.
-
-        The ``session_id`` generated by this SimulationControl instance is
-        written into the DisplayServer block so that SPECULA's DisplayServer
-        uses the exact same UUID that was written to the coordination file and
-        passed as --session-id to every monitor subprocess.
-        """
-        # ── Update existing DisplayServer block with our session_id ────────────
-        for node_name, node_dict in yaml_data.items():
-            if isinstance(node_dict, dict) and node_dict.get("class") == "DisplayServer":
-                node_dict["session_id"] = self._session_id
-                log.info(
-                    f"[SIMULATION] DisplayServer '{node_name}' already present — "
-                    f"injected session_id={self._session_id}"
-                )
-                return True
-
-        # ── Find SimulParams ───────────────────────────────────────────────────
-        simul_params_name = None
-        for node_name, node_dict in yaml_data.items():
-            if isinstance(node_dict, dict) and node_dict.get("class") == "SimulParams":
-                simul_params_name = node_name
-                if node_dict.get("display_server") is True:
-                    del node_dict["display_server"]
-                break
-
-        if simul_params_name is None:
-            log.warning("[SIMULATION] Warning: No SimulParams block found — cannot inject DisplayServer.")
-            return False
-
-        ds_name = _DISPLAY_SERVER_NODE_NAME
-        suffix  = 1
-        while ds_name in yaml_data:
-            ds_name = f"{_DISPLAY_SERVER_NODE_NAME}_{suffix}"
-            suffix += 1
-
-        yaml_data[ds_name] = {
-            "class":      "DisplayServer",
-            "port":       _DISPLAY_SERVER_PORT,
-            "mode":       "data",
-            "session_id": self._session_id,   # ← key fix: single source of truth
-        }
-        log.info(
-            f"[SIMULATION] Injected DisplayServer '{ds_name}' "
-            f"(port={_DISPLAY_SERVER_PORT}, session_id={self._session_id})"
-        )
-        return True
-
-    def _prepare_simulation_yaml(self, file_path: str, inject_display_server: bool = True):
-        try:
-            with open(file_path, encoding="utf-8") as f:
-                yaml_data = yaml.safe_load(f)
-            if not isinstance(yaml_data, dict):
+    def _save_terminal(self):
+        def _write(sender, app_data):
+            path = app_data.get("file_path_name")
+            if not path:
                 return
-            yaml_data = self._strip_studio_fields(yaml_data)
-            if inject_display_server:
-                self._inject_display_server_node(yaml_data)
-            with open(file_path, "w", encoding="utf-8") as f:
-                yaml.dump(yaml_data, f, sort_keys=False, default_flow_style=False)
-            log.info(f"[SIMULATION] Prepared simulation YAML: {file_path}")
-        except Exception as e:
-            log.warning(f"[SIMULATION] Warning: could not prepare YAML: {e}")
+            with self._terminal_lock:
+                content = "".join(self.terminal_data)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(content)
+            log.info("Terminal output saved to %s", path)
 
-    # ── Port / URL detection ──────────────────────────────────────────────────
+        with dpg.file_dialog(label="Save terminal output", callback=_write, width=700,
+                             height=400, default_filename="specula_run.log"):
+            dpg.add_file_extension(".log")
+            dpg.add_file_extension(".*")
 
-    def _on_display_server_port_found(self, port: int, remote_ip: str = "localhost"):
-        if remote_ip in ("localhost", "127.0.0.1", ""):
-            new_url = f"http://127.0.0.1:{port}"
-        else:
-            new_url = f"http://{remote_ip}:{port}"
+    # ── Display server ────────────────────────────────────────────────────────
 
-        log.info(f"[SIMULATION] Display server confirmed at {new_url}")
-        self.append_terminal(f"[INFO] Display server running at {new_url}\n")
-
+    def _on_display_server_port_found(self, port: int, remote_ip: str | None = "localhost"):
+        host = "127.0.0.1" if remote_ip in (None, *_LOCAL_HOSTS) else remote_ip
+        url = f"http://{host}:{port}"
+        self.append_terminal(f"[INFO] Display server running at {url}\n")
         sio = self.editor.nm.sio_client
-        sio.server_url = new_url
-        self._write_server_url_file(new_url)
-
-        mm = self.editor.nm.monitors
-        if hasattr(mm, "on_display_server_ready"):
-            mm.on_display_server_ready(new_url)
-
+        sio.server_url = url
+        self._write_server_url_file(url)
+        self.editor.nm.monitors.on_display_server_ready(url)
         if not sio.connected:
             threading.Thread(target=sio.reconnect, daemon=True).start()
 
-    # ── Backend-finished callback ─────────────────────────────────────────────
-
-    def _on_backend_finished(self):
-        self.is_running = False
-        self.process    = None
-        self._clear_server_url_file()
-        mm = self.editor.nm.monitors
-        if hasattr(mm, "set_backend"):
-            mm.set_backend(None)
-
-    # ── Simulation launch / control ───────────────────────────────────────────
-
-    def _schedule_display_server_reconnect(
-        self, delay: float = 4.0, expected_url: str = None
-    ):
-        if expected_url is None:
-            expected_url = f"http://127.0.0.1:{_DISPLAY_SERVER_PORT}"
-
+    def _schedule_display_server_reconnect(self, expected_url: str, delay: float = 4.0):
+        """Fallback when SPECULA does not print its port: try the expected URL."""
         def _attempt(attempt_no, delay_s):
             time.sleep(delay_s)
             sio = self.editor.nm.sio_client
-            if sio is None or sio.connected:
+            if sio is None or sio.connected or not self.is_running:
                 return
-            log.info(f"[SIMULATION] Fallback reconnect attempt {attempt_no} → {expected_url}")
+            log.info("Fallback connection attempt %d to %s", attempt_no, expected_url)
             sio.server_url = expected_url
             sio.reconnect()
             if not sio.connected and attempt_no == 1:
@@ -365,116 +274,108 @@ class SimulationControl:
 
         threading.Thread(target=_attempt, args=(1, delay), daemon=True).start()
 
+    # ── Run ───────────────────────────────────────────────────────────────────
+
+    def _on_backend_finished(self):
+        self.is_running = False
+        self._clear_server_url_file()
+        self.editor.nm.monitors.set_backend(None)
+        self._set_status("finished")
+
+    def _value(self, tag, default):
+        return dpg.get_value(tag) if dpg.does_item_exist(tag) else default
+
+    def _run_inputs(self) -> tuple[dict, list[str]]:
+        """Base simulation and enabled override files for the run."""
+        ed = self.editor
+        current = ed._current_export()
+        om = ed.override_manager
+        if om.has_base_snapshot() and om.any_enabled():
+            # Preview active: the editor shows base + overrides; SPECULA gets
+            # the base (with the user's edits) plus the override files.
+            return om.rebased(current), om.get_enabled_overrides()
+        return current, []
+
     def start_sim(self, sender=None, app_data=None, run_all_mode=False):
         if self.is_running:
             self.append_terminal("[WARNING] Simulation is already running\n")
             return
 
-        # ── Generate session ID first — everything else derives from it ────────
         self._session_id = str(uuid.uuid4())
-        log.info(f"[SIMULATION] New run session_id={self._session_id}")
-        self._clear_server_url_file()
-
-        backend_mode         = (
-            dpg.get_value("sim_backend")
-            if dpg.does_item_exist("sim_backend") else "Remote"
-        )
-        use_inprocess_direct = (backend_mode == "In-Process")
-        is_remote            = (backend_mode == "Remote")
-
-        temp_path = self._get_sim_path()
-        # Only explicitly-set values are written: SPECULA applies its own
-        # constructor defaults, which are authoritative (template defaults may
-        # be stale for the installed SPECULA version).
-        self.editor.fh.export_simulation(temp_path, include_defaults=False)
-        # _inject_display_server_node now also stamps session_id into the block
-        self._prepare_simulation_yaml(
-            temp_path,
-            inject_display_server=not use_inprocess_direct,
-        )
-
-        mm = self.editor.nm.monitors
-
-        if hasattr(mm, "set_session_id"):
-            mm.set_session_id(self._session_id)
-
-        remote_ip   = "localhost"
+        backend_mode = self._value("sim_backend", "In-Process")
+        in_process = backend_mode == "In-Process"
+        remote_ip = "localhost"
         remote_user = ""
+        if not in_process:
+            remote_ip = (self._value("sim_remote_ip", "localhost") or "localhost").strip()
+            remote_user = (self._value("sim_remote_user", "") or "").strip()
+        is_ssh = not in_process and remote_ip not in _LOCAL_HOSTS
+        ds_port = int(self._value("sim_ds_port", DEFAULT_DISPLAY_SERVER_PORT))
 
-        if is_remote:
-            remote_ip = (
-                dpg.get_value("sim_remote_ip")
-                if dpg.does_item_exist("sim_remote_ip") else "localhost"
-            )
-            remote_user = (
-                dpg.get_value("sim_remote_user")
-                if dpg.does_item_exist("sim_remote_user") else ""
-            )
+        # ── files ─────────────────────────────────────────────────────────────
+        run_dir = self._new_run_dir()
+        self._server_url_file = os.path.join(run_dir, "server.json")
+        base, overrides = self._run_inputs()
+        files = write_run_files(
+            run_dir, base, overrides,
+            sim_name=self.editor.current_simulation_name or "untitled",
+            session_id=None if in_process else self._session_id,
+            display_port=ds_port,
+            display_host="0.0.0.0" if is_ssh else None,
+        )
+        if overrides:
+            self.append_terminal(f"[INFO] {len(overrides)} override file(s) passed to SPECULA\n")
 
-        if is_remote and remote_ip not in ("localhost", "127.0.0.1", ""):
-            from .simulation_backend import _resolve_remote_hostname
-            remote_ip_for_monitors = _resolve_remote_hostname(remote_ip)
-        else:
-            remote_ip_for_monitors = remote_ip
-
-        if use_inprocess_direct:
-            monitor_bus   = mm._monitor_bus
-            self._backend = InProcessBackend(monitor_bus=monitor_bus)
-            mm.set_inprocess_mode(True)
+        # ── backend ───────────────────────────────────────────────────────────
+        mm = self.editor.nm.monitors
+        mm.set_session_id(self._session_id)
+        mm.set_server_url_file(self._server_url_file)
+        resolved_ip = _resolve_remote_hostname(remote_ip) if is_ssh else remote_ip
+        if in_process:
+            self._backend = InProcessBackend(monitor_bus=mm._monitor_bus)
         else:
             self._backend = RemoteBackend(remote_ip=remote_ip, remote_user=remote_user)
-            mm.set_inprocess_mode(False)
-
+            if is_ssh:
+                self.editor.preferences.add_remote_host(remote_ip, remote_user)
+        mm.set_inprocess_mode(in_process)
         mm.set_backend(self._backend)
 
         cmd_args = {
             "run_all_mode": run_all_mode,
-            "stepping":     dpg.get_value("sim_stepping")  if dpg.does_item_exist("sim_stepping")  else False,
-            "nsimul":       dpg.get_value("sim_nsimul")    if dpg.does_item_exist("sim_nsimul")    else 1,
-            "cpu":          dpg.get_value("sim_cpu")       if dpg.does_item_exist("sim_cpu")       else False,
-            "target":       dpg.get_value("sim_target")    if dpg.does_item_exist("sim_target")    else -1,
-            "precision":    int(dpg.get_value("sim_precision") if dpg.does_item_exist("sim_precision") else "1"),
-            "log_level":    dpg.get_value("sim_log")       if dpg.does_item_exist("sim_log")       else "INFO",
-            "resolved_ip":  remote_ip_for_monitors,
+            "stepping":     self._value("sim_stepping", False),
+            "nsimul":       self._value("sim_nsimul", 1),
+            "cpu":          self._value("sim_cpu", False),
+            "target":       self._value("sim_target", 0),
+            "precision":    int(self._value("sim_precision", "1")),
+            "log_level":    self._value("sim_log", "INFO"),
+            "resolved_ip":  resolved_ip,
             "remote_ip":    remote_ip,
         }
 
-        if hasattr(self.editor, "override_manager"):
-            enabled = self.editor.override_manager.get_enabled_overrides()
-            if enabled:
-                # The editor graph already contains the merged overrides, so
-                # the exported YAML is complete; nothing extra to pass.
-                self.append_terminal(f"[INFO] Applied {len(enabled)} override file(s)\n")
-
-        if remote_ip in ("localhost", "127.0.0.1", ""):
-            expected_url = f"http://127.0.0.1:{_DISPLAY_SERVER_PORT}"
-        else:
-            expected_url = f"http://{remote_ip_for_monitors}:{_DISPLAY_SERVER_PORT}"
-
         sio = self.editor.nm.sio_client
-        if sio is not None and sio.connected:
+        if sio.connected:
             try:
                 sio.disconnect()
             except Exception:
                 pass
-        if sio is not None:
+        expected_url = None
+        if not in_process and ds_port:
+            host = resolved_ip if is_ssh else "127.0.0.1"
+            expected_url = f"http://{host}:{ds_port}"
             sio.server_url = expected_url
 
+        self.is_running = True
+        self._set_status(f"running ({backend_mode})")
         self._backend.start(
-            yaml_path=temp_path,
-            cmd_args=cmd_args,
-            append_terminal=self.append_terminal,
-            on_port_found=lambda port, ip: self._on_display_server_port_found(port, ip),
+            files, cmd_args, self.append_terminal,
+            on_port_found=self._on_display_server_port_found,
             on_finished=self._on_backend_finished,
         )
 
-        self.is_running = True
-
-        if not use_inprocess_direct:
+        if expected_url:
             self._write_server_url_file(expected_url)
-            if hasattr(mm, "on_display_server_ready"):
-                mm.on_display_server_ready(expected_url)
-            self._schedule_display_server_reconnect(delay=4.0, expected_url=expected_url)
+            mm.on_display_server_ready(expected_url)
+            self._schedule_display_server_reconnect(expected_url)
 
     def step_sim(self, sender=None, app_data=None):
         if self._backend is not None:
@@ -491,18 +392,8 @@ class SimulationControl:
             self.append_terminal("[WARNING] Number of steps must be at least 1\n")
             return
         self.append_terminal(f"[INFO] Advancing {n_steps} step(s)...\n")
-        backend = self._backend
-
-        def _advance():
-            # Runs off the GUI thread so the editor and monitors stay live.
-            for i in range(n_steps):
-                if backend is not self._backend or not backend.is_running:
-                    break
-                backend.step()
-                if i < n_steps - 1:
-                    time.sleep(0.05)
-
-        threading.Thread(target=_advance, daemon=True, name="advance-n-steps").start()
+        # SPECULA's stepping prompt accepts a number of steps to advance.
+        self._backend.step(n_steps)
 
     def abort_sim(self, sender=None, app_data=None):
         if self._backend is not None:
@@ -510,3 +401,4 @@ class SimulationControl:
             self.append_terminal("[INFO] Abort signal sent\n")
         self._clear_server_url_file()
         self.is_running = False
+        self._set_status("aborted")

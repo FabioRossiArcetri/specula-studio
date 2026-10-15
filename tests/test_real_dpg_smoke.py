@@ -1,5 +1,6 @@
 """Headless smoke test of the real UI construction (see helpers/real_dpg_smoke)."""
 
+import importlib.util
 import subprocess
 import sys
 
@@ -15,4 +16,7 @@ def test_editor_builds_with_real_dearpygui():
     assert proc.returncode == 0, proc.stderr[-4000:]
     assert "@@STEPS@@" in proc.stdout, proc.stderr[-4000:]
     steps = proc.stdout.split("@@STEPS@@", 1)[1].strip().split(",")
-    assert steps[-1] == "new", steps
+    assert "new" in steps, steps
+    if importlib.util.find_spec("specula") is not None:
+        # in-process SPECULA run feeding a monitor window drawn by real DPG
+        assert steps[-1] == "inprocess_run_monitor", steps

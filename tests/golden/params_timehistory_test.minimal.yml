@@ -1,4 +1,4 @@
-main: {class: SimulParams, pixel_pupil: 80, total_time: 1.0, time_step: 0.1}
+main: {class: SimulParams, pixel_pupil: 80, root_dir: ., total_time: 1.0, time_step: 0.1}
 mytimehist: {class: TimeHistory, tag: timehistory_test}
 generator:
   class: TimeHistoryGenerator

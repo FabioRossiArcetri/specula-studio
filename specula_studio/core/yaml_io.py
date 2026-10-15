@@ -7,6 +7,7 @@ unit-tested; the UI only renders whatever graph these functions produce.
 
 from __future__ import annotations
 
+import copy
 import logging
 import uuid
 from collections import OrderedDict
@@ -264,20 +265,6 @@ def connection_to_yaml(graph: Graph, conn) -> str:
     return format_source(src_name, src_attr, delay)
 
 
-def _is_default(val, default_val) -> bool:
-    if val is None and default_val is None:
-        return True
-    if isinstance(val, str) and isinstance(default_val, str):
-        return default_val != REQUIRED and val.lower() == default_val.lower()
-    if val == default_val:
-        return True
-    if val == "" and default_val is None:
-        return True
-    if val is None and default_val == "":
-        return True
-    return False
-
-
 def _node_outputs(graph: Graph, u_id: str, node_data: dict, template: dict) -> list:
     outputs: list = list(node_data.get("file_outputs", []))
     for out in template.get("outputs", []):
@@ -327,9 +314,17 @@ def export_node(graph: Graph, u_id: str, include_defaults: bool = False) -> Orde
             continue
         val = current_values.get(p_name)
         kind = p_meta.get("kind", "value")
-        if not include_defaults and _is_default(val, p_meta.get("default")):
-            handled.add(p_name)
-            continue
+        # Explicit values are always written — even when equal to the template
+        # default (SPECULA reads e.g. main.time_step / root_dir from the YAML
+        # itself).  Unset parameters get their default only on request.
+        if val is None or val == "":
+            default = p_meta.get("default")
+            has_data_file = current_values.get(f"{p_name}_data") not in (None, "")
+            if include_defaults and default not in (None, "", REQUIRED) and not has_data_file:
+                val = copy.deepcopy(default)
+            else:
+                handled.add(p_name)
+                continue
 
         export_key = p_name
         if p_name in suffixes or kind == "object" or (

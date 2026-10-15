@@ -96,6 +96,13 @@ def graph_issues(graph: Graph,
                                 severity=WARNING))
         issues.extend(node_issues(graph, u, is_input_optional))
 
+    for u, node in graph.nodes.items():
+        if node.get("type") == "SimulParams":
+            for key in ("root_dir", "total_time", "time_step"):
+                if node.get("values", {}).get(key) in (None, ""):
+                    issues.append(Issue(u, "not set: the default will be written when running",
+                                        key, severity=WARNING))
+
     if graph.nodes and not any(n.get("type") == "SimulParams" for n in graph.nodes.values()):
         issues.append(Issue(None, "no SimulParams object: SPECULA needs one (usually 'main')",
                             severity=WARNING))
