@@ -116,6 +116,8 @@ def _cli_args(yaml_paths, cmd_args) -> list[str]:
         target=cmd_args.get("target", 0),
         precision=cmd_args.get("precision", 1),
         log_level=cmd_args.get("log_level", "INFO"),
+        profile=cmd_args.get("profile", False),
+        diagram=cmd_args.get("diagram", False),
     )
 
 

@@ -137,3 +137,21 @@ def test_ring_buffer_logging():
     assert any("hello-debug" in line for line in ring.lines())
     assert not any("hello-debug" in line for line in ring.lines(logging.WARNING))
     logs.set_level("INFO")
+
+
+def test_cli_accepts_a_file_and_options():
+    from specula_studio.app import parse_args
+    args = parse_args(["sim.yml", "--log-level", "DEBUG"])
+    assert args.file == "sim.yml" and args.log_level == "DEBUG"
+    assert parse_args([]).file is None
+
+
+def test_graph_issues_report_missing_inputs_and_simulparams():
+    from specula_studio.core import validation, yaml_io
+    from specula_studio.core.templates import load_bundled_templates
+
+    d, p = load_bundled_templates()
+    g = yaml_io.load_graph({"rec": {"class": "Modalrec"}}, {**d, **p})
+    msgs = [i.describe(g) for i in validation.graph_issues(g)]
+    assert any("recmat" in m for m in msgs)
+    assert any("SimulParams" in m for m in msgs)

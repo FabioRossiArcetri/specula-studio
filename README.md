@@ -11,6 +11,12 @@ simulations, built on [Dear PyGui](https://github.com/hoffstadt/DearPyGui).
 * Apply SPECULA override files on top of a simulation.
 * Run the simulation in-process, as a local subprocess or on a remote host via
   SSH, step it, and watch any output live in monitor windows.
+* Undo/redo, copy/paste/duplicate, unsaved-changes tracking.
+* *View → Issues* lists incomplete objects (missing required parameters,
+  references or inputs); *Edit → Find Object* (Ctrl+F) and *Add Objects →
+  Search* (Ctrl+Space) find objects and classes by name.
+* *File → Compare with Saved File* shows what changed; *File → Export
+  Diagram* writes a Graphviz `.dot` (and `.svg` when Graphviz is installed).
 
 ## Installation
 
@@ -28,6 +34,7 @@ tooltips and online help.
 specula-studio              # installed entry point
 python -m specula_studio    # equivalent
 python main.py              # from a source checkout, without installing
+specula-studio my_sim.yml   # open a simulation directly
 ```
 
 Options: `--log-level {DEBUG,INFO,WARNING,ERROR}` (or `-v`), `--version`.

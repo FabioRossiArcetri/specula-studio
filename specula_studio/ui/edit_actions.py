@@ -63,6 +63,8 @@ class EditMixin:
         fp = fingerprint(self.graph)
         if self.history.record(self._capture_state(), fp):
             log.debug("History: recorded change")
+            if dpg.does_item_exist("issues_window") and dpg.is_item_shown("issues_window"):
+                self._refresh_issues()
         self._set_dirty(fp != self._saved_fingerprint)
 
     # ── undo / redo ───────────────────────────────────────────────────────────
@@ -141,6 +143,12 @@ class EditMixin:
         on_canvas = self._canvas_has_focus()
 
         if ctrl:
+            if key == dpg.mvKey_F:
+                self._show_find_object()
+                return
+            if key == dpg.mvKey_Spacebar:
+                self._show_add_object_search()
+                return
             if key == dpg.mvKey_S:
                 self._on_save_simulation_clicked()
             elif key == dpg.mvKey_O:

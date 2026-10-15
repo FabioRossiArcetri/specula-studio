@@ -62,6 +62,15 @@ def main(path):
     step("yaml_window", editor.sim_control.show_yaml_window)
     step("add_multiple", editor._show_add_multiple_dialog)
     step("about", editor._show_about_dialog)
+    step("issues", editor._show_issues_window)
+    step("find_object", editor._show_find_object)
+    step("find_object_again", editor._show_find_object)
+    step("add_object_search", editor._show_add_object_search)
+    step("focus_node", editor.focus_node, next(iter(nm.graph.nodes)))
+    step("diff_with_saved", editor._show_diff_with_saved)
+    import tempfile
+    step("export_diagram", editor._export_diagram,
+         os.path.join(tempfile.mkdtemp(), "graph.dot"))
     step("create_node", editor._on_menu_create, None, None, "Integrator")
     step("rebuild", nm.rebuild_all_nodes_ui)
     step("theme_light", editor.on_theme_changed, None, "light")

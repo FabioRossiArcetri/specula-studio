@@ -166,6 +166,11 @@ class SimulationControl:
                     dpg.add_combo(label="Log Level", items=["DEBUG", "INFO", "WARNING"],
                                   tag="sim_log", default_value="INFO")
                     dpg.add_checkbox(label="Stepping Mode", tag="sim_stepping", default_value=True)
+                    with dpg.group(horizontal=True):
+                        dpg.add_checkbox(label="Profile", tag="sim_profile")
+                        dpg.add_checkbox(label="SPECULA diagram (PNG)", tag="sim_diagram")
+                    dpg.add_text("(Profile / diagram: local and SSH runs only)",
+                                 color=tm.get_color("text_hint"))
                     dpg.add_separator()
                     dpg.add_button(label="START SIMULATION", callback=self.start_sim,
                                    width=-1, height=35)
@@ -348,6 +353,8 @@ class SimulationControl:
             "target":       self._value("sim_target", 0),
             "precision":    int(self._value("sim_precision", "1")),
             "log_level":    self._value("sim_log", "INFO"),
+            "profile":      self._value("sim_profile", False),
+            "diagram":      self._value("sim_diagram", False),
             "resolved_ip":  resolved_ip,
             "remote_ip":    remote_ip,
         }

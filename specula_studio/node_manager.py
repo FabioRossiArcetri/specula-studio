@@ -217,6 +217,7 @@ class NodeManager:
     # ==========================================================================
 
     def init_themes(self):
+        self._flash_theme          = None
         self.data_theme            = create_data_node_theme()
         self.proc_theme            = create_proc_node_theme()
         self.data_theme_incomplete = create_data_node_theme_incomplete()
@@ -233,6 +234,22 @@ class NodeManager:
 
         if theme:
             dpg.bind_item_theme(dpg_id, theme)
+
+    def flash_node(self, node_uuid: str, frames: int = 90) -> None:
+        """Highlight a node's border for a moment (used by "find"/issues)."""
+        dpg_id = self.uuid_to_dpg.get(node_uuid)
+        if not dpg_id or not dpg.does_item_exist(dpg_id):
+            return
+        if getattr(self, "_flash_theme", None) is None:
+            with dpg.theme() as self._flash_theme:
+                with dpg.theme_component(dpg.mvNode):
+                    dpg.add_theme_color(dpg.mvNodeCol_NodeOutline, (255, 210, 0, 255),
+                                        category=dpg.mvThemeCat_Nodes)
+                    dpg.add_theme_style(dpg.mvNodeStyleVar_NodeBorderThickness, 4.0,
+                                        category=dpg.mvThemeCat_Nodes)
+        dpg.bind_item_theme(dpg_id, self._flash_theme)
+        dpg.set_frame_callback(dpg.get_frame_count() + frames,
+                               lambda: self._refresh_node_theme(node_uuid))
 
     def _refresh_node_theme(self, node_uuid: str):
         if node_uuid not in self.uuid_to_dpg:

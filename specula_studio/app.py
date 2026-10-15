@@ -29,12 +29,14 @@ from .ui.edit_actions import EditMixin
 from .ui.log_window import LogWindowMixin
 from .ui.overrides_menu import OverridesMixin
 from .ui.preferences import PreferencesMixin
+from .ui.tools import ToolsMixin
 
 log = logging.getLogger(__name__)
 
 
 class SpeculaEditor(
     EditMixin,
+    ToolsMixin,
     DialogsMixin,
     AddObjectsMixin,
     PreferencesMixin,
@@ -204,6 +206,11 @@ class SpeculaEditor(
                                       callback=self._on_save_simulation_clicked)
                     dpg.add_menu_item(label="Save Simulation As",callback=lambda: dpg.show_item("save_simulation_dialog"))
                     dpg.add_separator()
+                    dpg.add_menu_item(label="Compare with Saved File",
+                                      callback=self._show_diff_with_saved)
+                    dpg.add_menu_item(label="Export Diagram (Graphviz)...",
+                                      callback=self._show_export_diagram_dialog)
+                    dpg.add_separator()
                     dpg.add_menu_item(label="Preferences",       callback=self._show_preferences_dialog)
                     dpg.add_menu_item(label="Exit",              callback=self._on_exit_requested)
 
@@ -218,8 +225,13 @@ class SpeculaEditor(
                     dpg.add_separator()
                     dpg.add_menu_item(label="Delete Selection", shortcut="Del",
                                       callback=self._on_delete_requested)
+                    dpg.add_separator()
+                    dpg.add_menu_item(label="Find Object...", shortcut="Ctrl+F",
+                                      callback=self._show_find_object)
 
                 with dpg.menu(label="Add Objects"):
+                    dpg.add_menu_item(label="Search...", shortcut="Ctrl+Space",
+                                      callback=self._show_add_object_search)
                     dpg.add_menu_item(label="Add Multiple Objects", callback=self._show_add_multiple_dialog)
                     with dpg.menu(label="Processing Objects", tag="add_proc_menu"):
                         pass
@@ -249,6 +261,7 @@ class SpeculaEditor(
                                       callback=lambda: log.info(f"Nodes: {len(self.nm.graph.nodes)}, "
                                                              f"Connections: {len(self.nm.graph.connections)}"))
                 with dpg.menu(label="View"):
+                    dpg.add_menu_item(label="Issues", callback=self._show_issues_window)
                     dpg.add_menu_item(label="Log", callback=self._show_log_window)
                 with dpg.menu(label="Help"):
                     dpg.add_menu_item(
@@ -485,6 +498,7 @@ def parse_args(argv=None) -> argparse.Namespace:
         prog="specula-studio",
         description="Node-based visual editor for SPECULA AO simulations.",
     )
+    parser.add_argument("file", nargs="?", help="simulation YAML file to open")
     parser.add_argument("--log-level", choices=LEVELS, default=None,
                         help="Logging verbosity (default: saved preference, INFO)")
     parser.add_argument("-v", "--verbose", action="store_true",
@@ -500,6 +514,8 @@ def main(argv=None):
         args.log_level or settings.store().get("log_level", "INFO"))
     setup_logging(level)
     editor = SpeculaEditor()
+    if args.file:
+        editor._open_simulation(args.file)
     editor.run()
 
 

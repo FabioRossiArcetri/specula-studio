@@ -126,9 +126,14 @@ def write_run_files(run_dir: str, base: dict, override_paths=(), sim_name: str =
 
 
 def specula_cli_args(files, stepping=False, nsimul=1, cpu=False, target=0,
-                     precision=1, log_level="INFO") -> list[str]:
+                     precision=1, log_level="INFO", profile=False,
+                     diagram=False) -> list[str]:
     """Arguments of the ``specula`` command (without the executable)."""
     args = list(files)
+    if profile:
+        args.append("--profile")
+    if diagram:
+        args.append("--diagram")
     if stepping:
         args.append("--stepping")
     args += ["--nsimul", str(nsimul)]

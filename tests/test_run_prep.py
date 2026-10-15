@@ -47,6 +47,8 @@ def test_cli_and_remote_command():
                                      cpu=True, target=1, precision=0, log_level="DEBUG")
     assert args == ["a b.yml", "o.yml", "--stepping", "--nsimul", "2", "--cpu",
                     "--target", "1", "--precision", "0", "--log-level", "DEBUG"]
+    assert "--profile" in run_prep.specula_cli_args(["a.yml"], profile=True)
+    assert "--diagram" in run_prep.specula_cli_args(["a.yml"], diagram=True)
     cmd = run_prep.remote_shell_command("/tmp/d x", args)
     outer = shlex.split(cmd)
     assert outer[:2] == ["bash", "-ic"]

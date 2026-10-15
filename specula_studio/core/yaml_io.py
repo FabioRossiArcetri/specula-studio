@@ -405,3 +405,19 @@ def strip_studio_fields(yaml_data: dict) -> dict:
         if isinstance(node, dict):
             node.pop("gui_pos", None)
     return yaml_data
+
+
+def semantic_diff(old: dict, new: dict, old_label: str = "saved",
+                  new_label: str = "current") -> str:
+    """
+    Unified diff of two simulations as SPECULA sees them (positions and
+    editor metadata ignored, both sides normalised by the same dumper).
+    Empty string when they are equivalent.
+    """
+    import difflib
+
+    def norm(data):
+        data = strip_studio_fields(copy.deepcopy(OrderedDict(data)))
+        return dump_yaml(data).splitlines(keepends=True)
+
+    return "".join(difflib.unified_diff(norm(old), norm(new), old_label, new_label))
