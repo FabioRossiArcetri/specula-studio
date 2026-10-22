@@ -16,9 +16,10 @@ SSH_OPTIONS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=20"]
 
 KEY_AUTH_HINT = (
     "ssh must log in without prompts: install your public key on the server "
-    "(e.g. type $env:USERPROFILE\\.ssh\\id_ed25519.pub | ssh <host> "
-    "\"mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys\"), or load a "
-    "passphrase-protected key into ssh-agent with ssh-add."
+    "once, e.g. from cmd: type %USERPROFILE%\\.ssh\\id_ed25519.pub | ssh <host> "
+    "\"mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys\" (PowerShell: "
+    "$env:USERPROFILE instead of %USERPROFILE%; Linux/macOS: ssh-copy-id <host>), "
+    "or load a passphrase-protected key into ssh-agent with ssh-add."
 )
 
 
