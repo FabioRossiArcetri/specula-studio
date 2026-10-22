@@ -35,7 +35,6 @@ from .core.yaml_io import dump_yaml
 from .sshutil import KEY_AUTH_HINT, SSH_OPTIONS, CommandResult, run_command
 from .sshutil import explain_ssh_failure as _explain
 
-__all__ = ["SSH_OPTIONS", "CommandResult", "run_command", "explain_ssh_failure"]
 
 log = logging.getLogger(__name__)
 

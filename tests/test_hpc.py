@@ -7,6 +7,7 @@ import pytest
 import yaml
 
 from specula_studio import hpc
+from specula_studio.sshutil import CommandResult
 from specula_studio.core import slurm
 
 ENV_OUT = ("HOME=/leonardo/home/userexternal/frossi\nWORK=/leonardo_work/try25_rossi\n"
@@ -26,26 +27,26 @@ class FakeCluster:
         self.calls.append(list(argv))
         prog = argv[0]
         if not self.auth_ok:
-            return hpc.CommandResult(255, "", "frossi@login.leonardo.cineca.it: "
+            return CommandResult(255, "", "frossi@login.leonardo.cineca.it: "
                                               "Permission denied (publickey).")
         if prog == "scp":
             dest = argv[-1].split(":", 1)[1]
             self.uploaded.setdefault(dest.rstrip("/"), []).extend(
                 a for a in argv[1:-1] if not a.startswith("-") and a not in
                 ("BatchMode=yes", "ConnectTimeout=20"))
-            return hpc.CommandResult(0, "", "")
+            return CommandResult(0, "", "")
         command = argv[-1]
         if "echo \"HOME=$HOME\"" in command:
-            return hpc.CommandResult(0, ENV_OUT, "")
+            return CommandResult(0, ENV_OUT, "")
         if "sbatch" in command:
-            return hpc.CommandResult(0, "Submitted batch job 4242\n", "")
+            return CommandResult(0, "Submitted batch job 4242\n", "")
         if command.startswith("squeue"):
             if self.queue_state is None:
-                return hpc.CommandResult(0, "", "")
-            return hpc.CommandResult(0, f"{self.queue_state}|0:10|9:50|(Priority)\n", "")
+                return CommandResult(0, "", "")
+            return CommandResult(0, f"{self.queue_state}|0:10|9:50|(Priority)\n", "")
         if command.startswith("sacct"):
-            return hpc.CommandResult(0, "COMPLETED|00:05:00|0:0\n", "")
-        return hpc.CommandResult(0, "", "")
+            return CommandResult(0, "COMPLETED|00:05:00|0:0\n", "")
+        return CommandResult(0, "", "")
 
 
 def _request(tmp_path, calib=True):

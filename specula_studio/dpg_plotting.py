@@ -1,4 +1,4 @@
-# dpg_plotting.py - Unified and optimized DPGPlotter class with responsive layout
+"""DearPyGui plots for monitor windows: line, history, scatter and image views."""
 import numpy as np
 import dearpygui.dearpygui as dpg
 from matplotlib import cm
@@ -32,9 +32,6 @@ class InteractiveImageViewer:
     the container dimensions on every frame in which a resize is detected.
     ``equal_aspects=True`` takes care of the content aspect ratio inside the
     (potentially non-square) plot area.
-
-    The ``handle_mouse_*`` / ``start_drag`` / ``end_drag`` public methods are
-    kept as no-ops for API compatibility with ``monitor_window.py`` callers.
     """
 
     # Reserve this many pixels for the one-line info bar above the plot
@@ -60,15 +57,6 @@ class InteractiveImageViewer:
         self.img_width  = 0
         self.img_height = 0
         self.current_data = None
-
-        # Legacy compat attributes — values kept for info display only;
-        # actual zoom/pan is handled by the DPG plot widget.
-        self.zoom         = 1.0
-        self.pan_x        = 0.0
-        self.pan_y        = 0.0
-        self.is_dragging  = False
-        self.last_mouse_x = 0
-        self.last_mouse_y = 0
 
     # =========================================================================
     # Internal builders
@@ -137,7 +125,7 @@ class InteractiveImageViewer:
 
         * ``set_axis_limits(axis, lo, hi)`` **locks** the axis — the user can
           no longer zoom or pan on that axis.  This was the bug that prevented
-          interaction in earlier versions.
+          interaction.
         * ``fit_axis_data(axis)`` sets the *current* view range to cover all
           series data but leaves the axis fully interactive, so subsequent
           scroll-zoom and drag-pan work as expected.
@@ -242,10 +230,6 @@ class InteractiveImageViewer:
         except Exception:
             pass
 
-    # Legacy alias
-    def _update_info(self) -> None:
-        self._update_info_text()
-
     def update_size(self, width: int, height: int) -> None:
         """
         Resize the plot widget to fill the given container dimensions.
@@ -268,29 +252,11 @@ class InteractiveImageViewer:
             except Exception as e:
                 log.error(f"[InteractiveImageViewer.update_size] Error: {e}")
 
-    # ─��� Legacy compat no-ops ──────────────────────────────────────────────────
-    # The DPG plot widget handles all mouse interaction natively.
-    # These methods are preserved so monitor_window.py compiles unchanged.
-
-    def handle_mouse_move(self, mouse_x: float, mouse_y: float) -> None:
-        self.last_mouse_x = mouse_x
-        self.last_mouse_y = mouse_y
-
-    def handle_mouse_scroll(self, scroll_delta: float) -> None:
-        pass  # handled by DPG plot widget
-
-    def start_drag(self, mouse_x: float, mouse_y: float) -> None:
-        self.last_mouse_x = mouse_x
-        self.last_mouse_y = mouse_y
-
-    def end_drag(self) -> None:
-        pass  # handled by DPG plot widget
-
 
 class DPGPlotter:
     """Unified plotting class with multiple visualization modes and responsive layout."""
 
-    def __init__(self, parent_tag=None, width=DEFAULT_PLOT_WIDTH, height=DEFAULT_PLOT_HEIGHT, debug=True):
+    def __init__(self, parent_tag=None, width=DEFAULT_PLOT_WIDTH, height=DEFAULT_PLOT_HEIGHT):
         self.parent = parent_tag
         self.base_width = width
         self.base_height = height
@@ -312,14 +278,8 @@ class DPGPlotter:
         self.current_shape = None
 
         self.vector_history_buffer = None  # Will hold a 2D array (Time, VectorIndex)
-        self.vector_mode = "snapshot"     # "snapshot" or "time_series"
+        self.vector_mode = "snapshot"     # "snapshot" or "history"
         self.vector_line_tags = []        # Track tags for multi-line mode
-
-        # Debug info
-        self.debug = debug
-
-        if self.debug:
-            log.info(f"[DPGPlotter] Initialized with parent: {parent_tag}, size: {width}x{height}")
 
     @staticmethod
     def _ensure_1d(data: np.ndarray) -> np.ndarray | None:
@@ -336,7 +296,7 @@ class DPGPlotter:
         return data.flatten()
 
     def set_vector_mode(self, mode):
-        """Sets mode to 'snapshot' or 'time_series'."""
+        """Sets mode to 'snapshot' or 'history' (one line per element over time)."""
         if mode != self.vector_mode:
             self.vector_mode = mode
             self.clear() # Clear to re-setup axes for the new coordinate system
@@ -346,7 +306,7 @@ class DPGPlotter:
             vector = self._ensure_1d(vector)
             if vector is None or vector.size == 0: return False
 
-            if self.vector_mode == "time_series":
+            if self.vector_mode == "history":
                 return self._plot_vector_time_series(vector, label)
 
             # Default: Snapshot mode
@@ -414,9 +374,6 @@ class DPGPlotter:
                 children = dpg.get_item_children(self.plot_tag, slot=1)
                 if len(children) >= 2:
                     self.line_series_tag = series_factory(x_data, y_data, label=label, parent=children[1])
-
-    def _debug(self, message):
-        log.debug(message)
 
     def _clear_previous(self):
         """Clear previous plot items."""
@@ -500,33 +457,6 @@ class DPGPlotter:
 
         except Exception as e:
             log.error(f"[DPGPlotter.plot_2d_image_clean] Error: {e}")
-            traceback.print_exc()
-            return False
-
-    def update_existing_plot(self, data_array):
-        """Update existing plot without recreating everything."""
-        try:
-            if data_array.ndim == 0 or (data_array.ndim == 1 and data_array.size == 1):
-                scalar_value = float(data_array.item() if data_array.ndim == 0 else data_array[0])
-                return self.plot_history(scalar_value)
-            elif data_array.ndim == 1:
-                success = self.plot_vector(data_array)
-                if not success:
-                    success = self.plot_line(data_array)
-                return success
-            elif data_array.ndim == 2:
-                return self.plot_2d_image_clean(data_array)
-            elif data_array.ndim == 3:
-                if data_array.shape[2] == 1:
-                    data_2d = data_array[:, :, 0]
-                else:
-                    data_2d = np.mean(data_array[:, :, :3], axis=2)
-                return self.plot_2d_image_clean(data_2d)
-            else:
-                log.info(f"[DPGPlotter.update_existing_plot] Unsupported shape: {data_array.shape}")
-                return False
-        except Exception as e:
-            log.error(f"[DPGPlotter.update_existing_plot] Error: {e}")
             traceback.print_exc()
             return False
 

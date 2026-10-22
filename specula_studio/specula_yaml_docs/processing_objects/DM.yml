@@ -14,11 +14,11 @@ DM:
     ifunc:
       type: IFunc
       default: null
-      kind: object
+      kind: reference
     m2c:
       type: M2C
       default: null
-      kind: object
+      kind: reference
     type_str:
       type: str
       default: null

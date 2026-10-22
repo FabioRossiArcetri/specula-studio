@@ -41,7 +41,7 @@ class FileHandler:
         """Replace the current graph with *yaml_data* and render it."""
         graph = self.nm.graph
         graph.clear()
-        yaml_io.load_into(graph, yaml_data, self.nm.all_templates)
+        yaml_io.load_into(graph, yaml_data)
         has_positions = any("gui_pos" in nd for nd in graph.nodes.values())
         self.nm.sync_ui_from_graph()
 

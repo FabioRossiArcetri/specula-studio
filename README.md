@@ -45,7 +45,6 @@ tooltips and online help.
 ```bash
 specula-studio              # installed entry point
 python -m specula_studio    # equivalent
-python main.py              # from a source checkout, without installing
 specula-studio my_sim.yml   # open a simulation directly
 ```
 

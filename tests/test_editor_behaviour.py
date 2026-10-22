@@ -7,7 +7,7 @@ import sys
 
 import pytest
 
-from specula_studio import graph_manager as gm
+from specula_studio.core import syntax as gm
 from specula_studio import logs, settings
 from tests.conftest import FIXTURES, REPO
 

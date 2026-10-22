@@ -1,28 +1,10 @@
 """
-render_scale.py
-===============
-Rendering scale definitions for the SPECULA Studio node editor.
+Rendering sizes of the node editor (Preferences → Render Size).
 
-Provides size constants for SMALL, MEDIUM, and LARGE rendering modes.
-
-  MEDIUM  –  the current production baseline values.
-  LARGE   –  approximately 180 % of MEDIUM (rounded to integers).
-  SMALL   –  approximately  70 % of MEDIUM (rounded to integers).
-
-Font sizing strategy
---------------------
-A single font is loaded at MEDIUM size (18 px).  The ImGui global font
-scale (dpg.set_global_font_scale) is then used to scale ALL rendered text
-uniformly.  This approach is guaranteed to work in both directions (up and
-down) because it operates on the rasterised glyph atlas at render time,
-whereas dpg.bind_font() can silently fail when switching to a larger handle
-than the one that was active when setup_dearpygui() was called.
-
-Scale factors
-~~~~~~~~~~~~~
-  SMALL  → 0.70  (effective ~13 px)
-  MEDIUM → 1.00  (effective ~18 px)
-  LARGE  → 1.80  (effective ~32 px)
+Each size (MICRO, SMALL, MEDIUM, LARGE) defines the font size the UI font is
+loaded at, the spacers inside nodes and the auto-layout spacing.  MEDIUM is
+the baseline; the other sizes are roughly 50 %, 70 % and 180 % of it.
+Changing the size reloads the font at the new size.
 """
 import logging
 
@@ -33,13 +15,9 @@ RENDER_SIZES = ["MICRO", "SMALL", "MEDIUM", "LARGE"]
 DEFAULT_RENDER_SIZE = "MEDIUM"
 
 # ── Scale tables ──────────────────────────────────────────────────────────────
-# MEDIUM contains the original hard-coded values.
-# LARGE / SMALL are derived as ~180 % / ~70 % of those baseline values.
 
 SCALE_DEFS: dict = {
     "MEDIUM": {
-        # Font (base size loaded into the atlas; actual display size is
-        # controlled by the global_font_scale factor below)
         "font_size":                   18,
 
         # Node-editor spacers (set at node-creation time)
@@ -54,7 +32,7 @@ SCALE_DEFS: dict = {
     },
     "LARGE": {
         # ~180 % of MEDIUM
-        "font_size":                   22,   # same base; display scaled by 1.8
+        "font_size":                   22,
         "node_header_spacer_width":   360,   # 200 × 1.8
         "node_output_spacer_width":   180,   # 100 × 1.8
         "layout_horizontal_spacing":  126,   # 70 × 1.8
@@ -64,7 +42,7 @@ SCALE_DEFS: dict = {
     },
     "SMALL": {
         # ~70 % of MEDIUM
-        "font_size":                   15,   # same base; display scaled by 0.7
+        "font_size":                   15,
         "node_header_spacer_width":   140,   # 200 × 0.7
         "node_output_spacer_width":    70,   # 100 × 0.7
         "layout_horizontal_spacing":   46,   # 330 × 0.7
@@ -74,7 +52,7 @@ SCALE_DEFS: dict = {
     },
     "MICRO": {
         # ~50 % of MEDIUM
-        "font_size":                   12,   # same base; display scaled by 0.5
+        "font_size":                   12,
         "node_header_spacer_width":   90,   # 200 × 0.5
         "node_output_spacer_width":    45,   # 100 × 0.5
         "layout_horizontal_spacing":   30,   # 70 × 0.5
@@ -112,7 +90,7 @@ def get(key: str):
 # ── Convenience accessors ─────────────────────────────────────────────────────
 
 def font_size() -> int:
-    """Base font size (actual display controlled by global scale)."""
+    """Pixel size the UI font is loaded at."""
     return SCALE_DEFS[_current_size]["font_size"]
 
 

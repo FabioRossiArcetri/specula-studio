@@ -37,7 +37,8 @@ from specula_studio import logs  # noqa: E402
 
 logs.setup_logging("WARNING")
 
-from specula_studio.app import TEMPLATES_DIR, SpeculaEditor  # noqa: E402
+from specula_studio.app import SpeculaEditor  # noqa: E402
+from specula_studio.core.templates import TEMPLATES_DIR  # noqa: E402
 
 
 def main(path):
@@ -144,7 +145,7 @@ def main(path):
         editor._open_simulation(sim)
         dpg.set_value("sim_stepping", False)
         dpg.set_value("sim_cpu", True)
-        editor.sim_control.start_sim()          # options read from the docked panel
+        editor.sim_control.start()              # options read from the docked panel
         gen = editor.graph.find_by_name("gen")
         nm.monitors.open_monitor(None, None, (gen, "output"))
         t0 = time.time()

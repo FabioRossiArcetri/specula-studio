@@ -10,15 +10,15 @@ Slopec:
     recmat:
       type: Recmat
       default: null
-      kind: object
+      kind: reference
     filt_intmat:
       type: Intmat
       default: null
-      kind: object
+      kind: reference
     filt_recmat:
       type: Recmat
       default: null
-      kind: object
+      kind: reference
     filtmat:
       type: Any
       default: null

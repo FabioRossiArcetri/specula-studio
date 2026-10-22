@@ -120,7 +120,7 @@ def new_uuid() -> str:
 
 # ── loading ───────────────────────────────────────────────────────────────────
 
-def _populate_nodes(graph: Graph, yaml_data: dict, templates: dict) -> dict:
+def _populate_nodes(graph: Graph, yaml_data: dict) -> dict:
     """Pass 1 — create nodes and parameter values.  Returns {name: uuid}."""
     name_to_uuid: dict = {}
 
@@ -151,7 +151,6 @@ def _populate_nodes(graph: Graph, yaml_data: dict, templates: dict) -> dict:
         if isinstance(content.get("outputs"), list):
             node_data["file_outputs"] = list(content["outputs"])
 
-        template_params = templates.get(node_type, {}).get("parameters", {})
         values = node_data["values"]
 
         for key, value in content.items():
@@ -174,10 +173,6 @@ def _populate_nodes(graph: Graph, yaml_data: dict, templates: dict) -> dict:
                 values.setdefault(base_key, None)
                 continue
 
-            if key in template_params:
-                meta = template_params[key]
-                if isinstance(meta, dict) and meta.get("kind", "value") == "object":
-                    node_data["suffixes"].add(key)
             values[key] = value
 
     return name_to_uuid
@@ -235,8 +230,7 @@ def _populate_dynamic_outputs(graph: Graph) -> None:
                 node["outputs_extra"].append(out)
 
 
-def load_into(graph: Graph, yaml_data: dict, templates: dict | None = None,
-              resolve_existing: bool = False) -> dict:
+def load_into(graph: Graph, yaml_data: dict, resolve_existing: bool = False) -> dict:
     """
     Add the objects of *yaml_data* to *graph* (which may already hold nodes).
     Studio-private top-level keys (starting with ``_``) are ignored.
@@ -244,10 +238,9 @@ def load_into(graph: Graph, yaml_data: dict, templates: dict | None = None,
     were already in the graph.  Returns ``{object_name: node_uuid}`` for the
     objects added.
     """
-    templates = templates if templates is not None else graph.templates
     data = OrderedDict((k, v) for k, v in yaml_data.items() if not str(k).startswith("_"))
     existing = graph.name_to_uuid() if resolve_existing else {}
-    name_to_uuid = _populate_nodes(graph, data, templates)
+    name_to_uuid = _populate_nodes(graph, data)
     _populate_connections(graph, data, name_to_uuid, {**existing, **name_to_uuid})
     _populate_dynamic_outputs(graph)
     return name_to_uuid
@@ -256,7 +249,7 @@ def load_into(graph: Graph, yaml_data: dict, templates: dict | None = None,
 def load_graph(yaml_data: dict, templates: dict) -> Graph:
     """Build a new :class:`Graph` from a parsed SPECULA YAML mapping."""
     graph = Graph(templates)
-    load_into(graph, yaml_data, templates)
+    load_into(graph, yaml_data)
     return graph
 
 
@@ -317,7 +310,6 @@ def export_node(graph: Graph, u_id: str, include_defaults: bool = False) -> Orde
             handled.add(p_name)
             continue
         val = current_values.get(p_name)
-        kind = p_meta.get("kind", "value")
         # Explicit values are always written — even when equal to the template
         # default (SPECULA reads e.g. main.time_step / root_dir from the YAML
         # itself).  Unset parameters get their default only on request.
@@ -331,7 +323,7 @@ def export_node(graph: Graph, u_id: str, include_defaults: bool = False) -> Orde
                 continue
 
         export_key = p_name
-        if p_name in suffixes or kind == "object" or (
+        if p_name in suffixes or (
                 isinstance(val, str) and is_data_class_type(p_meta.get("type"))):
             export_key = f"{p_name}_object"
 

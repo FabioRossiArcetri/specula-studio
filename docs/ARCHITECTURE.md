@@ -13,16 +13,29 @@ specula_studio/
     overrides.py        override files: SPECULA combine rules, preview, rebase
     history.py          undo/redo states + "unsaved changes" fingerprint
     clipboard.py        copy / paste / duplicate of objects
+    run_prep.py         run directory files, specula command line
+    slurm.py            sbatch script + HPC override (see below)
+    ssh_config.py       Host entries of ~/.ssh/config
+    diagram.py          Graphviz export
   ui/                   DearPyGui mixins of the main window (SpeculaEditor)
     dialogs.py, add_objects.py, preferences.py, overrides_menu.py,
-    log_window.py, edit_actions.py
+    log_window.py, edit_actions.py, tools.py, hpc_dialog.py;
+    control_panel.py (the simulation control panel view)
   app.py                SpeculaEditor shell, menus, run loop, CLI entry point
-  node_manager.py       node canvas: draws the Graph, pins, links, selection
+  node_manager.py       node canvas: draws the Graph, pins, links, selection;
+                        owns the DPG item <-> graph lookup tables
   property_panel.py     inspector of the selected node / link
   file_handler.py       glue: core.yaml_io <-> canvas, positions
   simulation_*.py       running SPECULA (in-process, local / remote process)
-  monitor_*.py, inprocess_monitor.py, socketio_client.py, dpg_plotting.py
+  control_link.py, control_window.py
+                        the control panel in its own process (see below)
+  sshutil.py, hpc.py    prompt-free ssh/scp; SLURM jobs
+  monitor_bus.py        in-process data bus (probes -> monitor windows)
+  monitor_*.py, inprocess_monitor.py, dpg_plotting.py
                         live data monitors
+  socketio_client.py    editor connection to a DisplayServer: maps nodes to
+                        the running objects (monitor subprocesses connect
+                        on their own)
   settings.py, logs.py  user settings file, logging + in-app log buffer
 ```
 

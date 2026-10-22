@@ -25,11 +25,11 @@ fakedpg.install()
 
 from specula_studio import socketio_client  # noqa: E402
 
-socketio_client.SocketIOClient._connect = lambda self: None
+socketio_client.SocketIOClient.reconnect = lambda self: None
 
 from specula_studio.core.templates import load_bundled_templates  # noqa: E402
 from specula_studio.file_handler import FileHandler  # noqa: E402
-from specula_studio.graph_manager import GraphManager  # noqa: E402
+from specula_studio.core.model import Graph  # noqa: E402
 from specula_studio.node_manager import NodeManager  # noqa: E402
 
 
@@ -44,8 +44,8 @@ def _plain(obj):
 def export(path):
     data_tpl, proc_tpl = load_bundled_templates()
     templates = {**data_tpl, **proc_tpl}
-    graph = GraphManager(templates)
-    nm = NodeManager(graph, templates, debug=False)
+    graph = Graph(templates)
+    nm = NodeManager(graph, templates)
     nm.init_themes()
     fh = FileHandler(nm)
     fh.load_simulation(path)

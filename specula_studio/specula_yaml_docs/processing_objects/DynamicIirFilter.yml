@@ -6,7 +6,7 @@ DynamicIirFilter:
     iir_filter_data:
       type: IirFilterData
       default: REQUIRED
-      kind: object
+      kind: reference
     delay:
       type: float
       default: 0

@@ -1,25 +1,16 @@
 """
-monitor_bus.py
-==============
 Thread-safe publish/subscribe bus that routes simulation data to in-process
 monitor windows.
 
 Data flow
 ---------
-1. ``SocketIOClient`` receives a ``data_update`` event from specula's
-   ``DisplayServer``.
-2. ``NodeManager._on_data_update()`` calls ``MonitorBus.push(output_name, data)``.
-3. Every ``InProcessMonitor`` that subscribed to *output_name* is notified on
-   the caller thread (the Socket.IO background thread).  The monitors queue the
-   payload and consume it on the DPG main thread.
+1. A ``MonitorProbeObj`` in SPECULA's loop (``simulation_backend``) calls
+   ``MonitorBus.push("<object>.<output>", payload)`` on the simulation thread.
+2. Every ``InProcessMonitor`` subscribed to that topic is called on the same
+   thread; it queues the payload and consumes it on the DPG main thread.
 
-Thread-safe publish/subscribe bus that routes simulation data to in-process
-monitor windows.
-
-Changes vs. previous version
------------------------------
-* ``push()`` tracks per-topic push and drop counts for diagnostics (Issue 6).
-* ``drop_counts()`` / ``push_counts()`` expose the counters for logging.
+``push()`` counts pushes and dropped frames per topic; ``push_counts()`` /
+``drop_counts()`` expose them for diagnostics.
 """
 
 from __future__ import annotations

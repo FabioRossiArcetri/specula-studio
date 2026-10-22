@@ -9,15 +9,7 @@ import logging
 import dearpygui.dearpygui as dpg
 
 from ..core.overrides import OverrideManager
-
-try:
-    from ..help_window import show_help_window
-    _HELP_AVAILABLE = True
-except ImportError:
-    _HELP_AVAILABLE = False
-
-    def show_help_window(*_):
-        pass
+from ..help_window import show_help_window
 
 
 log = logging.getLogger(__name__)
@@ -273,17 +265,13 @@ class DialogsMixin:
         If exactly one node is selected its class and instance name are used.
         If no node is selected but the property panel is showing a node, use that.
         """
-        if not _HELP_AVAILABLE:
-            log.info("[HELP] help_window.py or help_provider.py not available.")
-            return
-
         # Prefer the node whose panel is currently displayed
         selected = self.nm.get_selected_nodes()
         node_uuid = selected[0] if len(selected) == 1 else None
 
         # Fallback: if the property panel is visible it tracks the last selection
-        if node_uuid is None and hasattr(self.nm, "_last_selected_node"):
-            node_uuid = self.nm._last_selected_node
+        if node_uuid is None:
+            node_uuid = self.nm._last_selected_uuid
 
         if node_uuid is None or node_uuid not in self.nm.graph.nodes:
             log.info("[HELP] No node selected — select a node first.")

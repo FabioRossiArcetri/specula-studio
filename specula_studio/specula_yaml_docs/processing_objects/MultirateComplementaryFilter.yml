@@ -6,7 +6,7 @@ MultirateComplementaryFilter:
     iir_filter_data:
       type: IirFilterData
       default: REQUIRED
-      kind: object
+      kind: reference
     g_track:
       type: float
       default: REQUIRED

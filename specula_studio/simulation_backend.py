@@ -36,7 +36,6 @@ import io
 import logging
 import os
 import shlex
-import socket
 import subprocess
 import sys
 import threading
@@ -49,40 +48,6 @@ from .monitor_data import extract_display_array, make_payload
 from .sshutil import SSH_OPTIONS, explain_ssh_failure, run_command
 
 log = logging.getLogger(__name__)
-
-
-def _resolve_remote_hostname(hostname: str) -> str:
-    """Resolve a remote hostname to an IP address reachable from this machine."""
-    try:
-        socket.inet_aton(hostname)
-        return hostname                       # already an IPv4 address
-    except (OSError, ValueError):
-        pass
-
-    # ssh aliases (~/.ssh/config): the HostName ssh would connect to.  `ssh -G`
-    # only evaluates the local configuration — no network, no login.
-    target = hostname.rpartition("@")[2]
-    result = run_command(["ssh", "-G", target], timeout=10)
-    if result.ok:
-        for line in result.stdout.splitlines():
-            key, _, value = line.partition(" ")
-            if key == "hostname" and value.strip():
-                target = value.strip()
-                break
-    try:
-        socket.inet_aton(target)
-        log.info("Resolved '%s' -> %s (ssh config)", hostname, target)
-        return target
-    except (OSError, ValueError):
-        hostname = target
-
-    try:
-        ip = socket.gethostbyname(hostname)
-        log.info("Resolved '%s' -> %s (DNS)", hostname, ip)
-        return ip
-    except OSError:
-        log.warning("Could not resolve '%s', using it as-is", hostname)
-        return hostname
 
 
 # ---------------------------------------------------------------------------
@@ -160,7 +125,7 @@ class RemoteBackend(SimulationBackend):
         self._running = False
         self.remote_ip = remote_ip.strip() if remote_ip else "localhost"
         self.remote_user = remote_user.strip() if remote_user else ""
-        self._resolved_ip: str | None = None
+        self._resolved_ip: str | None = None   # what the display server is reached at
         self._is_localhost = self.remote_ip in ("localhost", "127.0.0.1", "")
         self._remote_dir: str | None = None
 
@@ -168,14 +133,10 @@ class RemoteBackend(SimulationBackend):
     def ssh_target(self) -> str:
         return f"{self.remote_user}@{self.remote_ip}" if self.remote_user else self.remote_ip
 
-    def set_resolved_ip(self, ip: str) -> None:
-        self._resolved_ip = ip
-
     def start(self, yaml_paths, cmd_args, append_terminal, on_port_found, on_finished):
         if isinstance(yaml_paths, str):
             yaml_paths = [yaml_paths]
-        if "resolved_ip" in cmd_args:
-            self.set_resolved_ip(cmd_args["resolved_ip"])
+        self._resolved_ip = cmd_args.get("resolved_ip") or self._resolved_ip
         if self._is_localhost:
             self._start_local(yaml_paths, cmd_args, append_terminal, on_port_found, on_finished)
         else:
@@ -336,13 +297,11 @@ class MonitorProbeObj:
         self._bus = monitor_bus
         self._output_name = output_name
         self.inputs_changed = False
-        self._current_time = 0
         self._enabled = True
 
     # ── LoopControl interface — hot path ──────────────────────────────────────
 
     def check_ready(self, t) -> bool:
-        self._current_time = t
         if not self._enabled or not self._bus.subscriber_count(self._topic):
             self.inputs_changed = False      # nobody watching: skip the copy
             return False
@@ -433,7 +392,6 @@ class InProcessBackend(SimulationBackend):
         self._registry: dict = {}          # topic -> (data_obj, output_name)
         self._active: dict = {}            # topic -> probe in the loop
         self._pending: collections.deque = collections.deque()
-        self._loop = None                  # current LoopControl
         self._probe_idx: int | None = None
         self._step_read: io.TextIOWrapper | None = None
         self._step_write: io.TextIOWrapper | None = None
@@ -502,7 +460,7 @@ class InProcessBackend(SimulationBackend):
         return MonitorProbeObj(self.PROBE_TOPIC_PREFIX + topic, data_obj, topic,
                                self._monitor_bus, out_key)
 
-    def attach_probe(self, topic: str, monitor_bus=None) -> MonitorProbeObj | None:
+    def attach_probe(self, topic: str) -> MonitorProbeObj | None:
         """Start feeding *topic* ("object.output") to the monitor bus."""
         with self._lock:
             existing = self._active.get(topic)
@@ -546,7 +504,6 @@ class InProcessBackend(SimulationBackend):
         def run(loop_self, *args, **kwargs):
             simul = current_simul[0]
             with backend._lock:
-                backend._loop = loop_self
                 backend._probe_idx = None
                 backend._registry = _output_registry(simul) if simul is not None else {}
                 backend._active.clear()
@@ -615,7 +572,6 @@ class InProcessBackend(SimulationBackend):
                 self._registry = {}
                 self._active.clear()
                 self._pending.clear()
-                self._loop = None
             for f in (self._step_read, self._step_write):
                 if f is not None and not f.closed:
                     try:

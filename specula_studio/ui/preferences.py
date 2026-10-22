@@ -12,15 +12,6 @@ import dearpygui.dearpygui as dpg
 
 from .. import render_scale
 
-try:
-    from ..help_window import show_help_window
-    _HELP_AVAILABLE = True
-except ImportError:
-    _HELP_AVAILABLE = False
-
-    def show_help_window(*_):
-        pass
-
 
 from ..fonts import FONT_PATH, MATPLOTLIB_FONTS_PATH
 
@@ -325,9 +316,7 @@ class PreferencesMixin:
         self.preferences['render_size'] = new_size
         render_scale.set_size(new_size)
 
-        scale = 1.0 # render_scale.global_font_scale()
-        dpg.set_global_font_scale(scale)
-        log.info(f"[RENDER] Global font scale → {scale}  (size: {new_size})")
+        log.info(f"[RENDER] Render size → {new_size}")
         self._reload_font()
 
         if self.nm.graph.nodes:

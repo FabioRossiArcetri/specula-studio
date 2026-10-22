@@ -6,7 +6,7 @@ SpotMonitor:
     subapdata:
       type: SubapData
       default: REQUIRED
-      kind: object
+      kind: reference
     initial_alpha:
       type: float
       default: 2.0

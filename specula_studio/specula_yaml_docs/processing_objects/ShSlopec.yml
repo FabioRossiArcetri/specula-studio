@@ -6,7 +6,7 @@ ShSlopec:
     subapdata:
       type: SubapData
       default: REQUIRED
-      kind: object
+      kind: reference
     sn:
       type: Slopes
       default: null

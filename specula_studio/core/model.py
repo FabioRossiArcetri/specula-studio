@@ -1,7 +1,7 @@
 """
 In-memory model of a SPECULA simulation graph (no DearPyGui dependency).
 
-Node records are plain dicts (kept for compatibility with the UI code)::
+Node records are plain dicts::
 
     {
         "type":          "Modalrec",          # SPECULA class name
@@ -27,9 +27,6 @@ import logging
 
 
 log = logging.getLogger(__name__)
-
-Connection = tuple  # (src_uuid, src_attr, dst_uuid, dst_attr)
-
 
 class Graph:
     def __init__(self, templates: dict):
@@ -158,6 +155,3 @@ class Graph:
         self.connection_properties.clear()
         self.connection_properties.update(snap["connection_properties"])
 
-
-# Backward-compatible name used throughout the UI code.
-GraphManager = Graph

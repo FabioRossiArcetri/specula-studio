@@ -1,6 +1,6 @@
 """Non-interactive ssh helpers and remote host resolution."""
 
-from specula_studio import simulation_backend, sshutil
+from specula_studio import sshutil
 from specula_studio.sshutil import CommandResult
 
 
@@ -36,7 +36,7 @@ def test_resolve_alias_through_ssh_config_without_login(monkeypatch):
         calls.append(argv)
         return CommandResult(0, "user frossi\nhostname 193.206.155.190\nport 22\n", "")
 
-    monkeypatch.setattr(simulation_backend, "run_command", fake)
-    assert simulation_backend._resolve_remote_hostname("frossi@sauron") == "193.206.155.190"
+    monkeypatch.setattr(sshutil, "run_command", fake)
+    assert sshutil.resolve_host("frossi@sauron") == "193.206.155.190"
     assert calls == [["ssh", "-G", "sauron"]]            # local config only, no login
-    assert simulation_backend._resolve_remote_hostname("10.0.0.1") == "10.0.0.1"
+    assert sshutil.resolve_host("10.0.0.1") == "10.0.0.1"

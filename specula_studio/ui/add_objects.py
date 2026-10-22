@@ -9,15 +9,6 @@ import logging
 import dearpygui.dearpygui as dpg
 
 
-try:
-    from ..help_window import show_help_window
-    _HELP_AVAILABLE = True
-except ImportError:
-    _HELP_AVAILABLE = False
-
-    def show_help_window(*_):
-        pass
-
 
 log = logging.getLogger(__name__)
 

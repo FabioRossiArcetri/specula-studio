@@ -10,15 +10,6 @@ import pathlib
 import dearpygui.dearpygui as dpg
 
 
-try:
-    from ..help_window import show_help_window
-    _HELP_AVAILABLE = True
-except ImportError:
-    _HELP_AVAILABLE = False
-
-    def show_help_window(*_):
-        pass
-
 
 log = logging.getLogger(__name__)
 
@@ -63,7 +54,7 @@ class OverridesMixin:
         'overrides_sep_top' and 'overrides_sep_bottom'.  Each item shows
         the current enabled state (✓ / ○) and toggles it on click.
 
-        FIX: DPG calls every callback as callback(sender, app_data, user_data).
+        DPG calls every callback as callback(sender, app_data, user_data).
         Using a plain lambda with a default argument (lambda s, a, p=path:)
         causes DPG's positional user_data=None to override the captured path.
         The correct pattern is to pass user_data=path explicitly and read it

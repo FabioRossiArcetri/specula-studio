@@ -30,7 +30,7 @@ Lift:
     ifunc:
       type: IFunc
       default: REQUIRED
-      kind: object
+      kind: reference
     ref_zern_amp:
       type: Any
       default: REQUIRED

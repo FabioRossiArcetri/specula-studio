@@ -5,8 +5,8 @@ Renders and manages the right-hand property panel in the Specula node editor.
 
 Parameter-mode handling
 -----------------------
-Every parameter whose template kind is "reference" *or* "object" (legacy)
-exposes a _ref ↔ _object toggle.
+Every parameter whose template kind is "reference" exposes a _ref ↔ _object
+toggle.
 
   _ref (link)    – default: the square input pin is visible; wire it to any
                    data-object node's "ref" output.
@@ -49,31 +49,20 @@ import os
 import numpy as np
 import dearpygui.dearpygui as dpg
 
+import logging
+
 from .core import yaml_io
 from .dpg_utils import apply_link_style
 from .theme_manager import ThemeManager
-import logging
+from .help_provider import (
+    get_param_tooltip,
+    get_input_tooltip,
+    get_output_tooltip,
+    get_class_tooltip,
+    get_param_unit,
+)
 
 log = logging.getLogger(__name__)
-
-
-# ── Documentation helpers (gracefully absent if SPECULA not installed) ─────────
-try:
-    from .help_provider import (
-        get_param_tooltip,
-        get_input_tooltip,
-        get_output_tooltip,
-        get_class_tooltip,
-        get_param_unit,
-    )
-    _HELP_AVAILABLE = True
-except ImportError:
-    _HELP_AVAILABLE = False
-    def get_param_tooltip(*_):  return ""
-    def get_input_tooltip(*_):  return ""
-    def get_output_tooltip(*_): return ""
-    def get_class_tooltip(*_):  return ""
-    def get_param_unit(*_):     return ""
 
 # Type hints that indicate a list/array value
 _ARRAY_TYPE_HINTS = frozenset(
@@ -119,19 +108,16 @@ class PropertyPanel:
         self,
         graph,
         all_templates: dict,
-        registry,
+        canvas,
         monitor_manager,
-        delink_callback,
-        refresh_node_theme,
-        rename_node=None,
     ):
         self.graph              = graph
         self.all_templates      = all_templates
-        self.registry           = registry
+        self.canvas             = canvas          # the NodeManager
         self.monitors           = monitor_manager
-        self._delink_callback   = delink_callback
-        self._refresh_node_theme = refresh_node_theme
-        self._rename_node       = rename_node
+        self._delink_callback   = canvas.delink_callback
+        self._refresh_node_theme = canvas._refresh_node_theme
+        self._rename_node       = canvas.rename_node
         self.theme_manager = ThemeManager()
 
     # =========================================================================
@@ -199,13 +185,10 @@ class PropertyPanel:
             dpg.add_separator(parent=panel_tag)
 
             for param_name, meta in template_params.items():
-                # Determine if this is a ref/object parameter.
-                # Both kind:"reference" (new templates) and kind:"object"
-                # (legacy templates not yet regenerated) are treated the same.
                 is_ref_param = False
                 if isinstance(meta, dict):
                     kind = meta.get("kind", "value")
-                    if kind in ("reference", "object"):
+                    if kind == "reference":
                         is_ref_param = True
                     elif "type" in meta and self.is_data_class_type(meta["type"]):
                         is_ref_param = True
@@ -452,7 +435,7 @@ class PropertyPanel:
         for out in node_data.get("outputs_extra", []):
             if isinstance(out, str) and out not in all_outputs:
                 all_outputs.append(out)
-        for uid, name in self.registry.output_attr_registry.values():
+        for uid, name in self.canvas.output_attr_registry.values():
             if uid == node_uuid and name not in all_outputs:
                 all_outputs.append(name)
 
@@ -489,7 +472,7 @@ class PropertyPanel:
                         if monitor_id:
                             def _close_wrapper(sender, app_data, user_data):
                                 self.monitors.close_monitor(
-                                    user_data, from_window_close=False
+                                    user_data
                                 )
                             dpg.add_button(
                                 label="Close Monitor",
@@ -510,11 +493,11 @@ class PropertyPanel:
         """Render connection properties (delay, type) for *link_id*."""
         dpg.delete_item(panel_tag, children_only=True)
 
-        if link_id not in self.registry.link_registry:
+        if link_id not in self.canvas.link_registry:
             log.info(f"[PANEL] Link {link_id} not in registry")
             return
 
-        src_uuid, src_attr, dst_uuid, dst_attr = self.registry.link_registry[link_id]
+        src_uuid, src_attr, dst_uuid, dst_attr = self.canvas.link_registry[link_id]
         src_node = self.graph.nodes.get(src_uuid, {})
         dst_node = self.graph.nodes.get(dst_uuid, {})
         src_name = src_node.get("name", "Unknown")
@@ -637,9 +620,6 @@ class PropertyPanel:
     ):
         """
         Render a single ref-or-object parameter row (combo + sub-row).
-
-        Handles both kind:"reference" (new templates) and kind:"object"
-        (legacy templates).  The logic and layout are identical for both.
         """
         node_type   = node_data.get("type", "")
         param_modes = node_data.setdefault("param_modes", {})
@@ -798,17 +778,6 @@ class PropertyPanel:
         else:
             # connection lists in the panel show names: redraw it
             self.update_node_panel(node_uuid, "property_panel")
-
-    def _parse_value(self, value):
-        if not isinstance(value, str):
-            return value
-        val_stripped = value.strip()
-        if not val_stripped:
-            return ""
-        try:
-            return ast.literal_eval(val_stripped)
-        except (ValueError, SyntaxError):
-            return val_stripped
 
     def _update_param(self, sender, app_data, user_data):
         node_uuid, param_name, target_type = user_data
@@ -1060,7 +1029,7 @@ class PropertyPanel:
         node_uuid, param_name, connected_node_name = user_data
         link_to_remove = None
         for link_id, (src_uuid, _src_attr, dst_uuid, dst_attr) in (
-            self.registry.link_registry.items()
+            self.canvas.link_registry.items()
         ):
             if dst_uuid == node_uuid and dst_attr == param_name:
                 src_node = self.graph.nodes.get(src_uuid, {})
@@ -1075,7 +1044,7 @@ class PropertyPanel:
         self, src_uuid, src_attr, dst_uuid, dst_attr, delay: int
     ):
         link_id = None
-        for lid, conn_data in self.registry.link_registry.items():
+        for lid, conn_data in self.canvas.link_registry.items():
             if (
                 conn_data[0] == src_uuid and conn_data[1] == src_attr
                 and conn_data[2] == dst_uuid and conn_data[3] == dst_attr
@@ -1096,7 +1065,7 @@ class PropertyPanel:
 
     def _update_feedback_attribute(self, node_uuid, attr_name, delay: int):
         attr_id = None
-        for aid, (uid, name) in self.registry.output_attr_registry.items():
+        for aid, (uid, name) in self.canvas.output_attr_registry.items():
             if uid == node_uuid and name == attr_name:
                 attr_id = aid
                 break
@@ -1124,7 +1093,7 @@ class PropertyPanel:
     # =========================================================================
 
     def _set_ref_pin_visible(self, node_uuid: str, attr_name: str, visible: bool):
-        for attr_id, (uid, name) in self.registry.input_attr_registry.items():
+        for attr_id, (uid, name) in self.canvas.input_attr_registry.items():
             if uid == node_uuid and name == attr_name:
                 if dpg.does_item_exist(attr_id):
                     try:
@@ -1136,7 +1105,7 @@ class PropertyPanel:
     def _disconnect_ref_links(self, node_uuid: str, attr_name: str):
         links_to_remove = [
             lid
-            for lid, (su, sa, du, da) in list(self.registry.link_registry.items())
+            for lid, (su, sa, du, da) in list(self.canvas.link_registry.items())
             if du == node_uuid and da == attr_name
         ]
         for lid in links_to_remove:
@@ -1198,8 +1167,8 @@ class PropertyPanel:
         )
         tm = self.theme_manager
 
-        # Legacy safety: reference/object params should not reach here, but guard
-        if param_kind in ("reference", "object") and val is not None:
+        # reference params are rendered by _render_ref_or_object_param; guard anyway
+        if param_kind == "reference" and val is not None:
             with dpg.group(horizontal=True, parent=parent):
                 lbl = dpg.add_text(
                     f"{param_name}:",
@@ -1213,8 +1182,7 @@ class PropertyPanel:
             return
 
         is_data_object = (
-            param_kind in ("object",)
-            or param_name in node_data.get("suffixes", set())
+            param_name in node_data.get("suffixes", set())
             or self.is_data_class_type(type_hint)
         )
         is_required = default_val == "REQUIRED"
@@ -1344,7 +1312,7 @@ class PropertyPanel:
 
             # ── unit label + default hint (grey text to the right) ────────────
             if type_hint not in ("bool", "boolean"):
-                unit_str = get_param_unit(node_type, param_name) if _HELP_AVAILABLE else ""
+                unit_str = get_param_unit(node_type, param_name)
                 if unit_str:
                     dpg.add_text(
                         f"[{unit_str}]",

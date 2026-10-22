@@ -57,7 +57,7 @@ def node_issues(graph: Graph, node_uuid: str,
         if not isinstance(meta, dict) or not _is_required(meta):
             continue
         kind = meta.get("kind", "value")
-        if kind in ("reference", "object"):
+        if kind == "reference":
             if modes.get(name, "ref") == "object":
                 if not values.get(f"{name}_object", ""):
                     issues.append(Issue(node_uuid, "required object file/tag not set", name))

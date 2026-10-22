@@ -24,9 +24,9 @@ import threading
 import time
 import traceback
 
+import logging
 
 from .inprocess_monitor import InProcessMonitor
-import logging
 
 log = logging.getLogger(__name__)
 
@@ -34,8 +34,8 @@ log = logging.getLogger(__name__)
 def _subprocess_env() -> dict:
     """Environment for child processes that must import ``specula_studio``.
 
-    Works both for an installed package and for a source checkout run via
-    the top-level ``main.py`` shim (the checkout root is put on PYTHONPATH).
+    Works both for an installed package and for a source checkout (the
+    checkout root is put on PYTHONPATH).
     """
     env = os.environ.copy()
     pkg_parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -49,24 +49,21 @@ def _subprocess_env() -> dict:
 
 
 def _is_direct_backend(backend) -> bool:
-    try:
-        from .simulation_backend import InProcessBackend
-        return isinstance(backend, InProcessBackend) and backend._monitor_bus is not None
-    except Exception:
-        return False
+    """True for an in-process run: monitors are fed by probes, not Socket.IO."""
+    from .simulation_backend import InProcessBackend
+    return isinstance(backend, InProcessBackend)
 
 
 class MonitorManager:
     """Manages monitor windows (subprocess and in-process)."""
 
-    def __init__(self, sio_client, graph, monitor_bus=None, debug: bool = True):
+    def __init__(self, sio_client, graph, monitor_bus=None):
         self.sio_client  = sio_client
         self.graph       = graph
-        self.debug       = debug
         self._monitor_bus = monitor_bus
         self._use_inprocess: bool  = False
         self._backend              = None
-        self._session_id: str      = ""   # set by simulation_control (Issue 9)
+        self._session_id: str      = ""   # set by simulation_control
 
         self.active_monitors: dict  = {}
         self._lock = threading.Lock()
@@ -101,7 +98,7 @@ class MonitorManager:
         self._server_url_file = path
 
     def set_session_id(self, session_id: str) -> None:
-        """Store the session_id for the current simulation run (Issue 9)."""
+        """Store the session_id for the current simulation run."""
         self._session_id = session_id
         self._log(f"Session ID updated: {session_id}")
 
@@ -111,11 +108,6 @@ class MonitorManager:
         log.debug(msg)
 
     # ── Server-event stubs ────────────────────────────────────────────────────
-
-    def on_server_connect(self):    pass
-    def on_server_disconnect(self): pass
-    def on_server_connect_error(self, data): pass
-    def on_data_update(self, name: str, raw_data): pass
 
     def on_server_params(self, data: dict):
         """The DisplayServer listed its objects: start monitors waiting for it."""
@@ -190,8 +182,8 @@ class MonitorManager:
     def open_monitor(self, sender, app_data, user_data):
         """Open a monitor for the specified node output.
 
-        FIX: In direct mode, use direct probe topic (node_name.output_name).
-        In Socket.IO mode, resolve server_output_name via DisplayServer.
+        In-process runs use the probe topic ``<object>.<output>``; Socket.IO
+        runs resolve the server output name through the DisplayServer.
         """
         node_uuid, output_name = user_data
 
@@ -259,7 +251,7 @@ class MonitorManager:
         ]
         if self._server_url_file:
             cmd += ["--server-url-file", self._server_url_file]
-        # Pass session_id so the monitor can validate the coordination file (Issue 9)
+        # Pass session_id so the monitor can validate the coordination file
         if self._session_id:
             cmd += ["--session-id", self._session_id]
 
@@ -319,7 +311,7 @@ class MonitorManager:
             monitor._probe = self._backend.attach_probe(server_output_name)
         self._log(f"In-process monitor {monitor_id} opened for {server_output_name}")
 
-    def close_monitor(self, monitor_id: str, from_window_close: bool = False):
+    def close_monitor(self, monitor_id: str):
         with self._lock:
             info = self.active_monitors.pop(monitor_id, None)
         if info is not None:
@@ -373,17 +365,9 @@ class MonitorManager:
 
     # ── Ticking ──────────────────────────────────────────────────────────[...]
 
-    def after_dpg_init(self):
-        self._log("Ready")
-
-    def start_periodic_tasks(self):
-        self._log("start_periodic_tasks called (ticking via main render loop)")
-
     def tick(self) -> None:
-        """Drain and render all in-process monitors every frame.
-
-        FIX: Add diagnostic logging to verify data is flowing through the bus.
-        """
+        """Drain and render all in-process monitors every frame (with periodic
+        diagnostics of the bus traffic)."""
         if not self._inprocess_monitors:
             return
 

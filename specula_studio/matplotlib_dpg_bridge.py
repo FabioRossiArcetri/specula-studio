@@ -4,15 +4,12 @@ matplotlib_dpg_bridge.py
 Bridges matplotlib (Agg backend) figures into DearPyGui windows for
 the In-Process simulation mode in Specula Studio.
 
-Integration points (all already present in the repo):
-  - simulation_backend.InProcessBackend._patch_matplotlib()
-        calls MatplotlibDPGBridge.install()
-  - simulation_backend.InProcessBackend._cleanup_matplotlib()
-        calls MatplotlibDPGBridge.close_all()
+Integration points:
+  - simulation_backend.InProcessBackend._prepare_matplotlib()
+        calls close_all() and install() before each run
   - simulation_backend.InProcessBackend.abort()
-        calls MatplotlibDPGBridge.close_all()
-  - main.SpeculaEditor.run() render loop
-        calls MatplotlibDPGBridge.tick() once per frame
+        calls close_all()
+  - the render loop in app.py calls tick() once per frame
 
 Design
 ------
@@ -56,14 +53,6 @@ class MatplotlibDPGBridge:
     _lock = threading.Lock()
     _installed = False
 
-    # Originals saved for uninstall
-    _orig_canvas_draw      = None
-    _orig_canvas_draw_idle = None
-    _orig_show             = None
-    _orig_draw             = None
-    _orig_pause            = None
-    _orig_ion              = None
-
     # Generation counter — incremented by every close_all() call.
     # Renders captured before the latest close_all are silently dropped.
     _close_generation: int = 0
@@ -106,15 +95,8 @@ class MatplotlibDPGBridge:
                 from matplotlib.backends.backend_agg import FigureCanvasAgg
                 import matplotlib.pyplot as plt
 
-                cls._orig_canvas_draw      = FigureCanvasAgg.draw
-                cls._orig_canvas_draw_idle = FigureCanvasAgg.draw_idle
-                cls._orig_show             = plt.show
-                cls._orig_draw             = plt.draw
-                cls._orig_pause            = plt.pause
-                cls._orig_ion              = plt.ion
-
                 bridge     = cls
-                _orig_draw = cls._orig_canvas_draw
+                _orig_draw = FigureCanvasAgg.draw
 
                 def _patched_canvas_draw(canvas_self):
                     # ── 1. Perform the actual Agg render ──────────────────────
@@ -181,34 +163,10 @@ class MatplotlibDPGBridge:
                 log.warning(f"[MPL-DPG] install() failed: {exc}")
 
     @classmethod
-    def uninstall(cls) -> None:
-        """Restore all patched functions. Call on application exit."""
-        with cls._lock:
-            if not cls._installed:
-                return
-            try:
-                from matplotlib.backends.backend_agg import FigureCanvasAgg
-                import matplotlib.pyplot as plt
-                if cls._orig_canvas_draw:
-                    FigureCanvasAgg.draw      = cls._orig_canvas_draw
-                if cls._orig_canvas_draw_idle:
-                    FigureCanvasAgg.draw_idle = cls._orig_canvas_draw_idle
-                if cls._orig_show:  plt.show  = cls._orig_show
-                if cls._orig_draw:  plt.draw  = cls._orig_draw
-                if cls._orig_pause: plt.pause = cls._orig_pause
-                if cls._orig_ion:   plt.ion   = cls._orig_ion
-                cls._orig_canvas_draw = cls._orig_canvas_draw_idle = None
-                cls._orig_show = cls._orig_draw = cls._orig_pause = cls._orig_ion = None
-                cls._installed = False
-                log.info("[MPL-DPG] Uninstalled.")
-            except Exception as exc:
-                log.error(f"[MPL-DPG] uninstall() error: {exc}")
-
-    @classmethod
     def close_all(cls) -> None:
         """
         Close all DPG figure windows and free in-memory figures.
-        Called from InProcessBackend._cleanup_matplotlib() and abort().
+        Called before each in-process run and on abort.
         """
         # Bump generation BEFORE clearing _pending so that any render the
         # simulation thread stores between now and the next tick() will

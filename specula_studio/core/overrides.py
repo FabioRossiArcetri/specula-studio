@@ -243,16 +243,6 @@ class OverrideManager:
                  Path(path).name)
         return entry["enabled"]
 
-    def enable_override(self, path: str):
-        path = str(Path(path).resolve())
-        if path in self._overrides:
-            self._overrides[path]["enabled"] = True
-
-    def disable_override(self, path: str):
-        path = str(Path(path).resolve())
-        if path in self._overrides:
-            self._overrides[path]["enabled"] = False
-
     def is_enabled(self, path: str) -> bool:
         return self._overrides.get(str(Path(path).resolve()), {}).get("enabled", False)
 
@@ -302,6 +292,3 @@ class OverrideManager:
                 log.info("Restored override %s (%s)", Path(path).name,
                          "on" if item.get("enabled", True) else "off")
 
-
-# Backward-compatible private name
-_combine_params = combine_params

@@ -6,15 +6,15 @@ ModalrecExplicitPolc:
     recmat:
       type: Recmat
       default: REQUIRED
-      kind: object
+      kind: reference
     projmat:
       type: Recmat
       default: null
-      kind: object
+      kind: reference
     intmat:
       type: Intmat
       default: null
-      kind: object
+      kind: reference
     nSlopesToBeDiscarded:
       type: int
       default: null

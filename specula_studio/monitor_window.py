@@ -1,26 +1,19 @@
 """
-monitor_window.py
-=================
-Standalone monitor window — runs as an independent subprocess.
+Standalone monitor window — runs as an independent subprocess, one per
+monitored output of a run with a display server.
 
-Changes vs. previous version
------------------------------
-* Accepts ``--session-id`` CLI argument (Issue 9).  Every reconnect attempt
-  reads the coordination file and compares its ``session_id`` field against the
-  value we were launched with.  If they differ the file belongs to a newer run
-  and this process exits cleanly instead of hijacking the new server.
-* ``_drain_queue`` applies the same back-pressure policy as InProcessMonitor:
-  when the minimum display interval has not elapsed, drain at most one item and
-  skip rendering rather than consuming CPU dequeuing frames we won't show (Issue 6).
-* Drop counter: old-style ``get_nowait()`` + ``put()`` replaced by
-  ``put_nowait`` + per-window drop counter logged periodically (Issue 6).
-* ``done`` handler no longer re-emits ``newdata`` directly; the stall watchdog
-  in the connection loop handles re-arming so a single missed ``done`` cannot
-  permanently stop the stream (Issue 2).
-* Envelope format follows the canonical two-layer structure:
-  outer ``{"name": ..., "data": <inner_payload>}``; inner payload has
-  ``type/data/shape`` fields — identical to what InProcessMonitor receives
-  from MonitorBus (Issue 3).
+* ``--session-id``: every reconnect attempt reads the coordination file and
+  compares its ``session_id`` with the one we were launched with.  If they
+  differ the file belongs to a newer run and this process exits instead of
+  attaching to the new server.
+* Back-pressure: when the minimum display interval has not elapsed,
+  ``_drain_queue`` drains at most one item and skips rendering; a full queue
+  drops its oldest frame and the drops are logged periodically.
+* A stall watchdog re-arms the ``newdata`` pull cycle when no ``done`` arrives,
+  so a single missed ``done`` cannot stop the stream.
+* Envelope: outer ``{"name": ..., "data": <payload>}``; the payload has
+  ``type/data/shape`` fields — the same that InProcessMonitor receives from
+  MonitorBus.
 """
 
 import argparse
@@ -97,12 +90,12 @@ class StandaloneMonitor:
         self.server_output_name = server_output_name
         self.node_name          = node_name
         self.output_name        = output_name
-        self.session_id         = session_id   # Issue 9
+        self.session_id         = session_id
 
         # Thread-safe data queue (sio thread → main thread)
         self.data_queue: Queue = Queue(maxsize=MONITOR_QUEUE_SIZE)
 
-        # Drop counter (Issue 6)
+        # Drop counter
         self._drop_count: int = 0
 
         # Socket.IO state
@@ -110,7 +103,7 @@ class StandaloneMonitor:
         self.connected = False
         self._sio_lock = threading.Lock()
 
-        # Stall watchdog (Issue 2)
+        # Stall watchdog
         self._stall_timer: threading.Timer | None = None
         self._stall_lock = threading.Lock()
 
@@ -136,14 +129,11 @@ class StandaloneMonitor:
         # Stop flag
         self._stop_flag = threading.Event()
 
-        # Mouse state
-        self.mouse_down = False
-
         # Theme manager
         self.theme_manager = ThemeManager()
 
     # =========================================================================
-    # Coordination file / URL resolution  (Issue 9)
+    # Coordination file / URL resolution
     # =========================================================================
 
     def _resolve_server_url(self) -> tuple[str, bool]:
@@ -186,7 +176,7 @@ class StandaloneMonitor:
         return self.server_url, True
 
     # =========================================================================
-    # Stall watchdog  (Issue 2)
+    # Stall watchdog
     # =========================================================================
 
     def _arm_stall_watchdog(self):
@@ -277,7 +267,7 @@ class StandaloneMonitor:
             try:
                 self.data_queue.put_nowait({"payload": payload, "timestamp": time.time()})
             except Full:
-                # Drop oldest to make room  (Issue 6)
+                # Drop oldest to make room
                 try:
                     self.data_queue.get_nowait()
                 except Empty:
@@ -354,88 +344,8 @@ class StandaloneMonitor:
                 retry_delay = min(retry_delay * 1.5, max_delay)
 
     # =========================================================================
-    # DPG setup and input handling
+    # DPG setup
     # =========================================================================
-
-    def _on_mouse_move(self, sender, app_data):
-        try:
-            if self.dpg_plotter and self.dpg_plotter.image_viewer:
-                self.dpg_plotter.image_viewer.handle_mouse_move(app_data[0], app_data[1])
-        except Exception:
-            pass
-
-    def _on_mouse_scroll(self, sender, app_data):
-        try:
-            if self.dpg_plotter and self.dpg_plotter.image_viewer:
-                self.dpg_plotter.image_viewer.handle_mouse_scroll(app_data)
-        except Exception:
-            pass
-
-    def _on_mouse_down(self, sender, app_data):
-        try:
-            if self.dpg_plotter and self.dpg_plotter.image_viewer:
-                self.dpg_plotter.image_viewer.start_drag(app_data[0], app_data[1])
-                self.mouse_down = True
-        except Exception:
-            pass
-
-    def _on_mouse_up(self, sender, app_data):
-        try:
-            if self.dpg_plotter and self.dpg_plotter.image_viewer:
-                self.dpg_plotter.image_viewer.end_drag()
-                self.mouse_down = False
-        except Exception:
-            pass
-
-    def _apply_theme_to_item(self, item_tag: str, item_type: str = "default"):
-        """Apply theme colors to a DPG item based on its type."""
-        if not dpg.does_item_exist(item_tag):
-            return
-
-        tm = self.theme_manager
-
-        if item_type == "window":
-            dpg.configure_item(
-                item_tag,
-                border_color=tm.get_color("border"),
-                title_bar_color=tm.get_color("titlebar"),
-                menubar_color=tm.get_color("menubar")
-            )
-        elif item_type == "collapsing_header":
-            dpg.configure_item(
-                item_tag,
-                border_color=tm.get_color("border")
-            )
-        elif item_type == "group":
-            pass  # Groups don't typically need explicit colors
-        elif item_type == "text_default":
-            dpg.configure_item(
-                item_tag,
-                color=tm.get_color("text_default")
-            )
-        elif item_type == "child_window":
-            dpg.configure_item(
-                item_tag,
-                border_color=tm.get_color("border")
-            )
-        elif item_type == "button":
-            dpg.configure_item(
-                item_tag,
-                border_color=tm.get_color("border"),
-                color=tm.get_color("text_default")
-            )
-        elif item_type == "radio_button":
-            dpg.configure_item(
-                item_tag,
-                color=tm.get_color("text_default")
-            )
-        elif item_type == "separator":
-            dpg.configure_item(
-                item_tag,
-                color=tm.get_color("border")
-            )
-        elif item_type == "handler_registry":
-            pass  # No visual styling needed
 
     def _build_ui(self):
         dpg.create_context()
@@ -613,12 +523,6 @@ class StandaloneMonitor:
                     tag=self._TAG_INFO_TIME,
                 )
 
-        with dpg.handler_registry():
-            dpg.add_mouse_move_handler(callback=self._on_mouse_move)
-            dpg.add_mouse_wheel_handler(callback=self._on_mouse_scroll)
-            dpg.add_mouse_click_handler(callback=self._on_mouse_down)
-            dpg.add_mouse_release_handler(callback=self._on_mouse_up)
-
         dpg.create_viewport(title=title, width=self.window_width, height=self.window_height)
         dpg.setup_dearpygui()
         dpg.show_viewport()
@@ -647,7 +551,7 @@ class StandaloneMonitor:
             pass
 
     # =========================================================================
-    # Data conversion + plotting  (Issue 3 — canonical payload format)
+    # Data conversion + plotting
     # =========================================================================
 
     def _raw_to_numpy(self, payload: dict) -> np.ndarray | None:
@@ -688,7 +592,7 @@ class StandaloneMonitor:
                 dpg.configure_item(tag, color=tm.get_color("text_secondary"))
 
     # =========================================================================
-    # Per-frame work (main thread)  — back-pressure policy  (Issue 6)
+    # Per-frame work (main thread) — back-pressure policy
     # =========================================================================
 
     def _set_status(self, status: str):
@@ -804,7 +708,7 @@ def main():
     parser.add_argument("--output-name", required=True)
     parser.add_argument(
         "--session-id", default="",
-        help="Session ID of the simulation run that spawned this monitor (Issue 9)",
+        help="Session ID of the simulation run that spawned this monitor",
     )
     args = parser.parse_args()
 

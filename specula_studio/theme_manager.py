@@ -17,54 +17,6 @@ class ThemeManager:
     """Singleton manager to load, save, and apply themes."""
     _instance = None
 
-    # Logical color keys used throughout the application
-    COLOR_KEYS = [
-        # Core UI
-        "window_bg", "child_bg", "popup_bg",
-        "text_default", "text_selected", "text_disabled",
-        "frame_bg", "frame_hovered", "frame_active",
-        "button_bg", "button_hovered", "button_active",
-        "title_bg", "title_text",
-        "menu_bar_bg", "menu_bar_text",
-        # Node editor (global)
-        "node_editor_bg", "plot_grid", "link_default", "link_selected",
-        "node_title_bg", "node_selected_border",
-        # Plotting
-        "plot_bg", "plot_line",
-        # Property panel
-        "property_group_bg", "property_label",
-        # Help window
-        "help_bg", "help_text",
-        # Semantic / main.py
-        "text_instruction", "text_success", "text_muted", "text_secondary",
-        "dialog_title", "section_header", "font_selected_text", "accent",
-        "status_text", "text_hint",
-        # Monitors (common)
-        "monitor_output_label", "monitor_status_waiting",
-        "monitor_status_receiving", "monitor_status_subscribed", "monitor_status_error",
-        # Help window specific
-        "text_error", "help_param_name", "help_param_required",
-        "help_param_type", "help_default", "help_default_required",
-        # Node manager specific
-        "node_class_label", "node_ref_input_label", "node_input_label",
-        "node_output_label", "node_hint_text", "node_data_obj_ref_output",
-        "node_dynamic_output_label", "node_feedback_link_color",
-        "node_ref_link_color", "node_io_output_label",
-        # Property panel specific
-        "param_default", "param_modified", "param_hint", "param_unit",
-        "tooltip_text", "panel_section_header", "panel_label_normal",
-        "panel_label_required", "panel_label_data_obj", "panel_label_ref",
-        "panel_text_secondary", "panel_text_muted", "panel_text_hint",
-        "panel_conn_src_name", "panel_conn_dst_name", "panel_monitor_active",
-        # Simulation control
-        "control_section_header", "control_subsection_header", "control_terminal_title",
-        # Node themes (dpg_utils)
-        "node_data_bg", "node_data_selected", "node_data_outline",
-        "node_proc_bg", "node_proc_selected", "node_proc_outline",
-        "node_incomplete_outline",
-        # Table / zebra theme
-        "table_row_bg", "table_row_bg_alt", "table_header_bg",
-    ]
 
     DARK_THEME = {
         # Core

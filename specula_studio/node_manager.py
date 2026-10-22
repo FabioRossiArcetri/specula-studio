@@ -1,23 +1,17 @@
 """
-DPG node-graph UI manager and orchestrator.
+The node canvas: draws the graph model as DearPyGui nodes, pins and links.
 
-After refactoring, this module is responsible ONLY for:
-  - Node / link CRUD (create, delete, clear)
-  - DPG attribute registries (via NodeRegistry)
-  - Theme management
-  - Mouse / keyboard event handlers
-  - Delegation to sub-components
-
-Three sub-components handle specialized responsibilities:
-  - SocketIOClient   (socketio_client.py)  – server connection & pub/sub
-  - MonitorManager   (monitor_manager.py)  – live-data monitor windows
-  - PropertyPanel    (property_panel.py)   – property inspector UI
+NodeManager owns the canvas state — the lookup tables between DearPyGui item
+ids and graph uuids / attribute names — and the canvas interactions (linking,
+selection, deletion, renaming).  It also owns the property panel, the monitor
+manager and the Socket.IO client that maps nodes to a running simulation.
 """
 
 import time
 import uuid
 import dearpygui.dearpygui as dpg
 
+from .help_provider import is_input_optional as _is_input_optional
 from .dpg_utils import (
     apply_link_style,
     create_data_node_theme,
@@ -25,8 +19,8 @@ from .dpg_utils import (
     create_data_node_theme_incomplete,
     create_proc_node_theme_incomplete,
 )
-from .constants import SOCKETIO_SERVER
 from .constants import (
+    SOCKETIO_SERVER,
     DATA_SHAPE_EMPTY,
     DATA_SHAPE_FILLED,
     DATA_MULTIPLE_SHAPE_EMPTY,
@@ -35,9 +29,8 @@ from .constants import (
     REF_SHAPE_FILLED,
 )
 from . import render_scale
-from .core import validation, yaml_io
+from .core import validation
 from .core.syntax import add_ref_value, is_ref_attr, remove_ref_value, validate_node_name
-from .node_registry import NodeRegistry
 from .socketio_client import SocketIOClient
 from .monitor_bus import MonitorBus
 from .monitor_manager import MonitorManager
@@ -48,101 +41,63 @@ import logging
 log = logging.getLogger(__name__)
 
 
-# ── Documentation / class introspection (graceful fallback) ───────────────────
-try:
-    from .help_provider import is_input_optional as _is_input_optional
-    _HELP_PROVIDER_OK = True
-except ImportError:
-    _HELP_PROVIDER_OK = False
-    def _is_input_optional(class_name, input_name):
-        return False   # conservative: treat everything as required
-
-
 class NodeManager:
     """
-    Orchestrates the DPG node editor and its supporting sub-components.
-
-    Delegates specialized tasks to:
-    - SocketIOClient: Server communication and real-time updates
-    - MonitorManager: Live data visualization windows
-    - PropertyPanel: Node and connection property inspection
+    The DPG node editor.  Owns:
+    - SocketIOClient: node → object-name mapping of a running simulation
+    - MonitorManager: live data windows
+    - PropertyPanel: node and connection properties
     """
 
     def __init__(
         self,
-        graph_manager,
+        graph,
         all_templates: dict,
         socketio_server: str = SOCKETIO_SERVER,
-        debug: bool = True,
     ):
-        self.graph = graph_manager
+        self.graph = graph
         self.all_templates = all_templates
-        self.debug = debug
 
-        # ===== 1. SHARED REGISTRY =====
-        self.registry = NodeRegistry()
+        # ===== 1. CANVAS LOOKUP TABLES =====
+        self.dpg_to_uuid: dict = {}            # DPG node item -> node uuid
+        self.uuid_to_dpg: dict = {}            # node uuid -> DPG node item
+        self.input_attr_registry: dict = {}    # DPG input pin -> (uuid, attribute)
+        self.output_attr_registry: dict = {}   # DPG output pin -> (uuid, attribute)
+        self.link_registry: dict = {}          # DPG link -> (src_uuid, src_attr, dst_uuid, dst_attr)
 
-        # Convenience aliases for backward compatibility
-        self.dpg_to_uuid          = self.registry.dpg_to_uuid
-        self.uuid_to_dpg          = self.registry.uuid_to_dpg
-        self.input_attr_registry  = self.registry.input_attr_registry
-        self.output_attr_registry = self.registry.output_attr_registry
-        self.link_registry        = self.registry.link_registry
-
-        # ===== 2. SOCKET.IO CLIENT =====
-        self.sio_client = SocketIOClient(
-            server_url=socketio_server,
-            on_connect=self._on_server_connect,
-            on_disconnect=self._on_server_disconnect,
-            on_connect_error=self._on_server_connect_error,
-            on_params=self._on_server_params,
-            on_data_update=self._on_data_update,
-            debug=debug,
-        )
-
-        # ===== 3. MONITOR BUS =====
+        # ===== 2. MONITORS =====
+        self.sio_client = SocketIOClient(server_url=socketio_server,
+                                         on_params=self._on_server_params)
         self.monitor_bus = MonitorBus()
+        self.monitors = MonitorManager(sio_client=self.sio_client, graph=self.graph,
+                                       monitor_bus=self.monitor_bus)
 
-        # ===== 4. MONITOR MANAGER =====
-        self.monitors = MonitorManager(
-            sio_client=self.sio_client,
-            graph=self.graph,
-            monitor_bus=self.monitor_bus,
-            debug=debug,
-        )
-
-        # Backward-compat alias
-        self.active_monitors = self.monitors.active_monitors
-
-        # ===== 5. PROPERTY PANEL =====
+        # ===== 3. PROPERTY PANEL =====
         self.property_panel = PropertyPanel(
             graph=self.graph,
             all_templates=self.all_templates,
-            registry=self.registry,
+            canvas=self,
             monitor_manager=self.monitors,
-            delink_callback=self.delink_callback,
-            refresh_node_theme=self._refresh_node_theme,
-            rename_node=self.rename_node,
         )
 
-        # ===== 6. UI STATE =====
+        # ===== 4. UI STATE =====
         self._last_selected_uuid = None
         self._selected_link_id   = None
         self.class_name_counters = {}
 
-        # ===== 7. THEMES =====
+        # ===== 5. THEMES =====
         self.data_theme             = None
         self.proc_theme             = None
         self.data_theme_incomplete  = None
         self.proc_theme_incomplete  = None
 
-        # ===== 8. MOUSE-MOVE THROTTLE =====
+        # ===== 6. MOUSE-MOVE THROTTLE =====
         self._last_mouse_move_time: float = 0.0
         self._MOUSE_MOVE_INTERVAL: float  = 0.05   # 50 ms → ≤20 checks/s
 
         self.editor = None
 
-        # ===== 9. THEME MANAGER =====
+        # ===== 7. THEME MANAGER =====
         self.theme_manager = ThemeManager()
 
     # ==========================================================================
@@ -156,23 +111,10 @@ class NodeManager:
     # SERVER EVENT CALLBACKS
     # ==========================================================================
 
-    def _on_server_connect(self):
-        self.monitors.on_server_connect()
-
-    def _on_server_disconnect(self):
-        self.monitors.on_server_disconnect()
-
-    def _on_server_connect_error(self, data):
-        self.monitors.on_server_connect_error(data)
-
     def _on_server_params(self, data: dict):
         self.sio_client.bind_nodes_to_server(self.graph.nodes, data)
         self.sio_client.update_uuid_mapping(self.graph.nodes)
         self.monitors.on_server_params(data)
-
-    def _on_data_update(self, name: str, raw_data):
-        """Data pushed by a DisplayServer to the editor's own connection."""
-        self.monitors.on_data_update(name, raw_data)
 
     # ==========================================================================
     # PUBLIC DELEGATION HELPERS
@@ -184,30 +126,10 @@ class NodeManager:
     def update_connection_panel(self, link_id, panel_tag: str):
         self.property_panel.update_connection_panel(link_id, panel_tag)
 
-    def get_connections_for_node(self, node_uuid: str):
-        return self.property_panel.get_connections_for_node(node_uuid)
-
-    def get_connection_filename(self, node_uuid, src_uuid, src_attr):
-        return self.property_panel.get_connection_filename(
-            node_uuid, src_uuid, src_attr
-        )
-
-    def update_connection_filename(self, node_uuid, src_uuid, src_attr, new_filename):
-        self.property_panel.update_connection_filename(
-            node_uuid, src_uuid, src_attr, new_filename
-        )
-
-    def is_data_class_type(self, type_name: str) -> bool:
-        return yaml_io.is_data_class_type(type_name, self.all_templates)
-
-    def after_dpg_init(self):
-        self._log("DPG initialised, setting up periodic tasks")
-        current_frame = dpg.get_frame_count()
-        dpg.set_frame_callback(current_frame + 100, self.monitors.start_periodic_tasks)
-        self.monitors.after_dpg_init()
-
-    def start_periodic_tasks(self):
-        self.monitors.start_periodic_tasks()
+    def _clear_lookup_tables(self):
+        for table in (self.dpg_to_uuid, self.uuid_to_dpg, self.input_attr_registry,
+                      self.output_attr_registry, self.link_registry):
+            table.clear()
 
     def cleanup(self):
         self.monitors.cleanup()
@@ -594,7 +516,7 @@ class NodeManager:
         is drawn as a link.
         """
         positions = positions or {}
-        self.registry.clear()
+        self._clear_lookup_tables()
         dpg.delete_item("specula_editor", children_only=True)
         self._last_selected_uuid = None
         self._selected_link_id   = None
@@ -1080,7 +1002,7 @@ class NodeManager:
         self._log(f"Deleted node: {node_uuid}")
 
     def clear_all(self):
-        self.registry.clear()
+        self._clear_lookup_tables()
         dpg.delete_item("specula_editor", children_only=True)
 
     def get_selected_nodes(self) -> list:
@@ -1090,7 +1012,4 @@ class NodeManager:
             for d_id in selected_dpg_ids
             if d_id in self.dpg_to_uuid
         ]
-
-    def get_connection_for_yaml(self, src_uuid, src_attr, dst_uuid, dst_attr) -> str:
-        return yaml_io.connection_to_yaml(self.graph, (src_uuid, src_attr, dst_uuid, dst_attr))
 

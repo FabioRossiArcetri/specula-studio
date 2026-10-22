@@ -10,7 +10,7 @@ MirrorCommandsCombinator:
     recmat:
       type: Recmat
       default: REQUIRED
-      kind: object
+      kind: reference
     dims_LO:
       type: list
       default: []

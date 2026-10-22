@@ -13,13 +13,8 @@ Renders in a scrollable DearPyGui child window with sections for:
 """
 
 import dearpygui.dearpygui as dpg
+from .help_provider import get_class_help
 from .theme_manager import ThemeManager
-
-try:
-    from .help_provider import get_class_help
-    _PROVIDER_OK = True
-except ImportError:
-    _PROVIDER_OK = False
 
 # Window tag
 _HELP_WIN_TAG = "specula_help_window"
@@ -36,28 +31,8 @@ def show_help_window(class_name: str, node_name: str = ""):
     node_name : str
         Instance name shown in the window title.
     """
-    if not _PROVIDER_OK:
-        _show_error_window(
-            "help_provider.py is not available.\n"
-            "Make sure it is in the same directory as specula-studio."
-        )
-        return
-
     info = get_class_help(class_name)
     _build_window(info, node_name)
-
-
-def _show_error_window(msg: str):
-    tag = _HELP_WIN_TAG
-    if dpg.does_item_exist(tag):
-        dpg.delete_item(tag)
-    tm = ThemeManager()
-    with dpg.window(
-        label="SPECULA Help – Error", tag=tag,
-        width=500, height=200, modal=False,
-        on_close=lambda: dpg.delete_item(tag),
-    ):
-        dpg.add_text(msg, color=tm.get_color("text_error"), wrap=460)
 
 
 def _build_window(info: dict, node_name: str):

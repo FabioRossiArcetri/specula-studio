@@ -33,9 +33,6 @@ REF_OUTPUT = "ref"
 # Inputs that the editor treats as list-valued references.
 LIST_REF_ATTRS = ("layer_list",)
 
-# Keys of an object block that are not constructor parameters.
-STRUCTURAL_KEYS = ("class", "inputs", "outputs", "gui_pos")
-
 # SPECULA rejects these in object names (simul.validate_section_names).
 FORBIDDEN_NAME_CHARS = ".-:"
 

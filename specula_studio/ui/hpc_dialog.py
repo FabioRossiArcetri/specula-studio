@@ -18,7 +18,7 @@ import time
 
 import dearpygui.dearpygui as dpg
 
-from .. import hpc
+from .. import hpc, sshutil
 from ..core import slurm, ssh_config
 
 log = logging.getLogger(__name__)
@@ -375,7 +375,7 @@ class HpcMixin:
                               else "specula NOT found in the job environment: add the "
                                    "environment setup lines (venv / conda activation)")
                 if prof["transfer_host"] != prof["login_host"] and prof["transfer_host"]:
-                    res = client._run(["ssh", *hpc.SSH_OPTIONS, client.transfer_host,
+                    res = client._run(["ssh", *sshutil.SSH_OPTIONS, client.transfer_host,
                                        "true"], timeout=60)
                     # data movers have no shell: a refused command still proves login
                     msg = "reachable" if res.ok or "permission denied" not in \
@@ -396,7 +396,7 @@ class HpcMixin:
 
         def work():
             self._hpc_log("Starting 'step ssh login' — complete the login in the browser…")
-            res = hpc.run_command(hpc.step_login_command(email), timeout=600)
+            res = sshutil.run_command(hpc.step_login_command(email), timeout=600)
             if res.ok:
                 self._hpc_log("Certificate obtained; checking the connection…")
                 self._hpc_busy = False

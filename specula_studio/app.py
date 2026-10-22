@@ -18,7 +18,7 @@ from . import __version__, help_provider, render_scale, settings
 from .core import catalog
 from .core.model import Graph
 from .core.overrides import OverrideManager
-from .core.templates import TEMPLATES_DIR, load_template_dir  # noqa: F401
+from .core.templates import load_template_dir
 from .file_handler import FileHandler, auto_layout_nodes
 from .logs import LEVELS, setup_logging
 from .node_manager import NodeManager
@@ -187,9 +187,7 @@ class SpeculaEditor(
         else:
             log.warning(f"[FONT] Font path not found: {font_path}, using default")
 
-        initial_scale = 1.0 # render_scale.global_font_scale()
-        dpg.set_global_font_scale(initial_scale)
-        log.info(f"[FONT] Initial global font scale: {initial_scale} ({self.preferences['render_size']})")
+        dpg.set_global_font_scale(1.0)
 
         # ── Main Window ───────────────────────────────────────────────────────
         with dpg.window(label="SPECULA Editor", tag='main_window', on_close=self._on_exit_requested):
@@ -327,7 +325,6 @@ class SpeculaEditor(
         dpg.setup_dearpygui()
         dpg.show_viewport()
 
-        self.nm.after_dpg_init()
         dpg.set_primary_window('main_window', True)
 
     def _resize_callback(self):
@@ -473,7 +470,6 @@ class SpeculaEditor(
             _MplBridge = None
 
         try:
-            self.nm.start_periodic_tasks()
             dpg.set_viewport_resize_callback(None)
 
             while dpg.is_dearpygui_running():
@@ -494,7 +490,7 @@ class SpeculaEditor(
         """Stop a running simulation and close monitor windows/processes."""
         try:
             if self.sim_control.is_running:
-                self.sim_control.abort_sim()
+                self.sim_control.abort()
         except Exception:
             log.exception("Error while aborting the simulation on exit")
         try:

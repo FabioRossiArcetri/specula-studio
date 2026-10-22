@@ -1,13 +1,13 @@
 """Unit tests for modules that do not depend on DearPyGui."""
 
 from specula_studio import render_scale
-from specula_studio.override_manager import OverrideManager, _combine_params
+from specula_studio.core.overrides import OverrideManager, combine_params
 
 
 def test_combine_params_override_remove_add():
     base = {"a": {"class": "X", "p": 1}, "b": {"class": "Y"}}
     extra = {"a_override": {"p": 2, "q": 3}, "remove": ["b"], "c": {"class": "Z"}}
-    out = _combine_params(base, extra)
+    out = combine_params(base, extra)
     assert out == {"a": {"class": "X", "p": 2, "q": 3}, "c": {"class": "Z"}}
     assert base["a"]["p"] == 1  # base untouched
 

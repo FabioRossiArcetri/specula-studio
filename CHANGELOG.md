@@ -5,7 +5,7 @@
 ### Structure and packaging
 - Installable `specula_studio` package with `specula-studio`,
   `specula-studio-parse` and `specula-studio-compare` commands; `python -m
-  specula_studio`; `main.py` kept for source checkouts.  CI (ruff, mypy,
+  specula_studio`.  CI (ruff, mypy,
   pytest).
 - DearPyGui-free `core` package (model, YAML I/O, validation, overrides,
   undo history, clipboard, class catalog, run preparation) with unit tests
@@ -52,3 +52,10 @@
   "advance N steps" no longer freezes the UI; monitors closed with their
   window button release their probe; subprocess monitors are terminated on
   exit.
+- The *Time Series* vector mode of monitor windows works (the plotter
+  expected a different mode name than the windows sent).
+- *Help → Selected Object* falls back to the node shown in the property
+  panel when nothing is selected.
+- Bundled templates use `kind: reference` throughout; the old `kind: object`
+  spelling, compatibility aliases and no-op stubs of the previous code layout
+  are gone.

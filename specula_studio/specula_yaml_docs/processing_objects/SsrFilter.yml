@@ -6,7 +6,7 @@ SsrFilter:
     ssr_filter_data:
       type: SsrFilterData
       default: REQUIRED
-      kind: object
+      kind: reference
     delay:
       type: float
       default: 0

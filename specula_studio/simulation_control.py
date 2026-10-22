@@ -5,7 +5,7 @@ The control panel (:class:`~.ui.control_panel.ControlPanelView`) is shown
 either in its own OS window — a separate process connected through
 :mod:`.control_link` (default) — or as a window inside the editor
 (preference *control_panel* = "docked").  Both pass the run options as a dict
-to :meth:`SimulationControl.start_sim`; terminal output and status go back to
+to :meth:`SimulationControl.start`; terminal output and status go back to
 whichever panel is open.  Runs always execute in the editor process.
 
 A run writes its files into a private temporary directory:
@@ -34,12 +34,7 @@ import dearpygui.dearpygui as dpg
 from . import sshutil
 from .control_link import ControlServer, ControlWindowProcess
 from .core.run_prep import write_run_files
-from .simulation_backend import (
-    InProcessBackend,
-    RemoteBackend,
-    SimulationBackend,
-    _resolve_remote_hostname,
-)
+from .simulation_backend import InProcessBackend, RemoteBackend, SimulationBackend
 from .theme_manager import ThemeManager
 from .ui.control_panel import DEFAULT_OPTIONS, TERMINAL_MAX_CHUNKS, ControlPanelView
 
@@ -171,11 +166,11 @@ class SimulationControl:
             kind = msg.get("type")
             try:
                 if kind == "start":
-                    self.start_sim(msg.get("options") or {})
+                    self.start(msg.get("options") or {})
                 elif kind == "step":
                     self.step(int(msg.get("n", 1)))
                 elif kind == "abort":
-                    self.abort_sim()
+                    self.abort()
                 elif kind == "test_ssh":
                     self.test_ssh(msg.get("target", ""))
                 elif kind == "clear_terminal":
@@ -284,7 +279,9 @@ class SimulationControl:
             return om.rebased(current), om.get_enabled_overrides()
         return current, []
 
-    def start_sim(self, options: dict | None = None, run_all_mode: bool = False):
+    # ── actions of the control panels ─────────────────────────────────────────
+
+    def start(self, options: dict | None = None):
         """Start a run with *options* (see ``control_panel.DEFAULT_OPTIONS``)."""
         if options is None and self.view is not None:
             options = self.view.options()
@@ -320,9 +317,9 @@ class SimulationControl:
         mm = self.editor.nm.monitors
         mm.set_session_id(self._session_id)
         mm.set_server_url_file(self._server_url_file)
-        resolved_ip = _resolve_remote_hostname(remote_ip) if is_ssh else remote_ip
+        resolved_ip = sshutil.resolve_host(remote_ip) if is_ssh else remote_ip
         if in_process:
-            self._backend = InProcessBackend(monitor_bus=mm._monitor_bus)
+            self._backend = InProcessBackend(monitor_bus=self.editor.nm.monitor_bus)
         else:
             self._backend = RemoteBackend(remote_ip=remote_ip, remote_user=remote_user)
             if is_ssh:
@@ -331,7 +328,6 @@ class SimulationControl:
         mm.set_backend(self._backend)
 
         cmd_args = {
-            "run_all_mode": run_all_mode,
             "stepping":     bool(opts["stepping"]),
             "nsimul":       int(opts["nsimul"]),
             "cpu":          bool(opts["cpu"]),
@@ -369,10 +365,6 @@ class SimulationControl:
             mm.on_display_server_ready(expected_url)
             self._schedule_display_server_reconnect(expected_url)
 
-    # ControlPanelView actions (the in-editor panel calls them directly)
-    def start(self, options: dict):
-        self.start_sim(options)
-
     def step(self, n: int = 1):
         if self._backend is None:
             self.append_terminal("[WARNING] No active backend\n")
@@ -383,12 +375,6 @@ class SimulationControl:
         self._backend.step(n)
 
     def abort(self):
-        self.abort_sim()
-
-    def step_sim(self, *_):
-        self.step(1)
-
-    def abort_sim(self, *_):
         if self._backend is not None:
             self._backend.abort()
             self.append_terminal("[INFO] Abort signal sent\n")

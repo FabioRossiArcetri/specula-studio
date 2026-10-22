@@ -6,15 +6,15 @@ ModalrecImplicitPolc:
     recmat:
       type: Recmat
       default: REQUIRED
-      kind: object
+      kind: reference
     projmat:
       type: Recmat
       default: REQUIRED
-      kind: object
+      kind: reference
     intmat:
       type: Intmat
       default: REQUIRED
-      kind: object
+      kind: reference
     target_device_idx:
       type: int
       default: null

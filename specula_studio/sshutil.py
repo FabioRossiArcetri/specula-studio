@@ -9,8 +9,12 @@ failure is turned into an actionable message.
 
 from __future__ import annotations
 
+import logging
+import socket
 import subprocess
 from dataclasses import dataclass
+
+log = logging.getLogger(__name__)
 
 SSH_OPTIONS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=20"]
 
@@ -76,3 +80,37 @@ def check_login(target: str) -> tuple[bool, str]:
         host = res.stdout.strip().partition(":")[2] or target
         return True, f"Logged in to {host} without prompts"
     return False, explain_ssh_failure(res)
+
+
+def resolve_host(hostname: str) -> str:
+    """IP address of *hostname* ([user@]host or ssh alias) as seen from here."""
+    try:
+        socket.inet_aton(hostname)
+        return hostname                       # already an IPv4 address
+    except (OSError, ValueError):
+        pass
+
+    # ssh aliases (~/.ssh/config): the HostName ssh would connect to.  `ssh -G`
+    # only evaluates the local configuration — no network, no login.
+    target = hostname.rpartition("@")[2]
+    result = run_command(["ssh", "-G", target], timeout=10)
+    if result.ok:
+        for line in result.stdout.splitlines():
+            key, _, value = line.partition(" ")
+            if key == "hostname" and value.strip():
+                target = value.strip()
+                break
+    try:
+        socket.inet_aton(target)
+        log.info("Resolved '%s' -> %s (ssh config)", hostname, target)
+        return target
+    except (OSError, ValueError):
+        hostname = target
+
+    try:
+        ip = socket.gethostbyname(hostname)
+        log.info("Resolved '%s' -> %s (DNS)", hostname, ip)
+        return ip
+    except OSError:
+        log.warning("Could not resolve '%s', using it as-is", hostname)
+        return hostname

@@ -6,7 +6,7 @@ Modalrec:
     recmat:
       type: Recmat
       default: REQUIRED
-      kind: object
+      kind: reference
     nmodes:
       type: int
       default: null

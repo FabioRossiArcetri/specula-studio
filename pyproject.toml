@@ -56,7 +56,7 @@ specula_studio = ["specula_yaml_docs/**/*.yml"]
 [tool.ruff]
 target-version = "py311"
 line-length = 100
-include = ["specula_studio/**/*.py", "tests/**/*.py", "main.py"]
+include = ["specula_studio/**/*.py", "tests/**/*.py"]
 
 [tool.ruff.lint]
 select = [
