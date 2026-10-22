@@ -66,7 +66,9 @@ class InProcessMonitor:
 
         self._plotter: DPGPlotter | None = None
         self._vector_mode = "snapshot"
-        self.is_open             = False
+        self._vector_style = "line"
+        self._image_filtering = False
+        self.is_open            = False
         self.update_count        = 0
         self.last_update         = 0.0
         self.min_update_interval = 0.05
@@ -118,11 +120,21 @@ class InProcessMonitor:
                 color=tm.get_color("monitor_status_waiting"),
                 tag=f"ipm_status_{self.monitor_id}",
             )
-            dpg.add_combo(
-                ["Vector: Snapshot", "Vector: Time History"],
-                default_value="Vector: Snapshot", width=220,
-                callback=self._on_vector_mode,
-            )
+            with dpg.group(horizontal=True):
+                dpg.add_combo(
+                    ["Vector: Snapshot", "Vector: Time History"],
+                    default_value="Vector: Snapshot", width=220,
+                    callback=self._on_vector_mode,
+                )
+                dpg.add_combo(
+                    ["Snapshot: Line", "Snapshot: Histogram"],
+                    default_value="Snapshot: Line", width=200,
+                    callback=self._on_vector_style,
+                )
+                dpg.add_checkbox(
+                    label="Image filtering", default_value=self._image_filtering,
+                    callback=self._on_image_filtering,
+                )
             dpg.add_separator()
             dpg.add_text(
                 "Waiting for data …",
@@ -215,6 +227,8 @@ class InProcessMonitor:
         if self._plotter is None:
             self._plotter = DPGPlotter(parent_tag=self._plot_grp_tag, width=880, height=500)
             self._plotter.set_vector_mode(self._vector_mode)
+            self._plotter.set_vector_style(self._vector_style)
+            self._plotter.set_image_filtering(self._image_filtering)
         self.min_update_interval = min_update_interval(arr)
         try:
             return plot_array(self._plotter, arr)
@@ -226,6 +240,16 @@ class InProcessMonitor:
         self._vector_mode = "history" if "Time" in app_data else "snapshot"
         if self._plotter is not None:
             self._plotter.set_vector_mode(self._vector_mode)
+
+    def _on_vector_style(self, sender, app_data):
+        self._vector_style = "histogram" if "Histogram" in app_data else "line"
+        if self._plotter is not None:
+            self._plotter.set_vector_style(self._vector_style)
+
+    def _on_image_filtering(self, sender, app_data):
+        self._image_filtering = bool(app_data)
+        if self._plotter is not None:
+            self._plotter.set_image_filtering(self._image_filtering)
 
     # ── Status / info helpers ──────────────────────────────────────────────────
 

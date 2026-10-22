@@ -9,6 +9,11 @@ import logging
 log = logging.getLogger(__name__)
 
 
+def _histogram_series(x, y, **kwargs):
+    """Bar series with adjacent bars: one bar per vector element."""
+    return dpg.add_bar_series(x, y, weight=1.0, **kwargs)
+
+
 class InteractiveImageViewer:
     """
     Interactive image viewer built on a DPG *plot* + ``add_image_series``.
@@ -26,6 +31,13 @@ class InteractiveImageViewer:
     original pixel aspect ratio is kept regardless of how the window is resized
     (letterboxing / pillarboxing is added automatically by DPG).
 
+    Filtering
+    ---------
+    DearPyGui always samples textures bilinearly, which blurs small images
+    when they are enlarged.  With ``filtering=False`` (the default) every
+    image pixel is uploaded as a k×k block of texels, so pixels stay sharp
+    (nearest-neighbour look); the image keeps its data-space extent.
+
     Resizing
     --------
     ``update_size(width, height)`` reconfigures the DPG plot widget to match
@@ -37,8 +49,14 @@ class InteractiveImageViewer:
     # Reserve this many pixels for the one-line info bar above the plot
     _INFO_ROW_PX = 22
 
-    def __init__(self, parent_tag, width: int = -1, height: int = -1):
+    # Unfiltered images are enlarged to about this many texels on the long side
+    _UNFILTERED_TEXELS = 768
+    _MAX_BLOCK = 16
+
+    def __init__(self, parent_tag, width: int = -1, height: int = -1,
+                 filtering: bool = False):
         self.parent = parent_tag
+        self.filtering = filtering
         # -1 means "fill remaining space"; explicit px values are set by update_size()
         self.width  = width
         self.height = height
@@ -56,7 +74,9 @@ class InteractiveImageViewer:
         # Current image dimensions
         self.img_width  = 0
         self.img_height = 0
+        self.tex_size: tuple[int, int] = (0, 0)   # (width, height) in texels
         self.current_data = None
+        self._colormap = "seismic"
 
     # =========================================================================
     # Internal builders
@@ -101,21 +121,28 @@ class InteractiveImageViewer:
         self.img_width  = img_width
         self.img_height = img_height
 
-    def _make_texture(self, pixel_data: list, img_width: int, img_height: int) -> None:
+    def _make_texture(self, pixel_data, tex_width: int, tex_height: int) -> None:
         """(Re)create the dynamic RGBA texture inside the registry."""
         if self.texture_tag and dpg.does_item_exist(self.texture_tag):
             dpg.delete_item(self.texture_tag)
             self.texture_tag = None
 
         self.texture_tag = dpg.add_dynamic_texture(
-            width=img_width,
-            height=img_height,
+            width=tex_width,
+            height=tex_height,
             default_value=pixel_data,
             parent=self.texture_registry_tag,
         )
+        self.tex_size = (tex_width, tex_height)
 
+    def _block_size(self, img_width: int, img_height: int) -> int:
+        """Texels per image pixel (per side): 1 when filtering is on."""
+        if self.filtering:
+            return 1
+        return max(1, min(self._MAX_BLOCK,
+                          self._UNFILTERED_TEXELS // max(img_width, img_height, 1)))
 
-    def _make_image_series(self) -> None:
+    def _make_image_series(self, fit: bool = True) -> None:
         """(Re)create the image series and fit the axes to the image extents.
 
         Key design decision
@@ -151,8 +178,9 @@ class InteractiveImageViewer:
 
         # fit_axis_data() shows all data on first display WITHOUT locking the
         # axis limits, so zoom and pan remain fully functional afterwards.
-        dpg.fit_axis_data(self.x_axis_tag)
-        dpg.fit_axis_data(self.y_axis_tag)
+        if fit:
+            dpg.fit_axis_data(self.x_axis_tag)
+            dpg.fit_axis_data(self.y_axis_tag)
 
 
     # =========================================================================
@@ -175,10 +203,14 @@ class InteractiveImageViewer:
             else:
                 normalized = np.zeros_like(data_2d, dtype=np.float32)
 
-            # Apply colormap → flat RGBA float32 list
-            mapper     = cm.get_cmap(colormap)
-            rgba       = mapper(normalized).astype(np.float32)  # (H, W, 4)
-            pixel_data = rgba.flatten().tolist()
+            # Apply colormap → RGBA float32 (H, W, 4)
+            mapper = cm.get_cmap(colormap)
+            rgba   = mapper(normalized).astype(np.float32)
+            k = self._block_size(img_width, img_height)
+            if k > 1:
+                rgba = np.repeat(np.repeat(rgba, k, axis=0), k, axis=1)
+            tex_size   = (img_width * k, img_height * k)
+            pixel_data = np.ascontiguousarray(rgba).ravel()
 
             shape_changed = (
                 img_width  != self.img_width or
@@ -188,21 +220,23 @@ class InteractiveImageViewer:
             if self.plot_tag is None or not dpg.does_item_exist(self.plot_tag):
                 # First call: build the full widget tree
                 self._build_plot(img_width, img_height)
-                self._make_texture(pixel_data, img_width, img_height)
+                self._make_texture(pixel_data, *tex_size)
                 self._make_image_series()
 
-            elif shape_changed:
-                # Image shape changed: recreate texture + series, re-fit axes
+            elif shape_changed or tex_size != self.tex_size:
+                # New image shape (re-fit the axes) or filtering toggled
+                # (keep the user's zoom): recreate texture + series
                 self.img_width  = img_width
                 self.img_height = img_height
-                self._make_texture(pixel_data, img_width, img_height)
-                self._make_image_series()
+                self._make_texture(pixel_data, *tex_size)
+                self._make_image_series(fit=shape_changed)
 
             else:
                 # Same shape: stream new pixels into the existing texture
                 dpg.set_value(self.texture_tag, pixel_data)
 
             self.current_data = data_2d
+            self._colormap = colormap
             self._update_info_text(dmin, dmax)
             return True
 
@@ -252,6 +286,14 @@ class InteractiveImageViewer:
             except Exception as e:
                 log.error(f"[InteractiveImageViewer.update_size] Error: {e}")
 
+    def set_filtering(self, enabled: bool) -> None:
+        """Switch texture filtering and redraw the current image at once."""
+        if enabled == self.filtering:
+            return
+        self.filtering = enabled
+        if self.current_data is not None:
+            self.update_image(self.current_data, self._colormap)
+
 
 class DPGPlotter:
     """Unified plotting class with multiple visualization modes and responsive layout."""
@@ -279,7 +321,9 @@ class DPGPlotter:
 
         self.vector_history_buffer = None  # Will hold a 2D array (Time, VectorIndex)
         self.vector_mode = "snapshot"     # "snapshot" or "history"
+        self.vector_style = "line"        # snapshot drawn as "line" or "histogram"
         self.vector_line_tags = []        # Track tags for multi-line mode
+        self.image_filtering = False      # bilinear texture filtering of images
 
     @staticmethod
     def _ensure_1d(data: np.ndarray) -> np.ndarray | None:
@@ -301,6 +345,19 @@ class DPGPlotter:
             self.vector_mode = mode
             self.clear() # Clear to re-setup axes for the new coordinate system
 
+    def set_vector_style(self, style: str) -> None:
+        """Draw snapshot vectors as a 'line' or as a 'histogram' (one bar per element)."""
+        if style != self.vector_style:
+            self.vector_style = style
+            if self.current_mode == "vector":
+                self._clear_previous()
+                self.current_mode = None   # rebuilt with the new series on the next frame
+
+    def set_image_filtering(self, enabled: bool) -> None:
+        self.image_filtering = enabled
+        if self.image_viewer is not None:
+            self.image_viewer.set_filtering(enabled)
+
     def plot_vector(self, vector: np.ndarray, label: str = "Vector") -> bool:
         try:
             vector = self._ensure_1d(vector)
@@ -314,7 +371,9 @@ class DPGPlotter:
                 self._clear_previous()
                 self.current_mode = "vector"
 
-            self._create_or_update_line_plot(list(range(len(vector))), vector.tolist(), label)
+            factory = _histogram_series if self.vector_style == "histogram" else dpg.add_line_series
+            self._create_or_update_line_plot(list(range(len(vector))), vector.tolist(), label,
+                                             series_factory=factory)
             return True
         except Exception as e:
             log.error(f"[DPGPlotter.plot_vector] Error: {e}")
@@ -443,6 +502,7 @@ class DPGPlotter:
                     parent_tag=self.parent,
                     width=-1,
                     height=-1,
+                    filtering=self.image_filtering,
                 )
 
             if self.image_viewer is None:
@@ -450,6 +510,7 @@ class DPGPlotter:
                     parent_tag=self.parent,
                     width=self.current_width,
                     height=self.current_height,
+                    filtering=self.image_filtering,
                 )
 
             self.current_shape = data_2d.shape

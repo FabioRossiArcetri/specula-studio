@@ -44,6 +44,8 @@
   port configurable (0 = automatic, read from `[SPECULA_PORT:n]`).
 - One payload/plot implementation shared by all monitor windows; data is
   always copied before being drawn.
+- Monitor options: *Image filtering* (off by default: image pixels stay
+  sharp when enlarged) and snapshot vectors drawn as a line or a histogram.
 
 ### Fixes
 - `REQUIRED` template marker no longer exported as a value.

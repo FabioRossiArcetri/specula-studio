@@ -66,6 +66,8 @@ class StandaloneMonitor:
     """
 
     _TAG_VEC_MODE       = "vector_display_mode"
+    _TAG_VEC_STYLE      = "vector_snapshot_style"
+    _TAG_IMG_FILTER     = "image_filtering"
     _TAG_WINDOW         = "monitor_main"
     _TAG_STATUS         = "status_text"
     _TAG_PLOT_CONTAINER = "plot_container"
@@ -463,6 +465,27 @@ class StandaloneMonitor:
                             ) if self.dpg_plotter else None
                         ),
                     )
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Snapshot as:")
+                    dpg.add_radio_button(
+                        items=["Line", "Histogram"],
+                        default_value="Line",
+                        horizontal=True,
+                        tag=self._TAG_VEC_STYLE,
+                        callback=lambda s, a: (
+                            self.dpg_plotter.set_vector_style(a.lower())
+                            if self.dpg_plotter else None
+                        ),
+                    )
+                dpg.add_checkbox(
+                    label="Image filtering",
+                    default_value=False,
+                    tag=self._TAG_IMG_FILTER,
+                    callback=lambda s, a: (
+                        self.dpg_plotter.set_image_filtering(bool(a))
+                        if self.dpg_plotter else None
+                    ),
+                )
 
             dpg.add_separator()
 
@@ -569,6 +592,8 @@ class StandaloneMonitor:
             )
             mode_val = dpg.get_value(self._TAG_VEC_MODE)
             self.dpg_plotter.set_vector_mode("history" if "Time" in mode_val else "snapshot")
+            self.dpg_plotter.set_vector_style(dpg.get_value(self._TAG_VEC_STYLE).lower())
+            self.dpg_plotter.set_image_filtering(bool(dpg.get_value(self._TAG_IMG_FILTER)))
 
         self.min_update_interval = min_update_interval(arr)
         try:

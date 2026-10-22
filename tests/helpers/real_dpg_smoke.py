@@ -41,6 +41,37 @@ from specula_studio.app import SpeculaEditor  # noqa: E402
 from specula_studio.core.templates import TEMPLATES_DIR  # noqa: E402
 
 
+def _check_monitor_plot_options():
+    """Image filtering and line/histogram snapshots with the real DPG items."""
+    import numpy as np
+
+    from specula_studio.dpg_plotting import DPGPlotter
+
+    with dpg.window(tag="smoke_plot_win"):
+        dpg.add_group(tag="smoke_plot_grp")
+    plotter = DPGPlotter(parent_tag="smoke_plot_grp")
+    plotter.plot_2d_image_clean(np.arange(12.0).reshape(3, 4))
+    viewer = plotter.image_viewer
+    if viewer.tex_size == (4, 3) or viewer.tex_size[0] % 4:
+        raise RuntimeError(f"unfiltered image not enlarged in blocks: {viewer.tex_size}")
+    plotter.set_image_filtering(True)
+    if viewer.tex_size != (4, 3):
+        raise RuntimeError(f"filtered image should use its own size: {viewer.tex_size}")
+    plotter.plot_2d_image_clean(np.ones((3, 4)))        # same texture, streamed
+
+    plotter.plot_vector(np.arange(5.0))
+    if dpg.get_item_type(plotter.line_series_tag) != "mvAppItemType::mvLineSeries":
+        raise RuntimeError(dpg.get_item_type(plotter.line_series_tag))
+    plotter.set_vector_style("histogram")
+    plotter.plot_vector(np.arange(5.0))
+    plotter.plot_vector(np.arange(5.0) * 2)
+    if dpg.get_item_type(plotter.line_series_tag) != "mvAppItemType::mvBarSeries":
+        raise RuntimeError(dpg.get_item_type(plotter.line_series_tag))
+    if dpg.get_value(plotter.line_series_tag)[1][:5] != [0.0, 2.0, 4.0, 6.0, 8.0]:
+        raise RuntimeError("histogram not updated")
+    dpg.delete_item("smoke_plot_win")
+
+
 def main(path):
     editor = SpeculaEditor(yaml_folder=str(TEMPLATES_DIR))
     steps = []
@@ -126,6 +157,7 @@ def main(path):
         step("catalog_swap", editor._apply_catalog, data, proc,
              catalog.CatalogInfo("installed", str(root)))
     step("new", editor._startup_create_new, None, None)
+    step("monitor_plot_options", _check_monitor_plot_options)
 
     # ── in-process run with a live monitor (needs SPECULA) ────────────────────
     import importlib.util
