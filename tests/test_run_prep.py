@@ -26,6 +26,18 @@ def test_inject_display_server():
     assert run_prep.inject_display_server({"x": {"class": "DM"}}, "s", 0) is None
 
 
+def test_session_id_only_when_display_server_accepts_it():
+    older = {"params_dict", "host", "port", "mode"}     # SPECULA without session_id
+    params = {"main": {"class": "SimulParams"}}
+    name = run_prep.inject_display_server(params, "sid", 0, supported=older)
+    assert "session_id" not in params[name]
+    params = {"main": {"class": "SimulParams"}, "ds": {"class": "DisplayServer"}}
+    run_prep.inject_display_server(params, "sid", 0, supported=older)
+    assert "session_id" not in params["ds"]
+    run_prep.inject_display_server(params, "sid", 0, supported=older | {"session_id"})
+    assert params["ds"]["session_id"] == "sid"
+
+
 def test_write_run_files(tmp_path):
     ov = tmp_path / "ov.yml"
     ov.write_text("dm_override:\n  nmodes: 3\n")

@@ -23,6 +23,7 @@ import uuid
 
 import dearpygui.dearpygui as dpg
 
+from .core import ssh_config
 from .core.run_prep import DEFAULT_DISPLAY_SERVER_PORT, write_run_files
 from .simulation_backend import (
     InProcessBackend,
@@ -51,6 +52,7 @@ class SimulationControl:
         # coordination file and passed to every subprocess monitor, so stale
         # monitors of a previous run never attach to a new server.
         self._session_id: str = ""
+        self._ssh_hosts: dict = {}          # alias -> ssh_config.SshHost
         self.theme_manager = ThemeManager()
 
     # ── Coordination file ─────────────────────────────────────────────────────
@@ -137,6 +139,12 @@ class SimulationControl:
                     dpg.add_text("Remote Server Configuration",
                                  color=tm.get_color("control_subsection_header"),
                                  tag="sim_remote_settings_label")
+                    with dpg.group(horizontal=True):
+                        dpg.add_combo(label="", tag="sim_ssh_hosts", items=[], width=-180,
+                                      callback=self._on_ssh_config_host)
+                        dpg.add_text("SSH config hosts")
+                        dpg.add_button(label="Reload", callback=self._refresh_ssh_hosts)
+                    dpg.add_text("", tag="sim_ssh_host_info", color=tm.get_color("text_hint"))
                     if hosts:
                         dpg.add_combo(
                             label="Recent hosts",
@@ -195,6 +203,35 @@ class SimulationControl:
                     dpg.add_input_text(tag="sim_terminal", multiline=True, readonly=True,
                                        width=-1, height=-1)
         self._refresh_terminal()
+        self._refresh_ssh_hosts()
+
+    # ── SSH config hosts ──────────────────────────────────────────────────────
+
+    def _refresh_ssh_hosts(self, *_):
+        """(Re)read the aliases of the ssh client configuration."""
+        path = ssh_config.default_config_path()
+        self._ssh_hosts = {h.alias: h for h in ssh_config.list_ssh_hosts(path)}
+        if not dpg.does_item_exist("sim_ssh_hosts"):
+            return
+        dpg.configure_item("sim_ssh_hosts", items=list(self._ssh_hosts))
+        if self._ssh_hosts:
+            info = f"{len(self._ssh_hosts)} host(s) from {path}"
+        elif path.exists():
+            info = f"No concrete Host entries in {path}"
+        else:
+            info = f"No ssh config found ({path})"
+        dpg.set_value("sim_ssh_host_info", info)
+
+    def _on_ssh_config_host(self, sender, alias):
+        host = getattr(self, "_ssh_hosts", {}).get(alias)
+        if host is None:
+            return
+        # Pass the alias itself to ssh/scp, so every option of the config
+        # entry applies (HostName, User, Port, IdentityFile, ProxyJump, ...).
+        dpg.set_value("sim_remote_ip", alias)
+        dpg.set_value("sim_remote_user", "")
+        dpg.set_value("sim_backend", "Remote")
+        dpg.set_value("sim_ssh_host_info", f"{alias} -> {host.describe()}  ({host.source})")
 
     @staticmethod
     def _host_label(h: dict) -> str:
@@ -290,6 +327,11 @@ class SimulationControl:
     def _value(self, tag, default):
         return dpg.get_value(tag) if dpg.does_item_exist(tag) else default
 
+    def _display_server_params(self) -> set:
+        """Constructor parameters of the installed DisplayServer (class catalog)."""
+        tpl = self.editor.all_templates.get("DisplayServer") or {}
+        return set(tpl.get("parameters") or {})
+
     def _run_inputs(self) -> tuple[dict, list[str]]:
         """Base simulation and enabled override files for the run."""
         ed = self.editor
@@ -327,6 +369,7 @@ class SimulationControl:
             session_id=None if in_process else self._session_id,
             display_port=ds_port,
             display_host="0.0.0.0" if is_ssh else None,
+            display_params=self._display_server_params(),
         )
         if overrides:
             self.append_terminal(f"[INFO] {len(overrides)} override file(s) passed to SPECULA\n")

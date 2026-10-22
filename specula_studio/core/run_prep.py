@@ -49,14 +49,23 @@ def extract_port(line: str) -> int | None:
 
 
 def inject_display_server(params: dict, session_id: str, port: int,
-                          host: str | None = None) -> str | None:
+                          host: str | None = None,
+                          supported: set | None = None) -> str | None:
     """
     Make sure *params* contains a DisplayServer in data mode tagged with
     *session_id*.  Returns its object name (None without a SimulParams).
+
+    *supported* is the set of constructor parameters of the installed
+    DisplayServer (from the class catalog).  ``session_id`` is a recent
+    addition: it is only written when SPECULA accepts it (``None`` = assume
+    it does), otherwise SPECULA refuses the unknown parameter.
     """
+    with_session = supported is None or "session_id" in supported
+
     for name, obj in params.items():
         if isinstance(obj, dict) and obj.get("class") == "DisplayServer":
-            obj["session_id"] = session_id
+            if with_session:
+                obj["session_id"] = session_id
             obj.setdefault("mode", "data")
             if host:
                 obj["host"] = host
@@ -75,7 +84,9 @@ def inject_display_server(params: dict, session_id: str, port: int,
     while name in params:
         name = f"{DISPLAY_SERVER_NODE_NAME}_{i}"
         i += 1
-    block = {"class": "DisplayServer", "port": port, "mode": "data", "session_id": session_id}
+    block = {"class": "DisplayServer", "port": port, "mode": "data"}
+    if with_session:
+        block["session_id"] = session_id
     if host:
         block["host"] = host
     params[name] = block
@@ -101,10 +112,12 @@ def fill_simul_params(params: dict) -> list[str]:
 
 def write_run_files(run_dir: str, base: dict, override_paths=(), sim_name: str = "untitled",
                     session_id: str | None = None, display_port: int | None = None,
-                    display_host: str | None = None) -> list[str]:
+                    display_host: str | None = None,
+                    display_params: set | None = None) -> list[str]:
     """
     Write the files of one run into *run_dir* and return their paths:
     the base simulation first, then copies of the override files.
+    *display_params*: parameters accepted by the installed DisplayServer.
     """
     params = strip_studio_fields(copy.deepcopy(dict(base)))
     added = fill_simul_params(params)
@@ -113,7 +126,7 @@ def write_run_files(run_dir: str, base: dict, override_paths=(), sim_name: str =
     if session_id is not None:
         inject_display_server(params, session_id,
                               DEFAULT_DISPLAY_SERVER_PORT if display_port is None else display_port,
-                              display_host)
+                              display_host, display_params)
     base_path = os.path.join(run_dir, f"{sim_name}_simul.yml")
     with open(base_path, "w", encoding="utf-8") as f:
         f.write(dump_yaml(params))

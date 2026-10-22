@@ -10,7 +10,11 @@ simulations, built on [Dear PyGui](https://github.com/hoffstadt/DearPyGui).
   `gui_pos` key, which SPECULA ignores).
 * Apply SPECULA override files on top of a simulation.
 * Run the simulation in-process, as a local subprocess or on a remote host via
-  SSH, step it, and watch any output live in monitor windows.
+  SSH, step it, and watch any output live in monitor windows.  Remote hosts
+  can be picked from the `Host` entries of your OpenSSH client configuration
+  (`~/.ssh/config`, i.e. `%USERPROFILE%\.ssh\config` on Windows); the alias is
+  passed to `ssh`/`scp` as is, so `User`, `Port`, `IdentityFile`, `ProxyJump`…
+  all apply.
 * Undo/redo, copy/paste/duplicate, unsaved-changes tracking.
 * *View → Issues* lists incomplete objects (missing required parameters,
   references or inputs); *Edit → Find Object* (Ctrl+F) and *Add Objects →

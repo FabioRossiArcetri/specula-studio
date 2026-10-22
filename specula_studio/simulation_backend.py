@@ -102,6 +102,25 @@ class SimulationBackend(ABC):
         pass
 
 
+def _kill_process_tree(proc: subprocess.Popen) -> None:
+    """Terminate *proc* and its children (e.g. SPECULA's DisplayServer)."""
+    if proc.poll() is not None:
+        return
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                           capture_output=True, timeout=15)
+        else:
+            import signal
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+    except Exception as exc:
+        log.debug("Process-tree kill failed (%s); terminating the process only", exc)
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+
+
 def _step_line(n: int) -> str:
     """Answer to SPECULA's stepping prompt: Enter = 1 step, or a step count."""
     return "\n" if n <= 1 else f"{int(n)}\n"
@@ -160,9 +179,15 @@ class RemoteBackend(SimulationBackend):
             self._running = True
 
     def _spawn(self, cmd, append_terminal, on_port_found, on_finished, remote_ip):
+        # Own process group / session, so abort can stop the whole tree
+        # (SPECULA starts its DisplayServer as a child process).
+        if os.name == "nt":
+            group = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+        else:
+            group = {"start_new_session": True}
         self._process = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            stdin=subprocess.PIPE, text=True, bufsize=1,
+            stdin=subprocess.PIPE, text=True, bufsize=1, **group,
         )
         self._running = True
         threading.Thread(
@@ -258,10 +283,7 @@ class RemoteBackend(SimulationBackend):
 
     def abort(self) -> None:
         if self._process:
-            try:
-                self._process.terminate()
-            except Exception:
-                pass
+            _kill_process_tree(self._process)
         self._cleanup_remote(kill=True)
         self._running = False
 
