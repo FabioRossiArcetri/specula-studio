@@ -92,3 +92,18 @@ offered (1) a way to build a `Simul` without running it and get its
 `LoopControl`, and (2) a public `LoopControl.add_observer(obj)` / per-step
 callback and a `stop()` method.  Stepping could then use a callback instead
 of replacing `sys.stdin`.
+
+## HPC batch jobs
+
+`core/slurm.py` (pure) renders the sbatch script — modelled on SPECULA's
+`config/leonardo/jobScripts` (`srun --mpi=none bash -c 'specula [--mpi] …'`,
+cuda / openmpi / nvhpc modules) — and builds a last override file
+(`zz_studio_hpc_override.yml`) that adapts the simulation to the cluster:
+`root_dir` → uploaded calibration data, no display server, local absolute
+DataStore paths → `results/` in the job directory.  `hpc.py` does the
+transport with the system `ssh`/`scp` in `BatchMode` (Leonardo: 12-hour
+smallstep certificates in the ssh agent; an optional data-mover host is used
+for scp), resolves `$WORK` on the login node, submits, polls squeue/sacct and
+downloads results.  Submitted jobs are stored in the settings and followed
+again after a restart.  Files are written with LF line endings (sbatch rejects
+CRLF scripts).

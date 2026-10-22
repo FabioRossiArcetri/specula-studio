@@ -29,6 +29,7 @@ from .ui.edit_actions import EditMixin
 from .ui.log_window import LogWindowMixin
 from .ui.overrides_menu import OverridesMixin
 from .ui.preferences import PreferencesMixin
+from .ui.hpc_dialog import HpcMixin
 from .ui.tools import ToolsMixin
 
 log = logging.getLogger(__name__)
@@ -37,6 +38,7 @@ log = logging.getLogger(__name__)
 class SpeculaEditor(
     EditMixin,
     ToolsMixin,
+    HpcMixin,
     DialogsMixin,
     AddObjectsMixin,
     PreferencesMixin,
@@ -88,6 +90,7 @@ class SpeculaEditor(
         self._recent_menu_items: list = []
         self._log_window_version = -1
         self._init_edit_state()
+        self._init_hpc_state()
 
         # 5. Apply render scale before any UI is built
         render_scale.set_size(self.preferences['render_size'])
@@ -253,6 +256,11 @@ class SpeculaEditor(
                 with dpg.menu(label="Simulation"):
                     dpg.add_menu_item(label="Control Panel", callback=lambda: self.sim_control.show_control_window())
                     dpg.add_menu_item(label="Display Yaml", callback=lambda: self.sim_control.show_yaml_window())
+
+                with dpg.menu(label="HPC"):
+                    dpg.add_menu_item(label="Submit Batch Job (SLURM)...",
+                                      callback=self._show_hpc_window)
+                    dpg.add_menu_item(label="Batch Jobs...", callback=self._show_hpc_jobs_window)
 
                 with dpg.menu(label="Layout"):
                     dpg.add_menu_item(label="Auto Layout",
@@ -475,6 +483,7 @@ class SpeculaEditor(
                 self._refresh_log_window()
                 self._poll_history()
                 self._poll_catalog_build()
+                self._poll_hpc_ui()
                 dpg.render_dearpygui_frame()
         finally:
             self.shutdown()
@@ -491,6 +500,8 @@ class SpeculaEditor(
             self.nm.cleanup()
         except Exception:
             log.exception("Error while closing monitors on exit")
+        # batch jobs keep running on the cluster; only stop following them
+        self.stop_hpc_poller()
 
 
 def parse_args(argv=None) -> argparse.Namespace:

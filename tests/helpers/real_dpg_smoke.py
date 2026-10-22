@@ -71,6 +71,22 @@ def main(path):
     import tempfile
     step("export_diagram", editor._export_diagram,
          os.path.join(tempfile.mkdtemp(), "graph.dot"))
+
+    # ── HPC dialogs (no network: nothing is submitted) ────────────────────────
+    from specula_studio import hpc
+    step("hpc_window", editor._show_hpc_window)
+    step("hpc_preset", editor._hpc_apply_preset, None, "Booster production (24 h)")
+    dpg.set_value("hpc_account", "try25_test")
+    step("hpc_script", editor._hpc_generate_script)
+    if "#SBATCH --account=try25_test" not in dpg.get_value("hpc_script"):
+        raise RuntimeError("HPC script not generated")
+    editor._hpc_jobs.append(hpc.HpcJob(job_id="1", name="t", login_host="h",
+                                       transfer_host="h", job_dir="/w/j", state="RUNNING"))
+    editor._hpc_jobs.append(hpc.HpcJob(job_id="2", name="t", login_host="h",
+                                       transfer_host="h", job_dir="/w/j", state="COMPLETED"))
+    step("hpc_jobs_window", editor._show_hpc_jobs_window)
+    editor._hpc_jobs_version += 1
+    step("hpc_jobs_table", editor._poll_hpc_ui)
     step("create_node", editor._on_menu_create, None, None, "Integrator")
     step("rebuild", nm.rebuild_all_nodes_ui)
     step("theme_light", editor.on_theme_changed, None, "light")

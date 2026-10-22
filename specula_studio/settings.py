@@ -39,6 +39,8 @@ DEFAULTS: dict = {
     "log_level": "INFO",
     "class_source": "installed",  # "installed" (SPECULA catalog) | "bundled"
     "remote_hosts": [],         # [{"host": ..., "user": ...}], most recent first
+    "hpc": {},                  # HPC batch profile (hosts, paths, SLURM options)
+    "hpc_jobs": [],             # submitted batch jobs (see hpc.HpcJob)
 }
 
 
@@ -57,6 +59,8 @@ class Settings:
         self.data: dict = dict(DEFAULTS)
         self.data["recent_files"] = []
         self.data["remote_hosts"] = []
+        self.data["hpc"] = {}
+        self.data["hpc_jobs"] = []
         self.load(migrate=migrate)
 
     # ── mapping protocol ──────────────────────────────────────────────────────

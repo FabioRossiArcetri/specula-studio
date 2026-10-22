@@ -15,6 +15,12 @@ simulations, built on [Dear PyGui](https://github.com/hoffstadt/DearPyGui).
   (`~/.ssh/config`, i.e. `%USERPROFILE%\.ssh\config` on Windows); the alias is
   passed to `ssh`/`scp` as is, so `User`, `Port`, `IdentityFile`, `ProxyJump`…
   all apply.
+* *HPC → Submit Batch Job* runs a simulation as a SLURM job on a cluster
+  (written for CINECA Leonardo): check the connection, log in with the 2FA
+  `step` client, optionally upload the calibration data, generate and edit
+  the job script, submit, follow the job in *HPC → Batch Jobs* (state,
+  output, cancel) and download the results when it ends.  Batch jobs run
+  without a display server, so live monitors are not available for them.
 * Undo/redo, copy/paste/duplicate, unsaved-changes tracking.
 * *View → Issues* lists incomplete objects (missing required parameters,
   references or inputs); *Edit → Find Object* (Ctrl+F) and *Add Objects →

@@ -84,6 +84,7 @@ files = [
     "specula_studio/settings.py",
     "specula_studio/logs.py",
     "specula_studio/monitor_data.py",
+    "specula_studio/hpc.py",
 ]
 check_untyped_defs = true
 ignore_missing_imports = true
