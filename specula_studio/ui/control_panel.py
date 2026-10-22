@@ -76,7 +76,8 @@ class ControlPanelView:
             with dpg.child_window(width=520):
                 dpg.add_text("Backend Mode", color=tm.get_color("control_section_header"))
                 dpg.add_combo(label="Execution Mode", items=["Remote", "In-Process"],
-                              tag=t("backend"), default_value="In-Process")
+                              tag=t("backend"), default_value="In-Process",
+                              callback=self.update_remote_enabled)
                 dpg.add_text(
                     "In-Process: runs inside the editor, monitors fed directly.\n"
                     "Remote: runs the 'specula' command, locally (localhost)\n"
@@ -87,10 +88,11 @@ class ControlPanelView:
                     dpg.add_combo(label="", tag=t("ssh_hosts"), items=[], width=-180,
                                   callback=self._on_ssh_config_host)
                     dpg.add_text("SSH config hosts")
-                    dpg.add_button(label="Reload", callback=self.refresh_ssh_hosts)
+                    dpg.add_button(label="Reload", tag=t("ssh_reload"),
+                                   callback=self.refresh_ssh_hosts)
                 dpg.add_text("", tag=t("ssh_host_info"), color=hint)
                 if self.recent_hosts:
-                    dpg.add_combo(label="Recent hosts",
+                    dpg.add_combo(label="Recent hosts", tag=t("recent_hosts"),
                                   items=[host_label(h) for h in self.recent_hosts],
                                   default_value=host_label(last), width=-140,
                                   callback=self._on_recent_host)
@@ -101,7 +103,8 @@ class ControlPanelView:
                                    default_value=last.get("user", ""),
                                    hint="empty = current user", width=-140)
                 with dpg.group(horizontal=True):
-                    dpg.add_button(label="Test SSH", callback=self._on_test_ssh)
+                    dpg.add_button(label="Test SSH", tag=t("test_ssh"),
+                                   callback=self._on_test_ssh)
                     dpg.add_text("logins must work without prompts (keys / agent)",
                                  tag=t("ssh_test_status"), color=hint, wrap=380)
                 dpg.add_input_int(label="Display server port", tag=t("ds_port"),
@@ -145,7 +148,19 @@ class ControlPanelView:
                 dpg.add_input_text(tag=t("terminal"), multiline=True, readonly=True,
                                    width=-1, height=-1)
         self.refresh_ssh_hosts()
+        self.update_remote_enabled()
         self._show_terminal()
+
+    # Widgets that only matter for Remote runs (greyed out for In-Process).
+    _REMOTE_WIDGETS = ("ssh_hosts", "ssh_reload", "recent_hosts", "remote_ip",
+                       "remote_user", "test_ssh", "ds_port")
+
+    def update_remote_enabled(self, *_):
+        backend = self.t("backend")
+        remote = (dpg.get_value(backend) == "Remote") if dpg.does_item_exist(backend) else True
+        for name in self._REMOTE_WIDGETS:
+            if dpg.does_item_exist(self.t(name)):
+                dpg.configure_item(self.t(name), enabled=remote)
 
     # ── options ───────────────────────────────────────────────────────────────
 
@@ -200,12 +215,15 @@ class ControlPanelView:
         dpg.set_value(self.t("remote_ip"), alias)
         dpg.set_value(self.t("remote_user"), "")
         dpg.set_value(self.t("backend"), "Remote")
+        self.update_remote_enabled()
         dpg.set_value(self.t("ssh_host_info"), f"{alias} -> {host.describe()}  ({host.source})")
 
     def _on_recent_host(self, sender, value):
         user, _, host = value.rpartition("@")
         dpg.set_value(self.t("remote_ip"), host)
         dpg.set_value(self.t("remote_user"), user)
+        dpg.set_value(self.t("backend"), "Remote")
+        self.update_remote_enabled()
 
     def _on_test_ssh(self, *_):
         target = self.ssh_target()

@@ -390,6 +390,21 @@ class ThemeManager:
                     category=dpg.mvThemeCat_Nodes
                 )
 
+            # Disabled widgets (configure_item(..., enabled=False)): DearPyGui
+            # does not dim them by itself, so give them the disabled text
+            # colour and a faded frame.
+            disabled_text = self.current_theme.get("text_disabled")
+            frame = self.current_theme.get("frame_bg")
+            faded = (frame[0], frame[1], frame[2], 110)
+            for item_type in (dpg.mvInputText, dpg.mvInputInt, dpg.mvCombo,
+                              dpg.mvButton, dpg.mvCheckbox):
+                with dpg.theme_component(item_type, enabled_state=False):
+                    dpg.add_theme_color(dpg.mvThemeCol_Text, disabled_text)
+                    for col in (dpg.mvThemeCol_FrameBg, dpg.mvThemeCol_FrameBgHovered,
+                                dpg.mvThemeCol_FrameBgActive, dpg.mvThemeCol_Button,
+                                dpg.mvThemeCol_ButtonHovered, dpg.mvThemeCol_ButtonActive):
+                        dpg.add_theme_color(col, faded)
+
         dpg.bind_theme(global_theme)
         # Free the previously bound global theme (one is created per switch).
         if self._global_theme is not None and dpg.does_item_exist(self._global_theme):

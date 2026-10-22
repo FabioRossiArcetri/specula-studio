@@ -65,6 +65,16 @@ def main(path):
     editor.sim_control.view.append_terminal("hello\n")
     if not editor.sim_control.view.options()["stepping"]:
         raise RuntimeError("control panel options not read")
+    # remote connection widgets are greyed out for In-Process, enabled for Remote
+    if dpg.get_item_configuration("sim_remote_ip")["enabled"]:
+        raise RuntimeError("remote fields should be disabled for In-Process")
+    dpg.set_value("sim_backend", "Remote")
+    editor.sim_control.view.update_remote_enabled()
+    if not dpg.get_item_configuration("sim_remote_ip")["enabled"]:
+        raise RuntimeError("remote fields should be enabled for Remote")
+    dpg.set_value("sim_backend", "In-Process")
+    editor.sim_control.view.update_remote_enabled()
+    steps.append("remote_fields_toggle")
     step("yaml_window", editor.sim_control.show_yaml_window)
     step("add_multiple", editor._show_add_multiple_dialog)
     step("about", editor._show_about_dialog)
