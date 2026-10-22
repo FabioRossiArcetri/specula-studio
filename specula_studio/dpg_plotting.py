@@ -14,9 +14,24 @@ def _histogram_series(x, y, **kwargs):
     return dpg.add_bar_series(x, y, weight=1.0, **kwargs)
 
 
+_COLORMAPS: dict = {}   # matplotlib colormap name -> DPG colormap item
+
+
+def _dpg_colormap(name: str):
+    """DPG colormap item sampled from the matplotlib colormap *name* (cached)."""
+    item = _COLORMAPS.get(name)
+    if item is not None and dpg.does_item_exist(item):
+        return item
+    colors = (cm.get_cmap(name)(np.linspace(0.0, 1.0, 256)) * 255).round().astype(int)
+    with dpg.colormap_registry(show=False):
+        item = dpg.add_colormap([list(c) for c in colors], False)
+    _COLORMAPS[name] = item
+    return item
+
+
 class InteractiveImageViewer:
     """
-    Interactive image viewer built on a DPG *plot* + ``add_image_series``.
+    Interactive image viewer built on a DPG *plot*.
 
     Zoom/pan/reset are handled entirely by the DPG plot widget:
       * Scroll wheel  → zoom in / out
@@ -26,17 +41,24 @@ class InteractiveImageViewer:
     Aspect-ratio preservation
     -------------------------
     ``equal_aspects=True`` on the plot ensures that one data unit always maps
-    to the same number of screen pixels in X and Y.  Because the image series
-    spans [0, img_width] × [0, img_height] in data space, this guarantees the
+    to the same number of screen pixels in X and Y.  Because the image spans
+    [0, img_width] × [0, img_height] in data space, this guarantees the
     original pixel aspect ratio is kept regardless of how the window is resized
     (letterboxing / pillarboxing is added automatically by DPG).
 
     Filtering
     ---------
-    DearPyGui always samples textures bilinearly, which blurs small images
-    when they are enlarged.  With ``filtering=False`` (the default) every
-    image pixel is uploaded as a k×k block of texels, so pixels stay sharp
-    (nearest-neighbour look); the image keeps its data-space extent.
+    DearPyGui samples textures bilinearly and has no nearest-neighbour
+    option, so the two modes use different series:
+
+    * ``filtering=False`` (default): a *heat series* — every image pixel is a
+      flat rectangle, so pixels stay sharp at any zoom.  The matplotlib
+      colormap is installed as a DPG colormap of the plot.  Images with more
+      than ``_MAX_HEAT_CELLS`` pixels use the texture instead (drawing that
+      many rectangles every frame would be too slow).
+    * ``filtering=True``: an RGBA texture drawn with ``add_image_series``.
+
+    Both place image row 0 at the bottom (y = 0).
 
     Resizing
     --------
@@ -49,9 +71,8 @@ class InteractiveImageViewer:
     # Reserve this many pixels for the one-line info bar above the plot
     _INFO_ROW_PX = 22
 
-    # Unfiltered images are enlarged to about this many texels on the long side
-    _UNFILTERED_TEXELS = 768
-    _MAX_BLOCK = 16
+    # Largest image drawn as a heat series (one rectangle per pixel)
+    _MAX_HEAT_CELLS = 512 * 512
 
     def __init__(self, parent_tag, width: int = -1, height: int = -1,
                  filtering: bool = False):
@@ -67,14 +88,15 @@ class InteractiveImageViewer:
         self.plot_tag             = None
         self.x_axis_tag           = None
         self.y_axis_tag           = None
-        self.image_series_tag     = None
+        self.image_series_tag     = None   # texture mode
+        self.heat_series_tag      = None   # pixel (heat series) mode
         self.container_tag        = None
         self.info_text_tag        = None
 
         # Current image dimensions
         self.img_width  = 0
         self.img_height = 0
-        self.tex_size: tuple[int, int] = (0, 0)   # (width, height) in texels
+        self.mode: str | None = None       # "pixels" or "texture"
         self.current_data = None
         self._colormap = "seismic"
 
@@ -82,14 +104,13 @@ class InteractiveImageViewer:
     # Internal builders
     # =========================================================================
 
-    def _build_plot(self, img_width: int, img_height: int) -> None:
+    def _build_plot(self) -> None:
         """Create the outer group, info bar, texture registry and plot widget."""
         self.container_tag = dpg.add_group(parent=self.parent, horizontal=False)
 
         # One-line info bar
         self.info_text_tag = dpg.add_text(
-            f"{img_width}\u00d7{img_height} px  \u2502  "
-            "Scroll to zoom  \u2502  Drag to pan  \u2502  Double-click to reset",
+            "Scroll to zoom  │  Drag to pan  │  Double-click to reset",
             color=[150, 150, 150],
             parent=self.container_tag,
         )
@@ -113,75 +134,74 @@ class InteractiveImageViewer:
         ) as plot_id:
             self.plot_tag   = plot_id
             self.x_axis_tag = dpg.add_plot_axis(dpg.mvXAxis, label="")
-            with dpg.plot_axis(dpg.mvYAxis, label="") as y_axis:
-                self.y_axis_tag = y_axis
-                # image_series is added in _make_image_series() once the
-                # texture tag exists
+            self.y_axis_tag = dpg.add_plot_axis(dpg.mvYAxis, label="")
 
-        self.img_width  = img_width
-        self.img_height = img_height
+    def _delete_series(self) -> None:
+        for attr in ("image_series_tag", "heat_series_tag", "texture_tag"):
+            tag = getattr(self, attr)
+            if tag and dpg.does_item_exist(tag):
+                dpg.delete_item(tag)
+            setattr(self, attr, None)
 
-    def _make_texture(self, pixel_data, tex_width: int, tex_height: int) -> None:
-        """(Re)create the dynamic RGBA texture inside the registry."""
-        if self.texture_tag and dpg.does_item_exist(self.texture_tag):
-            dpg.delete_item(self.texture_tag)
-            self.texture_tag = None
+    def _fit(self) -> None:
+        """Show the whole image.
 
-        self.texture_tag = dpg.add_dynamic_texture(
-            width=tex_width,
-            height=tex_height,
-            default_value=pixel_data,
-            parent=self.texture_registry_tag,
-        )
-        self.tex_size = (tex_width, tex_height)
-
-    def _block_size(self, img_width: int, img_height: int) -> int:
-        """Texels per image pixel (per side): 1 when filtering is on."""
-        if self.filtering:
-            return 1
-        return max(1, min(self._MAX_BLOCK,
-                          self._UNFILTERED_TEXELS // max(img_width, img_height, 1)))
-
-    def _make_image_series(self, fit: bool = True) -> None:
-        """(Re)create the image series and fit the axes to the image extents.
-
-        Key design decision
-        -------------------
-        We use ``fit_axis_data()`` rather than ``set_axis_limits()`` for the
-        initial view.
-
-        * ``set_axis_limits(axis, lo, hi)`` **locks** the axis — the user can
-          no longer zoom or pan on that axis.  This was the bug that prevented
-          interaction.
-        * ``fit_axis_data(axis)`` sets the *current* view range to cover all
-          series data but leaves the axis fully interactive, so subsequent
-          scroll-zoom and drag-pan work as expected.
+        ``fit_axis_data()`` rather than ``set_axis_limits()``: the latter
+        *locks* the axis, so the user could no longer zoom or pan; the former
+        sets the current view range and leaves the axis interactive.
         """
-        if self.image_series_tag and dpg.does_item_exist(self.image_series_tag):
-            dpg.delete_item(self.image_series_tag)
-            self.image_series_tag = None
+        dpg.fit_axis_data(self.x_axis_tag)
+        dpg.fit_axis_data(self.y_axis_tag)
 
-        # bounds_min/max place the image in data space so that the top-left
-        # pixel is at (0, img_height) and the bottom-right at (img_width, 0).
-        # This way DPG's default upward-increasing Y axis displays the image
-        # right-side-up.
-        # uv_min/max are texture coordinates [0, 1] that map to the actual
-        # texture data. Keeping them at [0, 0] to [1, 1] ensures full coverage.
+    def _draw_pixels(self, data_2d: np.ndarray, dmin: float, dmax: float,
+                     colormap: str, rebuild: bool) -> None:
+        """Heat series: one flat rectangle per pixel (no filtering)."""
+        # ImPlot draws heatmap row 0 at the top: flip so row 0 is at y = 0,
+        # as in texture mode.
+        values = np.ascontiguousarray(data_2d[::-1], dtype=np.float64).ravel()
+        if dmax <= dmin:
+            dmax = dmin + 1.0
+        if rebuild:
+            self._delete_series()
+            self.heat_series_tag = dpg.add_heat_series(
+                values, self.img_height, self.img_width,
+                scale_min=dmin, scale_max=dmax, format="",
+                bounds_min=(0, 0), bounds_max=(self.img_width, self.img_height),
+                parent=self.y_axis_tag,
+            )
+        else:
+            dpg.set_value(self.heat_series_tag, [values])
+            dpg.configure_item(self.heat_series_tag, scale_min=dmin, scale_max=dmax)
+        if rebuild or colormap != self._colormap:
+            dpg.bind_colormap(self.plot_tag, _dpg_colormap(colormap))
+
+    def _draw_texture(self, data_2d: np.ndarray, dmin: float, dmax: float,
+                      colormap: str, rebuild: bool) -> None:
+        """RGBA texture drawn with bilinear filtering."""
+        if dmax > dmin:
+            normalized = (data_2d - dmin) / (dmax - dmin)
+        else:
+            normalized = np.zeros_like(data_2d, dtype=np.float32)
+        rgba = cm.get_cmap(colormap)(normalized).astype(np.float32)   # (H, W, 4)
+        pixel_data = np.ascontiguousarray(rgba).ravel()
+        if not rebuild:
+            # Same shape: stream new pixels into the existing texture
+            dpg.set_value(self.texture_tag, pixel_data)
+            return
+        self._delete_series()
+        self.texture_tag = dpg.add_dynamic_texture(
+            width=self.img_width, height=self.img_height,
+            default_value=pixel_data, parent=self.texture_registry_tag,
+        )
+        # Texture row 0 (uv_min) is drawn at bounds_min, i.e. at y = 0.
         self.image_series_tag = dpg.add_image_series(
             self.texture_tag,
-            bounds_min=[0,              0             ],
+            bounds_min=[0, 0],
             bounds_max=[self.img_width, self.img_height],
             uv_min=[0.0, 0.0],
             uv_max=[1.0, 1.0],
             parent=self.y_axis_tag,
         )
-
-        # fit_axis_data() shows all data on first display WITHOUT locking the
-        # axis limits, so zoom and pan remain fully functional afterwards.
-        if fit:
-            dpg.fit_axis_data(self.x_axis_tag)
-            dpg.fit_axis_data(self.y_axis_tag)
-
 
     # =========================================================================
     # Public API
@@ -194,47 +214,28 @@ class InteractiveImageViewer:
                 return False
 
             img_height, img_width = data_2d.shape
-
-            # Normalize to [0, 1]
             dmin = float(data_2d.min())
             dmax = float(data_2d.max())
-            if dmax > dmin:
-                normalized = (data_2d - dmin) / (dmax - dmin)
+
+            first = self.plot_tag is None or not dpg.does_item_exist(self.plot_tag)
+            if first:
+                self._build_plot()
+            shape_changed = (img_width, img_height) != (self.img_width, self.img_height)
+            mode = ("texture" if self.filtering or data_2d.size > self._MAX_HEAT_CELLS
+                    else "pixels")
+            # New shape or filtering toggled: new series (the zoom is kept
+            # unless the shape changed)
+            rebuild = first or shape_changed or mode != self.mode
+            self.img_width, self.img_height = img_width, img_height
+
+            if mode == "pixels":
+                self._draw_pixels(data_2d, dmin, dmax, colormap, rebuild)
             else:
-                normalized = np.zeros_like(data_2d, dtype=np.float32)
+                self._draw_texture(data_2d, dmin, dmax, colormap, rebuild)
+            if first or shape_changed:
+                self._fit()
 
-            # Apply colormap → RGBA float32 (H, W, 4)
-            mapper = cm.get_cmap(colormap)
-            rgba   = mapper(normalized).astype(np.float32)
-            k = self._block_size(img_width, img_height)
-            if k > 1:
-                rgba = np.repeat(np.repeat(rgba, k, axis=0), k, axis=1)
-            tex_size   = (img_width * k, img_height * k)
-            pixel_data = np.ascontiguousarray(rgba).ravel()
-
-            shape_changed = (
-                img_width  != self.img_width or
-                img_height != self.img_height
-            )
-
-            if self.plot_tag is None or not dpg.does_item_exist(self.plot_tag):
-                # First call: build the full widget tree
-                self._build_plot(img_width, img_height)
-                self._make_texture(pixel_data, *tex_size)
-                self._make_image_series()
-
-            elif shape_changed or tex_size != self.tex_size:
-                # New image shape (re-fit the axes) or filtering toggled
-                # (keep the user's zoom): recreate texture + series
-                self.img_width  = img_width
-                self.img_height = img_height
-                self._make_texture(pixel_data, *tex_size)
-                self._make_image_series(fit=shape_changed)
-
-            else:
-                # Same shape: stream new pixels into the existing texture
-                dpg.set_value(self.texture_tag, pixel_data)
-
+            self.mode = mode
             self.current_data = data_2d
             self._colormap = colormap
             self._update_info_text(dmin, dmax)
@@ -249,8 +250,9 @@ class InteractiveImageViewer:
         try:
             if self.info_text_tag and dpg.does_item_exist(self.info_text_tag):
                 if dmin is not None:
+                    view = {"pixels": "pixels", "texture": "filtered"}.get(self.mode, "")
                     txt = (
-                        f"{self.img_width}\u00d7{self.img_height} px  \u2502  "
+                        f"{self.img_width}\u00d7{self.img_height} px ({view})  \u2502  "
                         f"Range: [{dmin:.4g},\u202f{dmax:.4g}]  \u2502  "
                         "Scroll to zoom  \u2502  Drag to pan  \u2502  "
                         "Double-click to reset"

@@ -50,14 +50,24 @@ def _check_monitor_plot_options():
     with dpg.window(tag="smoke_plot_win"):
         dpg.add_group(tag="smoke_plot_grp")
     plotter = DPGPlotter(parent_tag="smoke_plot_grp")
-    plotter.plot_2d_image_clean(np.arange(12.0).reshape(3, 4))
+    img = np.arange(12.0).reshape(3, 4)
+    plotter.plot_2d_image_clean(img)
     viewer = plotter.image_viewer
-    if viewer.tex_size == (4, 3) or viewer.tex_size[0] % 4:
-        raise RuntimeError(f"unfiltered image not enlarged in blocks: {viewer.tex_size}")
+    if viewer.mode != "pixels" or not dpg.does_item_exist(viewer.heat_series_tag):
+        raise RuntimeError(f"unfiltered image should be a heat series: {viewer.mode}")
+    values = dpg.get_value(viewer.heat_series_tag)[0]
+    if values[:4] != img[-1].tolist():                  # row 0 drawn at the bottom
+        raise RuntimeError(f"heat series rows not flipped: {values[:4]}")
+    plotter.plot_2d_image_clean(img * 2)                # same series, streamed
+    if dpg.get_item_configuration(viewer.heat_series_tag)["scale_max"] != 22.0:
+        raise RuntimeError("heat series scale not updated")
     plotter.set_image_filtering(True)
-    if viewer.tex_size != (4, 3):
-        raise RuntimeError(f"filtered image should use its own size: {viewer.tex_size}")
+    if viewer.mode != "texture" or dpg.does_item_exist(viewer.heat_series_tag or 0):
+        raise RuntimeError(f"filtered image should be a texture: {viewer.mode}")
     plotter.plot_2d_image_clean(np.ones((3, 4)))        # same texture, streamed
+    plotter.set_image_filtering(False)
+    if viewer.mode != "pixels":
+        raise RuntimeError("filtering off again should go back to pixels")
 
     plotter.plot_vector(np.arange(5.0))
     if dpg.get_item_type(plotter.line_series_tag) != "mvAppItemType::mvLineSeries":
