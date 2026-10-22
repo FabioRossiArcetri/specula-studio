@@ -23,6 +23,7 @@ import uuid
 
 import dearpygui.dearpygui as dpg
 
+from . import sshutil
 from .core import ssh_config
 from .core.run_prep import DEFAULT_DISPLAY_SERVER_PORT, write_run_files
 from .simulation_backend import (
@@ -158,6 +159,11 @@ class SimulationControl:
                     dpg.add_input_text(label="SSH Username", tag="sim_remote_user",
                                        default_value=last.get("user", ""),
                                        hint="empty = current user", width=-140)
+                    with dpg.group(horizontal=True):
+                        dpg.add_button(label="Test SSH", callback=self._test_ssh)
+                        dpg.add_text("logins must work without prompts (keys / agent)",
+                                     tag="sim_ssh_test_status", color=tm.get_color("text_hint"),
+                                     wrap=380)
                     dpg.add_input_int(label="Display server port", tag="sim_ds_port",
                                       default_value=DEFAULT_DISPLAY_SERVER_PORT,
                                       min_value=0, max_value=65535, width=-140)
@@ -232,6 +238,28 @@ class SimulationControl:
         dpg.set_value("sim_remote_user", "")
         dpg.set_value("sim_backend", "Remote")
         dpg.set_value("sim_ssh_host_info", f"{alias} -> {host.describe()}  ({host.source})")
+
+    def _ssh_target(self) -> str:
+        host = (self._value("sim_remote_ip", "") or "").strip()
+        user = (self._value("sim_remote_user", "") or "").strip()
+        return f"{user}@{host}" if user and host else host
+
+    def _test_ssh(self, *_):
+        target = self._ssh_target()
+        if target in _LOCAL_HOSTS:
+            dpg.set_value("sim_ssh_test_status", "localhost: no ssh needed")
+            return
+        dpg.set_value("sim_ssh_test_status", f"testing {target}…")
+
+        def work():
+            ok, msg = sshutil.check_login(target)
+            color = self.theme_manager.get_color("text_success" if ok else "text_error")
+            if dpg.does_item_exist("sim_ssh_test_status"):
+                dpg.set_value("sim_ssh_test_status", msg)
+                dpg.configure_item("sim_ssh_test_status", color=color)
+            self.append_terminal(f"[SSH] {target}: {msg}\n")
+
+        threading.Thread(target=work, daemon=True, name="ssh-test").start()
 
     @staticmethod
     def _host_label(h: dict) -> str:

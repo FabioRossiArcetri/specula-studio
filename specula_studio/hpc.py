@@ -25,7 +25,6 @@ import posixpath
 import re
 import shlex
 import shutil
-import subprocess
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -33,59 +32,30 @@ from dataclasses import asdict, dataclass, field
 from .core import slurm
 from .core.run_prep import write_run_files
 from .core.yaml_io import dump_yaml
+from .sshutil import KEY_AUTH_HINT, SSH_OPTIONS, CommandResult, run_command
+from .sshutil import explain_ssh_failure as _explain
+
+__all__ = ["SSH_OPTIONS", "CommandResult", "run_command", "explain_ssh_failure"]
 
 log = logging.getLogger(__name__)
 
-SSH_OPTIONS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=20"]
 STEP_PROVISIONER = "cineca-hpc"
 _ENV_VARS = ("HOME", "WORK", "CINECA_SCRATCH", "SCRATCH", "FAST", "USER")
+_LEONARDO_AUTH_HINT = (
+    "On Leonardo log in first with "
+    f"'step ssh login <email> --provisioner {STEP_PROVISIONER}' "
+    "(certificates last 12 hours); on other clusters " + KEY_AUTH_HINT[0].lower()
+    + KEY_AUTH_HINT[1:]
+)
 
 
 class HpcError(RuntimeError):
     pass
 
 
-@dataclass
-class CommandResult:
-    returncode: int
-    stdout: str
-    stderr: str
-
-    @property
-    def ok(self) -> bool:
-        return self.returncode == 0
-
-
-def run_command(argv: list[str], timeout: float = 120, input_text: str | None = None
-                ) -> CommandResult:
-    """Run a local command (ssh, scp, step …) and capture its output."""
-    try:
-        proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout,
-                              input=input_text, stdin=None if input_text is not None
-                              else subprocess.DEVNULL)
-        return CommandResult(proc.returncode, proc.stdout, proc.stderr)
-    except FileNotFoundError:
-        return CommandResult(127, "", f"command not found: {argv[0]}")
-    except subprocess.TimeoutExpired:
-        return CommandResult(124, "", f"timed out after {timeout:.0f} s: {argv[0]}")
-
-
 def explain_ssh_failure(result: CommandResult) -> str:
-    """A short, actionable explanation of a failed ssh/scp call."""
-    err = (result.stderr or result.stdout).strip()
-    low = err.lower()
-    if "permission denied" in low or "no supported authentication" in low:
-        return ("Authentication failed: on Leonardo log in first with "
-                f"'step ssh login <email> --provisioner {STEP_PROVISIONER}' "
-                "(certificates last 12 hours).")
-    if "could not resolve" in low or "name or service not known" in low:
-        return f"Unknown host: {err}"
-    if "timed out" in low or "connection timed out" in low:
-        return f"Connection timed out: {err}"
-    if "host key verification failed" in low:
-        return ("Host key verification failed: connect once with ssh from a terminal "
-                "to accept (or update) the host key.")
-    return err or f"exit code {result.returncode}"
+    """A short, actionable explanation of a failed ssh/scp call to a cluster."""
+    return _explain(result, auth_hint=_LEONARDO_AUTH_HINT)
 
 
 def expand_remote(path: str, env: dict) -> str:

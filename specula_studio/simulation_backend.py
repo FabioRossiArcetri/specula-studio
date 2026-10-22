@@ -46,6 +46,7 @@ from abc import ABC, abstractmethod
 
 from .core.run_prep import extract_port, remote_shell_command, specula_cli_args
 from .monitor_data import extract_display_array, make_payload
+from .sshutil import SSH_OPTIONS, explain_ssh_failure, run_command
 
 log = logging.getLogger(__name__)
 
@@ -58,15 +59,22 @@ def _resolve_remote_hostname(hostname: str) -> str:
     except (OSError, ValueError):
         pass
 
+    # ssh aliases (~/.ssh/config): the HostName ssh would connect to.  `ssh -G`
+    # only evaluates the local configuration — no network, no login.
+    target = hostname.rpartition("@")[2]
+    result = run_command(["ssh", "-G", target], timeout=10)
+    if result.ok:
+        for line in result.stdout.splitlines():
+            key, _, value = line.partition(" ")
+            if key == "hostname" and value.strip():
+                target = value.strip()
+                break
     try:
-        result = subprocess.run(["ssh", hostname, "hostname -I"],
-                                capture_output=True, text=True, timeout=5)
-        if result.returncode == 0 and result.stdout.split():
-            ip = result.stdout.split()[0]
-            log.info("Resolved '%s' -> %s (via ssh)", hostname, ip)
-            return ip
-    except Exception as exc:
-        log.warning("Could not resolve '%s' via ssh: %s", hostname, exc)
+        socket.inet_aton(target)
+        log.info("Resolved '%s' -> %s (ssh config)", hostname, target)
+        return target
+    except (OSError, ValueError):
+        hostname = target
 
     try:
         ip = socket.gethostbyname(hostname)
@@ -208,21 +216,25 @@ class RemoteBackend(SimulationBackend):
 
     def _start_remote(self, yaml_paths, cmd_args, append_terminal, on_port_found, on_finished):
         try:
-            self._remote_dir = f"/tmp/specula_studio_{uuid.uuid4().hex[:12]}"
-            mk = subprocess.run(["ssh", self.ssh_target, f"mkdir -p {shlex.quote(self._remote_dir)}"],
-                                capture_output=True, text=True, timeout=30)
-            if mk.returncode != 0:
-                append_terminal(f"[Remote] Cannot create {self._remote_dir}: {mk.stderr or mk.stdout}\n")
+            remote_dir = f"/tmp/specula_studio_{uuid.uuid4().hex[:12]}"
+            append_terminal(f"[Remote] Connecting to {self.ssh_target}…\n")
+            mk = run_command(["ssh", *SSH_OPTIONS, self.ssh_target,
+                              f"mkdir -p {shlex.quote(remote_dir)}"], timeout=60)
+            if not mk.ok:
+                append_terminal(f"[Remote] Cannot connect / create {remote_dir}: "
+                                f"{explain_ssh_failure(mk)}\n")
                 self._running = False
                 on_finished()
                 return
+            self._remote_dir = remote_dir
 
             append_terminal(f"[Remote] Copying {len(yaml_paths)} file(s) to {self.remote_ip}…\n")
-            scp = subprocess.run(["scp", *yaml_paths, f"{self.ssh_target}:{self._remote_dir}/"],
-                                 capture_output=True, text=True)
-            if scp.returncode != 0:
-                append_terminal(f"[Remote] scp error: {scp.stderr or scp.stdout}\n")
+            scp = run_command(["scp", *SSH_OPTIONS, "-q", *yaml_paths,
+                               f"{self.ssh_target}:{remote_dir}/"], timeout=600)
+            if not scp.ok:
+                append_terminal(f"[Remote] scp error: {explain_ssh_failure(scp)}\n")
                 self._running = False
+                self._cleanup_remote()
                 on_finished()
                 return
 
@@ -231,7 +243,7 @@ class RemoteBackend(SimulationBackend):
             append_terminal(f"[Remote] {self.ssh_target}: {remote_cmd}\n")
             # -tt: a pseudo-terminal ties the remote process to this ssh
             # session, so terminating ssh (abort) also stops SPECULA remotely.
-            self._spawn(["ssh", "-tt", self.ssh_target, remote_cmd],
+            self._spawn(["ssh", "-tt", *SSH_OPTIONS, self.ssh_target, remote_cmd],
                         append_terminal, on_port_found, on_finished,
                         self._resolved_ip or self.remote_ip)
         except Exception as exc:
@@ -267,11 +279,15 @@ class RemoteBackend(SimulationBackend):
         cmd = f"rm -rf {shlex.quote(remote_dir)}"
         if kill:
             cmd = f"pkill -f {shlex.quote(remote_dir)}; " + cmd
-        threading.Thread(
-            target=lambda: subprocess.run(["ssh", self.ssh_target, cmd],
-                                          capture_output=True, timeout=30),
-            daemon=True,
-        ).start()
+        target = self.ssh_target
+
+        def cleanup():
+            res = run_command(["ssh", *SSH_OPTIONS, target, cmd], timeout=60)
+            if not res.ok:
+                log.warning("Remote clean-up of %s on %s failed: %s", remote_dir, target,
+                            explain_ssh_failure(res))
+
+        threading.Thread(target=cleanup, daemon=True, name="remote-cleanup").start()
 
     def step(self, n: int = 1) -> None:
         if self._process and self._process.poll() is None:
