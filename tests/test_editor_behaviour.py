@@ -155,3 +155,17 @@ def test_graph_issues_report_missing_inputs_and_simulparams():
     msgs = [i.describe(g) for i in validation.graph_issues(g)]
     assert any("recmat" in m for m in msgs)
     assert any("SimulParams" in m for m in msgs)
+
+
+def test_control_window_link_drives_the_editor(scenarios):
+    res = scenarios["control_window_link"]
+    assert "exception" not in res, res
+    init = res["init"]
+    assert init["type"] == "init" and init["terminal"] == "before\n"
+    assert init["status"] == "idle" and "recent_hosts" in init
+    assert res["live"] == {"type": "terminal", "text": "live\n"}
+    kinds = [(e["type"], e.get("text")) for e in res["events"]]
+    assert ("status", "aborted") in kinds
+    assert kinds[-1] == ("terminal_reset", "")
+    assert res["backlog_after_clear"] == ""
+    assert res["quit"] == {"type": "quit"}

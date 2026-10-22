@@ -10,7 +10,9 @@ simulations, built on [Dear PyGui](https://github.com/hoffstadt/DearPyGui).
   `gui_pos` key, which SPECULA ignores).
 * Apply SPECULA override files on top of a simulation.
 * Run the simulation in-process, as a local subprocess or on a remote host via
-  SSH, step it, and watch any output live in monitor windows.  Remote hosts
+  SSH, step it, and watch any output live in monitor windows.  The simulation
+  control panel opens in its own window (it can be moved to another screen);
+  *Preferences* can put it back inside the editor.  Remote hosts
   can be picked from the `Host` entries of your OpenSSH client configuration
   (`~/.ssh/config`, i.e. `%USERPROFILE%\.ssh\config` on Windows); the alias is
   passed to `ssh`/`scp` as is, so `User`, `Port`, `IdentityFile`, `ProxyJump`…

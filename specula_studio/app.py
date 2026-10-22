@@ -484,6 +484,7 @@ class SpeculaEditor(
                 self._poll_history()
                 self._poll_catalog_build()
                 self._poll_hpc_ui()
+                self.sim_control.poll_commands()
                 dpg.render_dearpygui_frame()
         finally:
             self.shutdown()
@@ -502,6 +503,10 @@ class SpeculaEditor(
             log.exception("Error while closing monitors on exit")
         # batch jobs keep running on the cluster; only stop following them
         self.stop_hpc_poller()
+        try:
+            self.sim_control.close_control_window()
+        except Exception:
+            log.exception("Error while closing the control window on exit")
 
 
 def parse_args(argv=None) -> argparse.Namespace:

@@ -158,6 +158,57 @@ def scenario_undo_dirty():
     return res
 
 
+def scenario_control_window_link():
+    import time
+
+    from specula_studio import control_link
+    from specula_studio.app import SpeculaEditor as Editor
+
+    ed = Editor(yaml_folder=str(TEMPLATES_DIR))
+    sc = ed.sim_control
+    sc.append_terminal("before\n")
+    sc._ensure_link()                     # what show_control_window does, minus the process
+    conn = control_link.connect(sc._link.address, sc._link.authkey)
+    init = conn.recv()
+    sc.append_terminal("live\n")
+    live = conn.recv()
+
+    # Like the real window: a reader thread that closes on "quit".
+    import threading
+
+    events = []
+
+    def reader():
+        while True:
+            try:
+                msg = conn.recv()
+            except (EOFError, OSError):
+                return
+            events.append(msg)
+            if msg.get("type") == "quit":
+                conn.close()
+                return
+
+    rt = threading.Thread(target=reader, daemon=True)
+    rt.start()
+    conn.send({"type": "abort"})          # no backend: warns and reports "aborted"
+    conn.send({"type": "clear_terminal"})
+    t0 = time.time()
+    while sc._link.commands.qsize() < 2 and time.time() - t0 < 5:
+        time.sleep(0.01)
+    sc.poll_commands()
+    t0 = time.time()
+    while not any(e.get("type") == "terminal_reset" for e in events) and time.time() - t0 < 5:
+        time.sleep(0.01)
+    backlog = sc._terminal_text()
+    sc.close_control_window()
+    rt.join(5)
+    return {"init": init, "live": live,
+            "events": [e for e in events if e.get("type") != "quit"],
+            "quit": next((e for e in events if e.get("type") == "quit"), None),
+            "backlog_after_clear": backlog}
+
+
 if __name__ == "__main__":
     results = {}
     for name, fn in list(globals().items()):

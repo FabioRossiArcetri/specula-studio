@@ -49,12 +49,14 @@ class PreferencesMixin:
             elif self.nm._selected_link_id is not None:
                 self.nm.update_connection_panel(self.nm._selected_link_id, "property_panel")
 
-        # Recreate simulation control window if open
+        # Recreate the docked simulation control panel if open (the separate
+        # control window picks up the theme the next time it is opened)
         if dpg.does_item_exist("sim_control_window"):
             was_open = dpg.is_item_shown("sim_control_window")
+            dpg.delete_item("sim_control_window")
+            self.sim_control.view = None
             if was_open:
-                dpg.delete_item("sim_control_window")
-                self.sim_control.show_control_window()
+                self.sim_control.show_docked_panel()
 
         # Close preferences dialog (it will be recreated on next open)
         if dpg.does_item_exist("pref_window"):
@@ -90,7 +92,7 @@ class PreferencesMixin:
     def _create_preferences_dialog(self):
         with dpg.window(
             label="Preferences", tag="preferences_dialog",
-            modal=True, show=False, width=540, height=760, no_resize=True
+            modal=True, show=False, width=540, height=840, no_resize=True
         ):
             dpg.add_text("Preferences", color=self.theme_manager.get_color("dialog_title"))
             dpg.add_separator()
@@ -188,6 +190,21 @@ class PreferencesMixin:
                     wrap=490,
                 )
 
+            dpg.add_spacer(height=16)
+            dpg.add_separator()
+            dpg.add_spacer(height=12)
+
+            # ── Simulation control panel ──────────────────────────────────────
+            dpg.add_checkbox(
+                label="Simulation control panel in a separate window",
+                default_value=self.preferences.get("control_panel", "window") != "docked",
+                callback=self._on_control_panel_mode_changed,
+            )
+            dpg.add_text(
+                "Off: the panel opens as a window inside the editor.",
+                color=self.theme_manager.get_color("text_hint"),
+                wrap=490,
+            )
             dpg.add_spacer(height=16)
             dpg.add_separator()
             dpg.add_spacer(height=12)
@@ -328,6 +345,10 @@ class PreferencesMixin:
         self.preferences['include_defaults'] = app_data
         self._save_settings()
         log.info(f"[PREFERENCES] Include Defaults set to: {app_data}")
+
+    def _on_control_panel_mode_changed(self, sender, app_data):
+        self.preferences['control_panel'] = "window" if app_data else "docked"
+        self._save_settings()
 
     def _on_class_source_changed(self, sender, app_data):
         self.preferences['class_source'] = "bundled" if app_data.startswith("Bundled") else "installed"

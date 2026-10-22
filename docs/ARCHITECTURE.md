@@ -107,3 +107,15 @@ for scp), resolves `$WORK` on the login node, submits, polls squeue/sacct and
 downloads results.  Submitted jobs are stored in the settings and followed
 again after a restart.  Files are written with LF line endings (sbatch rejects
 CRLF scripts).
+
+## Simulation control window
+
+DearPyGui has one OS window per process, so the control panel "in its own
+window" is a separate process (`control_window.py`).  It is only a remote
+control: runs stay in the editor, where the in-process backend, its probes and
+the monitors live.  `control_link.py` carries plain-dict messages over an
+authenticated localhost `multiprocessing.connection` (the key is passed in the
+child's environment): commands from the window (start with the options dict,
+step, abort, test_ssh, clear_terminal) are queued and executed on the editor's
+GUI thread; terminal output and status go back.  Both the separate window and
+the optional in-editor panel use the same `ui/control_panel.ControlPanelView`.

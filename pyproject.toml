@@ -85,9 +85,13 @@ files = [
     "specula_studio/logs.py",
     "specula_studio/monitor_data.py",
     "specula_studio/hpc.py",
+    "specula_studio/control_link.py",
+    "specula_studio/sshutil.py",
 ]
 check_untyped_defs = true
 ignore_missing_imports = true
+# report only the files listed above, not the (DearPyGui) modules they import
+follow_imports = "silent"
 warn_unused_ignores = true
 
 # ── Pytest ───────────────────────────────────────────────────────────────────

@@ -58,7 +58,13 @@ def main(path):
     steps.append("connection_panels")
     step("preferences", editor._show_preferences_dialog)
     step("log_window", editor._show_log_window)
-    step("sim_control", editor.sim_control.show_control_window)
+    # The separate control window is another process (needs a display): the
+    # smoke build uses the docked panel, which shares all the widget code.
+    step("sim_control", editor.sim_control.show_docked_panel)
+    editor.sim_control.view.set_ssh_test("ok", True)
+    editor.sim_control.view.append_terminal("hello\n")
+    if not editor.sim_control.view.options()["stepping"]:
+        raise RuntimeError("control panel options not read")
     step("yaml_window", editor.sim_control.show_yaml_window)
     step("add_multiple", editor._show_add_multiple_dialog)
     step("about", editor._show_about_dialog)
@@ -128,7 +134,7 @@ def main(path):
         editor._open_simulation(sim)
         dpg.set_value("sim_stepping", False)
         dpg.set_value("sim_cpu", True)
-        editor.sim_control.start_sim()
+        editor.sim_control.start_sim()          # options read from the docked panel
         gen = editor.graph.find_by_name("gen")
         nm.monitors.open_monitor(None, None, (gen, "output"))
         t0 = time.time()

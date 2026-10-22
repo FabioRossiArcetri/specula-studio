@@ -1,5 +1,12 @@
 """
-Simulation control panel: starting, stepping and aborting SPECULA runs.
+Starting, stepping and aborting SPECULA runs.
+
+The control panel (:class:`~.ui.control_panel.ControlPanelView`) is shown
+either in its own OS window — a separate process connected through
+:mod:`.control_link` (default) — or as a window inside the editor
+(preference *control_panel* = "docked").  Both pass the run options as a dict
+to :meth:`SimulationControl.start_sim`; terminal output and status go back to
+whichever panel is open.  Runs always execute in the editor process.
 
 A run writes its files into a private temporary directory:
 
@@ -15,6 +22,7 @@ import collections
 import json
 import logging
 import os
+import queue
 import shutil
 import tempfile
 import threading
@@ -24,8 +32,8 @@ import uuid
 import dearpygui.dearpygui as dpg
 
 from . import sshutil
-from .core import ssh_config
-from .core.run_prep import DEFAULT_DISPLAY_SERVER_PORT, write_run_files
+from .control_link import ControlServer, ControlWindowProcess
+from .core.run_prep import write_run_files
 from .simulation_backend import (
     InProcessBackend,
     RemoteBackend,
@@ -33,17 +41,18 @@ from .simulation_backend import (
     _resolve_remote_hostname,
 )
 from .theme_manager import ThemeManager
+from .ui.control_panel import DEFAULT_OPTIONS, TERMINAL_MAX_CHUNKS, ControlPanelView
 
 log = logging.getLogger(__name__)
 
 _LOCAL_HOSTS = ("localhost", "127.0.0.1", "")
-_TERMINAL_MAX_CHUNKS = 2000
+_DOCKED_WINDOW = "sim_control_window"
 
 
 class SimulationControl:
     def __init__(self, editor):
         self.editor        = editor
-        self.terminal_data = collections.deque(maxlen=_TERMINAL_MAX_CHUNKS)
+        self.terminal_data = collections.deque(maxlen=TERMINAL_MAX_CHUNKS)
         self._terminal_lock = threading.Lock()
         self.is_running    = False
         self._backend: SimulationBackend | None = None
@@ -53,7 +62,10 @@ class SimulationControl:
         # coordination file and passed to every subprocess monitor, so stale
         # monitors of a previous run never attach to a new server.
         self._session_id: str = ""
-        self._ssh_hosts: dict = {}          # alias -> ssh_config.SshHost
+        self._status = "idle"
+        self.view: ControlPanelView | None = None       # panel inside the editor
+        self._link: ControlServer | None = None         # separate control window
+        self._window: ControlWindowProcess | None = None
         self.theme_manager = ThemeManager()
 
     # ── Coordination file ─────────────────────────────────────────────────────
@@ -100,7 +112,7 @@ class SimulationControl:
             dpg.add_input_text(default_value=yaml_content, multiline=True, readonly=True,
                                width=-1, height=-1)
 
-    # ── Control window ────────────────────────────────────────────────────────
+    # ── Control panel: separate window or docked ──────────────────────────────
 
     def _new_run_dir(self) -> str:
         """Fresh private directory for this run (the previous one is removed)."""
@@ -109,212 +121,116 @@ class SimulationControl:
         self._run_dir = tempfile.mkdtemp(prefix="specula_studio_run_")
         return self._run_dir
 
-    def show_control_window(self):
-        if dpg.does_item_exist("sim_control_window"):
-            dpg.show_item("sim_control_window")
-            dpg.focus_item("sim_control_window")
+    def show_control_window(self, *_):
+        """Open the control panel (separate window unless the user chose docked)."""
+        if self.editor.preferences.get("control_panel", "window") == "docked":
+            self.show_docked_panel()
             return
+        try:
+            self._ensure_link()
+            self._window.launch()
+        except Exception as exc:
+            log.warning("Cannot open the control panel in its own window (%s); "
+                        "showing it inside the editor", exc)
+            self.show_docked_panel()
 
-        tm = self.theme_manager
-        hosts = self.editor.preferences.get("remote_hosts", [])
-        last = hosts[0] if hosts else {"host": "localhost", "user": ""}
-
-        with dpg.window(label="Simulation Control Panel", tag="sim_control_window",
+    def show_docked_panel(self):
+        if dpg.does_item_exist(_DOCKED_WINDOW):
+            dpg.show_item(_DOCKED_WINDOW)
+            dpg.focus_item(_DOCKED_WINDOW)
+            return
+        self.view = ControlPanelView(self, self.theme_manager, self._recent_hosts())
+        with dpg.window(label="Simulation Control Panel", tag=_DOCKED_WINDOW,
                         width=980, height=640):
-            with dpg.group(horizontal=True):
-                with dpg.child_window(width=520):
-                    dpg.add_text("Backend Mode", color=tm.get_color("control_section_header"))
-                    dpg.add_combo(
-                        label="Execution Mode",
-                        items=["Remote", "In-Process"],
-                        tag="sim_backend",
-                        default_value="In-Process",
-                        callback=self._on_backend_mode_changed,
-                    )
-                    dpg.add_text(
-                        "In-Process: runs inside the editor, monitors fed directly.\n"
-                        "Remote: runs the 'specula' command, locally (localhost)\n"
-                        "or over SSH; monitors connect to its DisplayServer.",
-                        color=tm.get_color("text_hint"),
-                    )
-                    dpg.add_text("Remote Server Configuration",
-                                 color=tm.get_color("control_subsection_header"),
-                                 tag="sim_remote_settings_label")
-                    with dpg.group(horizontal=True):
-                        dpg.add_combo(label="", tag="sim_ssh_hosts", items=[], width=-180,
-                                      callback=self._on_ssh_config_host)
-                        dpg.add_text("SSH config hosts")
-                        dpg.add_button(label="Reload", callback=self._refresh_ssh_hosts)
-                    dpg.add_text("", tag="sim_ssh_host_info", color=tm.get_color("text_hint"))
-                    if hosts:
-                        dpg.add_combo(
-                            label="Recent hosts",
-                            items=[self._host_label(h) for h in hosts],
-                            default_value=self._host_label(last), width=-140,
-                            callback=self._on_recent_host,
-                        )
-                    dpg.add_input_text(label="Server IP / Hostname", tag="sim_remote_ip",
-                                       default_value=last.get("host", "localhost"),
-                                       hint="localhost, 127.0.0.1, or remote host", width=-140)
-                    dpg.add_input_text(label="SSH Username", tag="sim_remote_user",
-                                       default_value=last.get("user", ""),
-                                       hint="empty = current user", width=-140)
-                    with dpg.group(horizontal=True):
-                        dpg.add_button(label="Test SSH", callback=self._test_ssh)
-                        dpg.add_text("logins must work without prompts (keys / agent)",
-                                     tag="sim_ssh_test_status", color=tm.get_color("text_hint"),
-                                     wrap=380)
-                    dpg.add_input_int(label="Display server port", tag="sim_ds_port",
-                                      default_value=DEFAULT_DISPLAY_SERVER_PORT,
-                                      min_value=0, max_value=65535, width=-140)
-                    dpg.add_text("0 = pick a free port (requires a recent SPECULA)",
-                                 color=tm.get_color("text_hint"))
-                    dpg.add_separator()
-                    dpg.add_text("Simulation Arguments",
-                                 color=tm.get_color("control_subsection_header"))
-                    dpg.add_input_int(label="N-Simul", tag="sim_nsimul", default_value=1, min_value=1)
-                    dpg.add_checkbox(label="Use CPU", tag="sim_cpu")
-                    dpg.add_input_int(label="GPU ID", tag="sim_target", default_value=0)
-                    dpg.add_combo(label="Precision", items=["0", "1"],
-                                  tag="sim_precision", default_value="1")
-                    dpg.add_combo(label="Log Level", items=["DEBUG", "INFO", "WARNING"],
-                                  tag="sim_log", default_value="INFO")
-                    dpg.add_checkbox(label="Stepping Mode", tag="sim_stepping", default_value=True)
-                    with dpg.group(horizontal=True):
-                        dpg.add_checkbox(label="Profile", tag="sim_profile")
-                        dpg.add_checkbox(label="SPECULA diagram (PNG)", tag="sim_diagram")
-                    dpg.add_text("(Profile / diagram: local and SSH runs only)",
-                                 color=tm.get_color("text_hint"))
-                    dpg.add_separator()
-                    dpg.add_button(label="START SIMULATION", callback=self.start_sim,
-                                   width=-1, height=35)
-                    dpg.add_button(label="Advance Step", callback=self.step_sim,
-                                   width=-1, height=25)
-                    with dpg.group(horizontal=True):
-                        dpg.add_input_int(label="Steps", tag="sim_advance_n_steps",
-                                          default_value=100, min_value=1, width=140)
-                        dpg.add_button(label="Advance N Steps", callback=self.step_sim_n,
-                                       width=-1, height=25)
-                    dpg.add_button(label="Abort Simulation", callback=self.abort_sim,
-                                   width=-1, height=25)
-                    dpg.add_text("Status: idle", tag="sim_status_text",
-                                 color=tm.get_color("text_hint"))
+            pass
+        self.view.build(_DOCKED_WINDOW)
+        self.view.reset_terminal(self._terminal_text())
+        self.view.set_status(self._status)
 
-                with dpg.child_window(width=-1, tag="sim_terminal_child", border=True):
-                    with dpg.group(horizontal=True):
-                        dpg.add_text("Terminal Output",
-                                     color=tm.get_color("control_terminal_title"))
-                        dpg.add_button(label="Clear", callback=self._clear_terminal)
-                        dpg.add_button(label="Save...", callback=self._save_terminal)
-                    dpg.add_input_text(tag="sim_terminal", multiline=True, readonly=True,
-                                       width=-1, height=-1)
-        self._refresh_terminal()
-        self._refresh_ssh_hosts()
+    def _recent_hosts(self) -> list:
+        return list(self.editor.preferences.get("remote_hosts", []) or [])
 
-    # ── SSH config hosts ──────────────────────────────────────────────────────
+    def _ensure_link(self):
+        if self._link is None:
+            self._link = ControlServer(on_connect=self._on_window_connected)
+            self._window = ControlWindowProcess(self._link)
 
-    def _refresh_ssh_hosts(self, *_):
-        """(Re)read the aliases of the ssh client configuration."""
-        path = ssh_config.default_config_path()
-        self._ssh_hosts = {h.alias: h for h in ssh_config.list_ssh_hosts(path)}
-        if not dpg.does_item_exist("sim_ssh_hosts"):
+    def _on_window_connected(self):
+        self._link.send({"type": "init", "recent_hosts": self._recent_hosts(),
+                         "terminal": self._terminal_text(), "status": self._status})
+
+    def poll_commands(self):
+        """Run the commands sent by the control window (GUI thread, every frame)."""
+        if self._link is None:
             return
-        dpg.configure_item("sim_ssh_hosts", items=list(self._ssh_hosts))
-        if self._ssh_hosts:
-            info = f"{len(self._ssh_hosts)} host(s) from {path}"
-        elif path.exists():
-            info = f"No concrete Host entries in {path}"
-        else:
-            info = f"No ssh config found ({path})"
-        dpg.set_value("sim_ssh_host_info", info)
+        while True:
+            try:
+                msg = self._link.commands.get_nowait()
+            except queue.Empty:
+                return
+            kind = msg.get("type")
+            try:
+                if kind == "start":
+                    self.start_sim(msg.get("options") or {})
+                elif kind == "step":
+                    self.step(int(msg.get("n", 1)))
+                elif kind == "abort":
+                    self.abort_sim()
+                elif kind == "test_ssh":
+                    self.test_ssh(msg.get("target", ""))
+                elif kind == "clear_terminal":
+                    self.clear_terminal()
+            except Exception as exc:
+                log.exception("Control command %s failed", kind)
+                self.append_terminal(f"[ERROR] {kind}: {exc}\n")
 
-    def _on_ssh_config_host(self, sender, alias):
-        host = getattr(self, "_ssh_hosts", {}).get(alias)
-        if host is None:
-            return
-        # Pass the alias itself to ssh/scp, so every option of the config
-        # entry applies (HostName, User, Port, IdentityFile, ProxyJump, ...).
-        dpg.set_value("sim_remote_ip", alias)
-        dpg.set_value("sim_remote_user", "")
-        dpg.set_value("sim_backend", "Remote")
-        dpg.set_value("sim_ssh_host_info", f"{alias} -> {host.describe()}  ({host.source})")
+    def close_control_window(self):
+        if self._window is not None:
+            self._window.stop()
+        if self._link is not None:
+            self._link.close()
+            self._link = None
 
-    def _ssh_target(self) -> str:
-        host = (self._value("sim_remote_ip", "") or "").strip()
-        user = (self._value("sim_remote_user", "") or "").strip()
-        return f"{user}@{host}" if user and host else host
+    # ── output to the panels (any thread) ─────────────────────────────────────
 
-    def _test_ssh(self, *_):
-        target = self._ssh_target()
-        if target in _LOCAL_HOSTS:
-            dpg.set_value("sim_ssh_test_status", "localhost: no ssh needed")
-            return
-        dpg.set_value("sim_ssh_test_status", f"testing {target}…")
+    def _terminal_text(self) -> str:
+        with self._terminal_lock:
+            return "".join(self.terminal_data)
 
+    def append_terminal(self, text):
+        with self._terminal_lock:
+            self.terminal_data.append(text)
+        if self.view is not None:
+            self.view.append_terminal(text)
+        if self._link is not None:
+            self._link.send({"type": "terminal", "text": text})
+
+    def clear_terminal(self):
+        with self._terminal_lock:
+            self.terminal_data.clear()
+        if self.view is not None:
+            self.view.reset_terminal("")
+        if self._link is not None:
+            self._link.send({"type": "terminal_reset", "text": ""})
+
+    def _set_status(self, text: str):
+        self._status = text
+        if self.view is not None:
+            self.view.set_status(text)
+        if self._link is not None:
+            self._link.send({"type": "status", "text": text})
+
+    def test_ssh(self, target: str):
+        """Check a prompt-free login; the result goes to the panels."""
         def work():
             ok, msg = sshutil.check_login(target)
-            color = self.theme_manager.get_color("text_success" if ok else "text_error")
-            if dpg.does_item_exist("sim_ssh_test_status"):
-                dpg.set_value("sim_ssh_test_status", msg)
-                dpg.configure_item("sim_ssh_test_status", color=color)
+            if self.view is not None:
+                self.view.set_ssh_test(msg, ok)
+            if self._link is not None:
+                self._link.send({"type": "ssh_test", "message": msg, "ok": ok})
             self.append_terminal(f"[SSH] {target}: {msg}\n")
 
         threading.Thread(target=work, daemon=True, name="ssh-test").start()
-
-    @staticmethod
-    def _host_label(h: dict) -> str:
-        return f"{h['user']}@{h['host']}" if h.get("user") else h.get("host", "")
-
-    def _on_recent_host(self, sender, app_data):
-        user, _, host = app_data.rpartition("@")
-        dpg.set_value("sim_remote_ip", host)
-        dpg.set_value("sim_remote_user", user)
-
-    def _on_backend_mode_changed(self, sender, app_data):
-        log.info("Backend mode: %s", app_data)
-
-    def _set_status(self, text: str):
-        if dpg.does_item_exist("sim_status_text"):
-            dpg.set_value("sim_status_text", f"Status: {text}")
-
-    # ── Terminal ──────────────────────────────────────────────────────────────
-
-    def append_terminal(self, text):
-        """Append output (called from any thread)."""
-        with self._terminal_lock:
-            self.terminal_data.append(text)
-        self._refresh_terminal()
-
-    def _refresh_terminal(self):
-        if dpg.does_item_exist("sim_terminal"):
-            with self._terminal_lock:
-                content = "".join(self.terminal_data)
-            dpg.set_value("sim_terminal", content)
-            try:
-                dpg.set_y_scroll("sim_terminal_child", -1.0)
-            except Exception:
-                pass
-
-    def _clear_terminal(self):
-        with self._terminal_lock:
-            self.terminal_data.clear()
-        self._refresh_terminal()
-
-    def _save_terminal(self):
-        def _write(sender, app_data):
-            path = app_data.get("file_path_name")
-            if not path:
-                return
-            with self._terminal_lock:
-                content = "".join(self.terminal_data)
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(content)
-            log.info("Terminal output saved to %s", path)
-
-        with dpg.file_dialog(label="Save terminal output", callback=_write, width=700,
-                             height=400, default_filename="specula_run.log"):
-            dpg.add_file_extension(".log")
-            dpg.add_file_extension(".*")
 
     # ── Display server ────────────────────────────────────────────────────────
 
@@ -352,9 +268,6 @@ class SimulationControl:
         self.editor.nm.monitors.set_backend(None)
         self._set_status("finished")
 
-    def _value(self, tag, default):
-        return dpg.get_value(tag) if dpg.does_item_exist(tag) else default
-
     def _display_server_params(self) -> set:
         """Constructor parameters of the installed DisplayServer (class catalog)."""
         tpl = self.editor.all_templates.get("DisplayServer") or {}
@@ -371,21 +284,22 @@ class SimulationControl:
             return om.rebased(current), om.get_enabled_overrides()
         return current, []
 
-    def start_sim(self, sender=None, app_data=None, run_all_mode=False):
+    def start_sim(self, options: dict | None = None, run_all_mode: bool = False):
+        """Start a run with *options* (see ``control_panel.DEFAULT_OPTIONS``)."""
+        if options is None and self.view is not None:
+            options = self.view.options()
+        opts = {**DEFAULT_OPTIONS, **(options or {})}
         if self.is_running:
             self.append_terminal("[WARNING] Simulation is already running\n")
             return
 
         self._session_id = str(uuid.uuid4())
-        backend_mode = self._value("sim_backend", "In-Process")
+        backend_mode = opts["backend"]
         in_process = backend_mode == "In-Process"
-        remote_ip = "localhost"
-        remote_user = ""
-        if not in_process:
-            remote_ip = (self._value("sim_remote_ip", "localhost") or "localhost").strip()
-            remote_user = (self._value("sim_remote_user", "") or "").strip()
+        remote_ip = "localhost" if in_process else (opts["host"] or "localhost").strip()
+        remote_user = "" if in_process else (opts["user"] or "").strip()
         is_ssh = not in_process and remote_ip not in _LOCAL_HOSTS
-        ds_port = int(self._value("sim_ds_port", DEFAULT_DISPLAY_SERVER_PORT))
+        ds_port = int(opts["ds_port"])
 
         # ── files ─────────────────────────────────────────────────────────────
         run_dir = self._new_run_dir()
@@ -418,14 +332,14 @@ class SimulationControl:
 
         cmd_args = {
             "run_all_mode": run_all_mode,
-            "stepping":     self._value("sim_stepping", False),
-            "nsimul":       self._value("sim_nsimul", 1),
-            "cpu":          self._value("sim_cpu", False),
-            "target":       self._value("sim_target", 0),
-            "precision":    int(self._value("sim_precision", "1")),
-            "log_level":    self._value("sim_log", "INFO"),
-            "profile":      self._value("sim_profile", False),
-            "diagram":      self._value("sim_diagram", False),
+            "stepping":     bool(opts["stepping"]),
+            "nsimul":       int(opts["nsimul"]),
+            "cpu":          bool(opts["cpu"]),
+            "target":       int(opts["target"]),
+            "precision":    int(opts["precision"]),
+            "log_level":    opts["log_level"],
+            "profile":      bool(opts["profile"]),
+            "diagram":      bool(opts["diagram"]),
             "resolved_ip":  resolved_ip,
             "remote_ip":    remote_ip,
         }
@@ -455,25 +369,26 @@ class SimulationControl:
             mm.on_display_server_ready(expected_url)
             self._schedule_display_server_reconnect(expected_url)
 
-    def step_sim(self, sender=None, app_data=None):
-        if self._backend is not None:
-            self._backend.step()
-        else:
-            self.append_terminal("[WARNING] No active backend\n")
+    # ControlPanelView actions (the in-editor panel calls them directly)
+    def start(self, options: dict):
+        self.start_sim(options)
 
-    def step_sim_n(self, sender=None, app_data=None):
+    def step(self, n: int = 1):
         if self._backend is None:
             self.append_terminal("[WARNING] No active backend\n")
             return
-        n_steps = dpg.get_value("sim_advance_n_steps")
-        if n_steps < 1:
-            self.append_terminal("[WARNING] Number of steps must be at least 1\n")
-            return
-        self.append_terminal(f"[INFO] Advancing {n_steps} step(s)...\n")
+        if n > 1:
+            self.append_terminal(f"[INFO] Advancing {n} step(s)...\n")
         # SPECULA's stepping prompt accepts a number of steps to advance.
-        self._backend.step(n_steps)
+        self._backend.step(n)
 
-    def abort_sim(self, sender=None, app_data=None):
+    def abort(self):
+        self.abort_sim()
+
+    def step_sim(self, *_):
+        self.step(1)
+
+    def abort_sim(self, *_):
         if self._backend is not None:
             self._backend.abort()
             self.append_terminal("[INFO] Abort signal sent\n")
