@@ -15,16 +15,9 @@ import os
 import pathlib
 import tempfile
 
-log = logging.getLogger(__name__)
+from platformdirs import user_config_dir
 
-try:
-    from platformdirs import user_config_dir
-except ImportError:  # pragma: no cover - platformdirs is optional
-    def user_config_dir(appname: str) -> str:  # type: ignore[misc]
-        base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
-            os.path.expanduser("~"), ".config"
-        )
-        return os.path.join(base, appname)
+log = logging.getLogger(__name__)
 
 
 APP_NAME = "specula-studio"

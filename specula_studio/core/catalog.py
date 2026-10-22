@@ -38,19 +38,13 @@ import sys
 import tempfile
 from collections import OrderedDict
 
+from platformdirs import user_cache_dir
+
 from .templates import TEMPLATES_DIR, load_bundled_templates
 
 log = logging.getLogger(__name__)
 
 CATALOG_FORMAT = 2
-
-try:
-    from platformdirs import user_cache_dir
-except ImportError:  # pragma: no cover
-    def user_cache_dir(appname: str) -> str:  # type: ignore[misc]
-        base = os.environ.get("XDG_CACHE_HOME") or os.path.join(
-            os.path.expanduser("~"), ".cache")
-        return os.path.join(base, appname)
 
 
 # ── locating SPECULA ──────────────────────────────────────────────────────────

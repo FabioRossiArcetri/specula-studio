@@ -17,6 +17,7 @@ dependencies = [
     "dearpygui>=2.1.1",
     "matplotlib>=3.8",
     "numpy>=1.26",
+    "platformdirs>=2.5",
     "PyYAML>=6.0",
     "python-socketio>=5.0.0",
 ]
