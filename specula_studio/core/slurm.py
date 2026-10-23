@@ -165,37 +165,110 @@ def render_script(opts: SlurmOptions, files) -> str:
 
 # ── adapting the simulation to the cluster ────────────────────────────────────
 
-def hpc_override(base: dict, overrides: list[dict], remote_root_dir: str | None) -> dict:
+# Data mirrored on the cluster under the same absolute paths, below $WORK
+DEFAULT_PATH_MAP = "/raid1 -> $WORK/raid1\n/raid2 -> $WORK/raid2\n/home -> $WORK/home"
+
+# Keys of an object block that never hold paths
+_NOT_PATHS = ("class", "inputs", "outputs", "gui_pos")
+
+
+def parse_path_map(text: str) -> list[tuple[str, str]]:
+    """``LOCAL -> REMOTE`` lines (``#`` comments, blank lines ignored)."""
+    pairs = []
+    for line in (text or "").splitlines():
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        local, sep, remote = line.partition("->")
+        if sep and local.strip() and remote.strip():
+            pairs.append((local.strip(), remote.strip()))
+    return pairs
+
+
+def map_path(path: str, pairs) -> str | None:
+    """*path* translated by the longest matching local prefix, or None.
+
+    Prefixes match whole path components ("/raid1" matches "/raid1/x", not
+    "/raid10"); backslashes count as slashes, so Windows paths can be mapped.
+    """
+    norm = path.replace("\\", "/")
+    best = None
+    for local, remote in pairs:
+        prefix = local.replace("\\", "/").rstrip("/")
+        if not prefix:
+            continue
+        if norm == prefix or norm.startswith(prefix + "/"):
+            if best is None or len(prefix) > len(best[0]):
+                best = (prefix, remote.rstrip("/"))
+    if best is None:
+        return None
+    return best[1] + norm[len(best[0]):]
+
+
+def mapped_values(merged: dict, pairs) -> list[tuple[str, str, object]]:
+    """(object, key, cluster value) for every path value that *pairs* map.
+
+    String values and lists of strings are mapped (a list is mapped as a
+    whole when at least one item matches)."""
+    found: list[tuple[str, str, object]] = []
+    for name, obj in merged.items():
+        if not isinstance(obj, dict):
+            continue
+        for key, value in obj.items():
+            if key in _NOT_PATHS:
+                continue
+            if isinstance(value, str):
+                mapped = map_path(value, pairs)
+                if mapped is not None:
+                    found.append((name, key, mapped))
+            elif isinstance(value, list) and any(isinstance(v, str) for v in value):
+                items = [map_path(v, pairs) if isinstance(v, str) else None for v in value]
+                if any(m is not None for m in items):
+                    found.append((name, key, [m if m is not None else v
+                                              for m, v in zip(items, value, strict=True)]))
+    return found
+
+
+def hpc_override(base: dict, overrides: list[dict], remote_root_dir: str | None,
+                 path_map=()) -> dict:
     """
     An override (applied last) that adapts the simulation to batch execution:
 
-    * ``main.root_dir`` → the calibration directory on the cluster (if given);
+    * paths of data mirrored on the cluster are translated by *path_map*
+      (``[(local prefix, cluster prefix)]``), in any object;
+    * ``main.root_dir`` → *remote_root_dir* when given (e.g. uploaded
+      calibration data), which wins over the mapping;
     * no display server (``display_server: false``, DisplayServer objects
       removed) — nobody can connect to a compute node;
-    * DataStore objects with an absolute *local* ``store_dir`` write into
-      ``results/<name>`` inside the job directory instead.
+    * DataStore objects with an absolute *local* ``store_dir`` (or one the
+      mapping translates) write into ``results/<name>`` inside the job
+      directory instead, where the results are downloaded from.
     """
     merged = dict(base)
     for ov in overrides:
         merged = combine_params(merged, ov)
 
-    out: dict = {}
+    blocks: dict = {}
+    for name, key, value in mapped_values(merged, path_map):
+        blocks.setdefault(name, {})[key] = value
     remove = []
     for name, obj in merged.items():
         if not isinstance(obj, dict):
             continue
         cls = obj.get("class")
         if cls == "SimulParams":
-            block: dict = {"display_server": False}
+            block = blocks.setdefault(name, {})
+            block["display_server"] = False
             if remote_root_dir:
                 block["root_dir"] = remote_root_dir
-            out[f"{name}_override"] = block
         elif cls == "DisplayServer":
+            blocks.pop(name, None)
             remove.append(name)
         elif cls == "DataStore":
             store = str(obj.get("store_dir", ""))
-            if _is_local_absolute(store):
-                out[f"{name}_override"] = {"store_dir": f"results/{name}"}
+            if _is_local_absolute(store) or map_path(store, path_map) is not None:
+                blocks.setdefault(name, {})["store_dir"] = f"results/{name}"
+    out: dict = {f"{name}_override": block for name, block in blocks.items()}
     if remove:
         out["remove"] = remove
     return out

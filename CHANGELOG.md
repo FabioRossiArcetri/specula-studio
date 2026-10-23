@@ -46,6 +46,12 @@
   always copied before being drawn.
 - Monitor options: *Image filtering* (off by default: image pixels stay
   sharp when enlarged) and snapshot vectors drawn as a line or a histogram.
+- HPC: *Path mapping* for data mirrored on the cluster (default `/raid1`,
+  `/raid2`, `/home` → the same paths below `$WORK`), applied to root_dir and
+  every other path of the simulation; the mapped paths are checked on the
+  cluster before submitting.  The environment setup defaults to
+  `source $WORK/specula/bin/activate`, and *Check connection* reports which
+  SPECULA checkout the job environment imports.
 - *HPC → Submit Batch Job* and *HPC → Batch Jobs* open in their own OS
   windows, like the simulation control panel (Preferences: "HPC windows in
   separate windows"); jobs are still followed by the editor when they are

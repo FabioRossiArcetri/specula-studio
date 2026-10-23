@@ -67,6 +67,47 @@ def test_hpc_override_adapts_simulation():
     assert slurm.hpc_override(base, [], None)["main_override"] == {"display_server": False}
 
 
+def test_path_map_parsing_and_matching():
+    pairs = slurm.parse_path_map(slurm.DEFAULT_PATH_MAP + "\n# comment\n\nbad line\n"
+                                 "/raid2/gcarla -> /leonardo_work/x/andes  # longer wins\n"
+                                 "C:\\Users\\fabio\\data -> $WORK/data")
+    assert pairs[:3] == [("/raid1", "$WORK/raid1"), ("/raid2", "$WORK/raid2"),
+                         ("/home", "$WORK/home")]
+    assert len(pairs) == 5
+    assert slurm.map_path("/raid1/guido/PASSATA/LBT", pairs) == "$WORK/raid1/guido/PASSATA/LBT"
+    assert slurm.map_path("/raid1", pairs) == "$WORK/raid1"
+    assert slurm.map_path("/raid10/x", pairs) is None             # whole components only
+    assert slurm.map_path("/raid2/gcarla/git/a.fits", pairs) == "/leonardo_work/x/andes/git/a.fits"
+    assert slurm.map_path("C:\\Users\\fabio\\data\\calib", pairs) == "$WORK/data/calib"
+    assert slurm.map_path("./calib/SCAO", pairs) is None
+    assert slurm.map_path("/leonardo_work/p/calib", pairs) is None
+
+
+def test_hpc_override_maps_mirrored_data():
+    pairs = slurm.parse_path_map(slurm.DEFAULT_PATH_MAP)
+    base = {
+        "main": {"class": "SimulParams",
+                 "root_dir": "/raid2/gcarla/git/ANDES/andes/PASSATA_scripts/data/"},
+        "pupil": {"class": "Pupilstop", "file_name": "/raid1/guido/pist2modes.fits",
+                  "tag": "andes_pupil", "inputs": {"in": "/raid1/not_a_path_key"}},
+        "lst": {"class": "Something", "files": ["/home/frossi/a.fits", "rel.fits", 3]},
+        "store": {"class": "DataStore", "store_dir": "/raid1/guido/results/MORFEO/specula/"},
+        "store_rel": {"class": "DataStore", "store_dir": "./output"},
+    }
+    ov = slurm.hpc_override(base, [], None, pairs)
+    assert ov["main_override"] == {
+        "root_dir": "$WORK/raid2/gcarla/git/ANDES/andes/PASSATA_scripts/data/",
+        "display_server": False}
+    assert ov["pupil_override"] == {"file_name": "$WORK/raid1/guido/pist2modes.fits"}
+    assert ov["lst_override"] == {"files": ["$WORK/home/frossi/a.fits", "rel.fits", 3]}
+    # results are written in the job directory, where they are downloaded from
+    assert ov["store_override"] == {"store_dir": "results/store"}
+    assert "store_rel_override" not in ov
+    # an explicit root_dir (uploaded calibration data) wins over the mapping
+    explicit = slurm.hpc_override(base, [], "/leonardo_work/p/calib/andes", pairs)
+    assert explicit["main_override"]["root_dir"] == "/leonardo_work/p/calib/andes"
+
+
 def test_result_dirs_follow_overrides():
     base = {"store": {"class": "DataStore", "store_dir": "./data"},
             "abs": {"class": "DataStore", "store_dir": "/leonardo_scratch/x"}}

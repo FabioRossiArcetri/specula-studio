@@ -13,15 +13,17 @@ from specula_studio.core import slurm
 ENV_OUT = ("HOME=/leonardo/home/userexternal/frossi\nWORK=/leonardo_work/try25_rossi\n"
            "CINECA_SCRATCH=/leonardo_scratch/large/userexternal/frossi\nSCRATCH=\nFAST=\n"
            "USER=frossi\nHOSTNAME=login05.leonardo.local\n"
-           "SPECULA=/leonardo_work/try25_rossi/venv/bin/specula\n")
+           "SPECULA=/leonardo_work/try25_rossi/venv/bin/specula\n"
+           "SPECULA_SRC=/leonardo_work/try25_rossi/SPECULA\n")
 
 
 class FakeCluster:
-    def __init__(self, auth_ok=True):
+    def __init__(self, auth_ok=True, existing=()):
         self.calls = []
         self.auth_ok = auth_ok
         self.uploaded = {}         # remote dir -> list of local paths
         self.queue_state = "PENDING"
+        self.existing = set(existing)   # paths that exist on the cluster
 
     def __call__(self, argv, timeout=0, input_text=None):
         self.calls.append(list(argv))
@@ -38,6 +40,11 @@ class FakeCluster:
         command = argv[-1]
         if "echo \"HOME=$HOME\"" in command:
             return CommandResult(0, ENV_OUT, "")
+        if command.startswith("for p in "):
+            import shlex
+            paths = shlex.split(command[len("for p in "):command.index("; do")])
+            return CommandResult(0, "".join(f"MISSING:{p}\n" for p in paths
+                                            if p not in self.existing), "")
         if "sbatch" in command:
             return CommandResult(0, "Submitted batch job 4242\n", "")
         if command.startswith("squeue"):
@@ -102,6 +109,39 @@ def test_submit_uploads_calibration_and_job_files(tmp_path):
     script = (work / "job.slurm").read_bytes()
     assert b"\r\n" not in script and b"#SBATCH --account=try25_rossi" in script
     assert job.result_dirs == {"store": f"{job.job_dir}/data"}
+
+
+def test_submit_maps_mirrored_data_and_checks_it(tmp_path):
+    """Leonardo: data mirrored under $WORK, SPECULA in a venv in $WORK."""
+    work_root = "/leonardo_work/try25_rossi"
+    fake = FakeCluster(existing={f"{work_root}/raid2/gcarla/data/"})
+    req = _request(tmp_path, calib=False)
+    req.base["main"]["root_dir"] = "/raid2/gcarla/data/"
+    req.base["pupil"] = {"class": "Pupilstop", "file_name": "/raid1/guido/pist2modes.fits"}
+    req.options.setup = "source $WORK/specula/bin/activate"
+    req.path_map = slurm.parse_path_map(slurm.DEFAULT_PATH_MAP)
+    work = tmp_path / "job"
+    work.mkdir()
+    messages = []
+    hpc.submit(req, progress=messages.append, runner=fake, work_dir=str(work))
+
+    hpc_ov = yaml.safe_load((work / slurm.HPC_OVERRIDE_NAME).read_text())
+    assert hpc_ov["main_override"]["root_dir"] == f"{work_root}/raid2/gcarla/data/"
+    assert hpc_ov["pupil_override"]["file_name"] == f"{work_root}/raid1/guido/pist2modes.fits"
+    # the setup line runs before specula is looked for, and is in the job script
+    probe = next(c[-1] for c in fake.calls if 'echo "HOME=$HOME"' in c[-1])
+    assert "source $WORK/specula/bin/activate" in probe
+    assert "source $WORK/specula/bin/activate" in (work / "job.slurm").read_text()
+    # missing data is reported before submitting, found data is not
+    missing = [m for m in messages if "does not exist on the cluster" in m]
+    assert missing == [f"Warning: {work_root}/raid1/guido/pist2modes.fits does not exist "
+                       "on the cluster (check the path mapping, or copy the data there)"]
+
+
+def test_check_connection_reports_the_specula_checkout():
+    info = hpc.HpcClient("leonardo", runner=FakeCluster()).check_connection(
+        "source $WORK/specula/bin/activate")
+    assert info["ok"] and info["specula_src"] == "/leonardo_work/try25_rossi/SPECULA"
 
 
 def test_submit_rejects_invalid_options_before_connecting(tmp_path):

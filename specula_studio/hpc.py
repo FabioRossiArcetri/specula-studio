@@ -97,9 +97,13 @@ class HpcClient:
         # sbatch is run from this same kind of (non-interactive ssh) shell and
         # the job inherits its environment, plus the script's setup lines.
         setup_lines = "; ".join(ln for ln in setup.strip().splitlines() if ln.strip())
-        find = f"{{ {setup_lines}; }} >/dev/null 2>&1; command -v specula" if setup_lines \
-            else "command -v specula"
-        cmd = f"{probe}; echo HOSTNAME=$(hostname); echo SPECULA=$({find})"
+        prefix = f"{{ {setup_lines}; }} >/dev/null 2>&1; " if setup_lines else ""
+        find = f"{prefix}command -v specula"
+        # the SPECULA checkout the job environment imports
+        source = (f"{prefix}python -c 'import os, specula; print(os.path.dirname("
+                  f"os.path.dirname(os.path.abspath(specula.__file__))))' 2>/dev/null")
+        cmd = (f"{probe}; echo HOSTNAME=$(hostname); echo SPECULA=$({find}); "
+               f"echo SPECULA_SRC=$({source})")
         res = self.ssh(cmd, timeout=60)
         if not res.ok:
             return {"ok": False, "message": explain_ssh_failure(res), "env": {},
@@ -114,7 +118,21 @@ class HpcClient:
         msg = f"Connected to {env.get('HOSTNAME', self.login_host)}"
         if self.env.get("WORK"):
             msg += f"; $WORK = {self.env['WORK']}"
-        return {"ok": True, "message": msg, "env": dict(self.env), "specula": specula_path}
+        return {"ok": True, "message": msg, "env": dict(self.env), "specula": specula_path,
+                "specula_src": env.get("SPECULA_SRC", "")}
+
+    def missing_paths(self, paths) -> list[str]:
+        """Those of *paths* that do not exist on the cluster."""
+        paths = list(dict.fromkeys(p for p in paths if p))
+        if not paths:
+            return []
+        quoted = " ".join(shlex.quote(p) for p in paths)
+        res = self.ssh(f'for p in {quoted}; do [ -e "$p" ] || echo "MISSING:$p"; done',
+                       timeout=60)
+        if not res.ok:
+            raise HpcError(f"checking the data paths: {explain_ssh_failure(res)}")
+        return [ln[len("MISSING:"):] for ln in res.stdout.splitlines()
+                if ln.startswith("MISSING:")]
 
     def mkdir(self, remote_dir: str) -> None:
         res = self.ssh(f"mkdir -p {shlex.quote(remote_dir)}")
@@ -262,6 +280,8 @@ class SubmitRequest:
     remote_root_dir: str = ""         # root_dir on the cluster ("" = keep the file's)
     download_to: str = ""
     script_text: str | None = None    # user-edited script (None = generate)
+    # data mirrored on the cluster: [(local prefix, cluster prefix)], see slurm.map_path
+    path_map: list = field(default_factory=list)
 
 
 def job_directory(remote_base: str, sim_name: str) -> str:
@@ -271,10 +291,11 @@ def job_directory(remote_base: str, sim_name: str) -> str:
 
 
 def prepare_job_files(local_dir: str, req: SubmitRequest, job_dir: str
-                      ) -> tuple[list[str], str, dict]:
+                      ) -> tuple[list[str], str, dict, list[str]]:
     """
     Write the job's files into *local_dir*.  Returns (paths to upload,
-    remote names passed to specula, result directories).
+    remote names passed to specula, result directories, data paths the job
+    reads on the cluster).
     """
     import yaml
 
@@ -283,7 +304,8 @@ def prepare_job_files(local_dir: str, req: SubmitRequest, job_dir: str
         with open(path, encoding="utf-8") as f:
             overrides.append(yaml.safe_load(f) or {})
     files = write_run_files(local_dir, req.base, req.override_paths, sim_name=req.sim_name)
-    hpc_ov = slurm.hpc_override(req.base, overrides, req.remote_root_dir or None)
+    hpc_ov = slurm.hpc_override(req.base, overrides, req.remote_root_dir or None,
+                                req.path_map)
     hpc_path = os.path.join(local_dir, slurm.HPC_OVERRIDE_NAME)
     with open(hpc_path, "w", encoding="utf-8", newline="\n") as f:
         f.write("# Added by SPECULA Studio for batch execution on the cluster\n")
@@ -298,7 +320,22 @@ def prepare_job_files(local_dir: str, req: SubmitRequest, job_dir: str
     with open(script_path, "w", encoding="utf-8", newline="\n") as f:
         f.write(script.replace("\r\n", "\n"))
     dirs = slurm.result_dirs(req.base, [*overrides, hpc_ov], job_dir)
-    return [*files, script_path], "job.slurm", dirs
+    return [*files, script_path], "job.slurm", dirs, _cluster_data_paths(hpc_ov)
+
+
+def _cluster_data_paths(hpc_ov: dict) -> list[str]:
+    """Absolute paths the cluster override points the simulation to."""
+    paths = []
+    for key, block in hpc_ov.items():
+        if not key.endswith("_override") or not isinstance(block, dict):
+            continue
+        for name, value in block.items():
+            if name == "store_dir":
+                continue                       # created by the job
+            for v in (value if isinstance(value, list) else [value]):
+                if isinstance(v, str) and v.startswith("/"):
+                    paths.append(v)
+    return paths
 
 
 def _to_unix_newlines(paths) -> None:
@@ -332,7 +369,9 @@ def submit(req: SubmitRequest, progress=lambda msg: None, runner=run_command,
     remote_base = expand_remote(req.remote_base, env)
     job_dir = job_directory(remote_base, req.sim_name)
     remote_root = expand_remote(req.remote_root_dir, env) if req.remote_root_dir else ""
-    req = SubmitRequest(**{**req.__dict__, "remote_root_dir": remote_root})
+    path_map = [(local, expand_remote(remote, env)) for local, remote in req.path_map]
+    req = SubmitRequest(**{**req.__dict__, "remote_root_dir": remote_root,
+                           "path_map": path_map})
 
     progress(f"Creating {job_dir}")
     client.mkdir(job_dir)
@@ -351,7 +390,14 @@ def submit(req: SubmitRequest, progress=lambda msg: None, runner=run_command,
 
     local_dir = work_dir or tempfile.mkdtemp(prefix="specula_studio_hpc_")
     os.makedirs(local_dir, exist_ok=True)
-    paths, script_name, result_dirs = prepare_job_files(local_dir, req, job_dir)
+    paths, script_name, result_dirs, data_paths = prepare_job_files(local_dir, req, job_dir)
+    if data_paths:
+        missing = client.missing_paths(data_paths)
+        for path in missing:
+            progress(f"Warning: {path} does not exist on the cluster "
+                     "(check the path mapping, or copy the data there)")
+        if not missing:
+            progress(f"{len(set(data_paths))} data path(s) found on the cluster")
     progress(f"Uploading {len(paths)} job file(s)…")
     client.upload(paths, job_dir)
 

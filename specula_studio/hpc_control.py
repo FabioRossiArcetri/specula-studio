@@ -48,7 +48,11 @@ DEFAULT_PROFILE = {
     "download": True,
     "download_dir": str(pathlib.Path.home() / "specula_hpc_results"),
     "poll_interval": 60,
-    "slurm": slurm.SlurmOptions().to_dict(),
+    # data mirrored on the cluster, below $WORK (see slurm.map_path)
+    "path_map": slurm.DEFAULT_PATH_MAP,
+    # SPECULA installed in a virtual environment in $WORK
+    "slurm": {**slurm.SlurmOptions().to_dict(),
+              "setup": "source $WORK/specula/bin/activate"},
 }
 
 SUBMIT, JOBS = "submit", "jobs"
@@ -111,22 +115,27 @@ class HpcControl:
         name = ed.current_simulation_name or ""
         files = [f"{name or 'untitled'}_simul.yml"]
         files += [f"override{i}_{os.path.basename(p)}" for i, p in enumerate(overrides, 1)]
+        root = self._root_dir()
         return {"name": name, "n_overrides": len(overrides),
                 "run_files": [*files, slurm.HPC_OVERRIDE_NAME],
-                "local_calib": self._local_calib()}
+                "root_dir": root, "local_calib": self._local_calib(root)}
 
-    def _local_calib(self) -> str:
-        """SimulParams.root_dir of the simulation, resolved on this machine."""
-        ed = self.editor
-        for node in ed.graph.nodes.values():
+    def _root_dir(self) -> str:
+        """SimulParams.root_dir as written in the simulation."""
+        for node in self.editor.graph.nodes.values():
             if node.get("type") == "SimulParams":
-                root = node.get("values", {}).get("root_dir")
-                if root:
-                    base = (os.path.dirname(ed.current_simulation_path)
-                            if ed.current_simulation_path else os.getcwd())
-                    path = root if os.path.isabs(root) else os.path.join(base, root)
-                    return os.path.normpath(path)
+                return str(node.get("values", {}).get("root_dir") or "")
         return ""
+
+    def _local_calib(self, root: str) -> str:
+        """*root* (the simulation's root_dir) resolved on this machine."""
+        if not root:
+            return ""
+        ed = self.editor
+        base = (os.path.dirname(ed.current_simulation_path)
+                if ed.current_simulation_path else os.getcwd())
+        path = root if os.path.isabs(root) else os.path.join(base, root)
+        return os.path.normpath(path)
 
     # ── windows ───────────────────────────────────────────────────────────────
 
@@ -306,6 +315,8 @@ class HpcControl:
                 self._log(f"specula on the cluster: {info['specula']}" if info["specula"]
                           else "specula NOT found in the job environment: add the "
                                "environment setup lines (venv / conda activation)")
+                if info.get("specula_src"):
+                    self._log(f"SPECULA imported from {info['specula_src']}")
                 if prof["transfer_host"] != prof["login_host"] and prof["transfer_host"]:
                     res = client._run(["ssh", *sshutil.SSH_OPTIONS, client.transfer_host,
                                        "true"], timeout=60)
@@ -359,6 +370,7 @@ class HpcControl:
             remote_root_dir=prof["remote_root_dir"],
             download_to=prof["download_dir"] if prof["download"] else "",
             script_text=script,
+            path_map=slurm.parse_path_map(prof.get("path_map", "")),
         )
         self._save_profile(prof)
 

@@ -92,7 +92,15 @@ class HpcSubmitView:
 
             # ── data ─────────────────────────────────────────────────────────
             dpg.add_separator()
-            dpg.add_text("Calibration data", color=head)
+            dpg.add_text("Data", color=head)
+            dpg.add_input_text(label="Path mapping", tag=t("path_map"), multiline=True,
+                               width=w, height=60, default_value=prof["path_map"],
+                               callback=self._show_root_dir)
+            dpg.add_text("Data mirrored on the cluster: one 'local prefix -> cluster prefix' "
+                         "per line, applied to root_dir and every other path of the "
+                         "simulation ($WORK is expanded on the cluster).",
+                         color=hint, wrap=820)
+            dpg.add_text("", tag=t("root_preview"), color=hint, wrap=820)
             dpg.add_checkbox(label="Upload calibration data before submitting",
                              tag=t("calib_upload"), default_value=prof["calib_upload"],
                              callback=self.update_root_dir)
@@ -108,7 +116,8 @@ class HpcSubmitView:
                                callback=self.update_root_dir)
             dpg.add_input_text(label="root_dir on the cluster", tag=t("remote_root_dir"),
                                width=w, default_value=prof["remote_root_dir"],
-                               hint="empty = keep the simulation's root_dir")
+                               hint="empty = the simulation's root_dir (mapped)",
+                               callback=self._show_root_dir)
             dpg.add_text("SimulParams.root_dir is set to this directory for the job only.",
                          color=hint)
 
@@ -182,6 +191,26 @@ class HpcSubmitView:
         self.update_root_dir()
         self.generate_script()
 
+    def cluster_root_dir(self) -> str:
+        """root_dir the job will use (cluster prefixes not expanded)."""
+        explicit = dpg.get_value(self.t("remote_root_dir")).strip()
+        if explicit:
+            return explicit
+        root = self.sim_info.get("root_dir", "")
+        mapped = slurm.map_path(root, slurm.parse_path_map(dpg.get_value(self.t("path_map"))))
+        return mapped if mapped is not None else root
+
+    def _show_root_dir(self, *_) -> None:
+        root = self.sim_info.get("root_dir", "")
+        cluster = self.cluster_root_dir()
+        if not root and not cluster:
+            text = "The simulation has no root_dir."
+        elif cluster == root:
+            text = f"root_dir on the cluster: {root} (not mapped)"
+        else:
+            text = f"root_dir on the cluster: {cluster}   (in the simulation: {root})"
+        dpg.set_value(self.t("root_preview"), text)
+
     # ── editor events ─────────────────────────────────────────────────────────
 
     def apply(self, msg: dict) -> None:
@@ -189,6 +218,7 @@ class HpcSubmitView:
         if kind == "sim_info":
             self.sim_info = {k: v for k, v in msg.items() if k != "type"}
             self._show_sim_info()
+            self._show_root_dir()
             if not dpg.get_value(self.t("calib_local")).strip():
                 dpg.set_value(self.t("calib_local"), self.sim_info.get("local_calib", ""))
                 self.update_root_dir()
@@ -227,6 +257,7 @@ class HpcSubmitView:
             if local and parent:
                 dpg.set_value(t("remote_root_dir"),
                               f"{parent}/{os.path.basename(os.path.normpath(local))}")
+        self._show_root_dir()
 
     def _browse_calib(self, *_) -> None:
         tag = self.t("calib_dialog")
@@ -297,6 +328,7 @@ class HpcSubmitView:
             "calib_local": g(t("calib_local")).strip(),
             "remote_calib_parent": g(t("remote_calib_parent")).strip(),
             "remote_root_dir": g(t("remote_root_dir")).strip(),
+            "path_map": g(t("path_map")),
             "download": bool(g(t("download"))),
             "download_dir": g(t("download_dir")).strip(),
             "poll_interval": self.profile.get("poll_interval", 60),
