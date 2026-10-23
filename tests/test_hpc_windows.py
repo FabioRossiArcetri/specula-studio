@@ -106,6 +106,28 @@ def test_jobs_window_gets_the_jobs_and_forget_works():
         server.close()
 
 
+def test_job_inputs_from_files_or_the_editor(tmp_path):
+    ed = _editor()
+    ed.sim_control = SimpleNamespace(
+        _run_inputs=lambda: ({"main": {"class": "SimulParams"}}, ["/x/ov_a.yml"]))
+    hc = HpcControl(ed)
+    # the editor's simulation and enabled overrides (missing override -> error)
+    with pytest.raises(hpc.HpcError, match="ov_a.yml"):
+        hc._job_inputs({"base": ""})
+    base, overrides, name = hc._job_inputs({"base": "", "overrides": []})
+    assert base == {"main": {"class": "SimulParams"}} and overrides == [] and name == "scao"
+
+    sim = tmp_path / "params andes.yml"
+    sim.write_text("main:\n  class: SimulParams\n  root_dir: /raid2/x\n")
+    ov = tmp_path / "ov1.yml"
+    ov.write_text("main_override:\n  total_time: 0.1\n")
+    base, overrides, name = hc._job_inputs({"base": str(sim), "overrides": [str(ov)]})
+    assert base["main"]["root_dir"] == "/raid2/x"
+    assert overrides == [str(ov)] and name == "params_andes"
+    with pytest.raises(hpc.HpcError, match="not found"):
+        hc._job_inputs({"base": str(tmp_path / "nope.yml")})
+
+
 def test_unknown_command_is_harmless():
     hc = HpcControl(_editor())
     hc.handle_command({"type": "nonsense"})

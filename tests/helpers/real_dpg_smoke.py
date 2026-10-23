@@ -82,6 +82,50 @@ def _check_monitor_plot_options():
     dpg.delete_item("smoke_plot_win")
 
 
+def _check_hpc_load_script(view):
+    """Load a job script: SBATCH options, modules, setup and the YAML file rows."""
+    folder = tempfile.mkdtemp(prefix="specula_studio_job_")
+    for name in ("andes.yml", "ov_seeing.yml"):
+        with open(os.path.join(folder, name), "w") as f:
+            f.write("main:\n  class: SimulParams\n  root_dir: /raid2/gcarla/data\n")
+    script = os.path.join(folder, "andes.slurm")
+    with open(script, "w") as f:
+        f.write("#!/bin/bash\n#SBATCH -J andes\n#SBATCH -A IscrC_SPECIAL\n"
+                "#SBATCH --gres=gpu:2\nmodule load cuda/12.2\n"
+                "source $WORK/specula/bin/activate\n"
+                "srun specula --nsimul 2 andes.yml ov_seeing.yml missing.yml\n")
+    view.load_script(script)
+    if (dpg.get_value("hpc_job_name"), dpg.get_value("hpc_gpus_per_node"),
+            dpg.get_value("hpc_nsimul")) != ("andes", 2, 2):
+        raise RuntimeError("job script options not loaded")
+    if view.base_file != os.path.join(folder, "andes.yml") or \
+            [os.path.basename(p) for p in view.override_files] != ["ov_seeing.yml",
+                                                                    "missing.yml"]:
+        raise RuntimeError(f"simulation files not loaded: {view.base_file} "
+                           f"{view.override_files}")
+    status = dpg.get_value(view._row_tag(1, "status"))
+    if status != "not found on this machine":
+        raise RuntimeError(f"missing override not flagged: {status!r}")
+    srun = next(ln for ln in dpg.get_value("hpc_script").splitlines() if ln.startswith("srun"))
+    if "andes_simul.yml override1_ov_seeing.yml override2_missing.yml" not in srun:
+        raise RuntimeError(f"specula line does not use the job's file names: {srun}")
+    if "$WORK/raid2/gcarla/data" not in dpg.get_value("hpc_root_preview"):
+        raise RuntimeError("root_dir of the loaded base file not mapped")
+    sent = []
+    view.command = sent.append
+    view._on_submit()
+    if sent:
+        raise RuntimeError("submitted with a missing simulation file")
+    view._remove_override(1)
+    view._on_submit()
+    if not sent or sent[0]["files"] != {"base": view.base_file,
+                                        "overrides": view.override_files}:
+        raise RuntimeError(f"submit command without the files: {sent}")
+    view.use_editor_files()
+    if view.base_file or view.files_custom:
+        raise RuntimeError("could not go back to the editor's files")
+
+
 def main(path):
     editor = SpeculaEditor(yaml_folder=str(TEMPLATES_DIR))
     steps = []
@@ -142,6 +186,7 @@ def main(path):
     step("hpc_script", submit_view.generate_script)
     if "#SBATCH --account=try25_test" not in dpg.get_value("hpc_script"):
         raise RuntimeError("HPC script not generated")
+    step("hpc_load_script", _check_hpc_load_script, submit_view)
     editor.hpc._log("hello")
     editor.hpc.poll()
     if "hello" not in dpg.get_value("hpc_log"):

@@ -10,29 +10,36 @@ replies come back as plain-dict events given to :meth:`apply`.
 
 Commands (``type`` and fields)
     submit view: ``check_connection {profile, setup}``, ``step_login {email}``,
-    ``submit {profile, options, script}`` (``script`` None = generate it),
-    ``save_profile {profile}``, ``show_jobs``;
+    ``submit {profile, options, script, files}`` (``script`` None = generate
+    it; ``files``: ``{base, overrides}``, ``base`` "" = the simulation open in
+    the editor), ``save_profile {profile}``, ``show_jobs``;
     jobs view: ``refresh_jobs``, ``job_output {job_id}``, ``cancel_job``,
     ``download_job``, ``forget_job`` ``{job_id}``.
 Events
-    submit view: ``sim_info {name, n_overrides, run_files, local_calib}``,
-    ``log {text}``, ``conn_status {text, ok}``;
+    submit view: ``sim_info {name, n_overrides, overrides, run_files, root_dir,
+    local_calib}``, ``log {text}``, ``conn_status {text, ok}``;
     jobs view: ``jobs {jobs: [HpcJob dicts]}``, ``job_output {job_id, text}``.
 """
 
 from __future__ import annotations
 
 import os
+import pathlib
 import time
 
 import dearpygui.dearpygui as dpg
 
 from .. import hpc
-from ..core import slurm, ssh_config
+from ..core import slurm, ssh_config, yaml_io
 
 
 class HpcSubmitView:
-    """The SLURM job form: cluster, calibration data, job options, script."""
+    """The SLURM job form: simulation files, cluster, data, job options, script.
+
+    The simulation files are the YAML files passed to specula, in order: the
+    base (empty = the simulation open in the editor) and the overrides (by
+    default the editor's enabled ones, followed while not changed here).
+    """
 
     def __init__(self, command, theme_manager, profile: dict, sim_info: dict,
                  prefix: str = "hpc"):
@@ -42,6 +49,11 @@ class HpcSubmitView:
         self.sim_info = dict(sim_info)
         self.p = prefix
         self.generated_script: str | None = None
+        self.base_file = ""                          # "" = the editor's simulation
+        self.override_files: list[str] = list(self.sim_info.get("overrides") or [])
+        self.files_custom = False                    # True once changed in this window
+        self._rows = 0                               # widget generation of the file rows
+        self._root_cache: tuple[str, float, str] = ("", 0.0, "")
 
     def t(self, name: str) -> str:
         return f"{self.p}_{name}"
@@ -59,9 +71,19 @@ class HpcSubmitView:
         w = -220
 
         with dpg.group(parent=parent):
-            dpg.add_text("", tag=t("sim_info"))
             dpg.add_text("Batch jobs run without a display server: live monitors are "
                          "not available; results are downloaded when the job ends.",
+                         color=hint, wrap=820)
+
+            # ── simulation files ─────────────────────────────────────────────
+            dpg.add_separator()
+            dpg.add_text("Simulation files (passed to specula in this order)", color=head)
+            dpg.add_group(tag=t("files"))
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Add override...", callback=self._add_override)
+                dpg.add_button(label="Use the editor's files", callback=self.use_editor_files)
+            dpg.add_text(f"+ {slurm.HPC_OVERRIDE_NAME} (added by Studio, applied last: "
+                         "path mapping, no display server, results in the job directory)",
                          color=hint, wrap=820)
 
             # ── cluster ──────────────────────────────────────────────────────
@@ -167,6 +189,8 @@ class HpcSubmitView:
                                width=w, default_value=opts.extra_args)
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Generate script", callback=self.generate_script)
+                dpg.add_button(label="Load script...", callback=self._browse_script)
+                dpg.add_button(label="Save script...", callback=self._browse_save_script)
                 dpg.add_text("The script can be edited before submitting.", color=hint)
             dpg.add_input_text(tag=t("script"), multiline=True, width=-1, height=220,
                                tab_input=True)
@@ -187,21 +211,243 @@ class HpcSubmitView:
                                callback=lambda: self.command({"type": "show_jobs"}))
             dpg.add_input_text(tag=t("log"), multiline=True, readonly=True, width=-1,
                                height=140)
-        self._show_sim_info()
+        self.draw_files()
         self.update_root_dir()
         self.generate_script()
+
+    # ── simulation files ──────────────────────────────────────────────────────
+
+    def sim_name(self) -> str:
+        if self.base_file:
+            return slurm.safe_name(pathlib.Path(self.base_file).stem)
+        return slurm.safe_name(self.sim_info.get("name") or "untitled")
+
+    def run_files(self) -> list[str]:
+        """File names in the specula command of the job."""
+        return slurm.run_file_names(self.sim_name(), self.override_files)
+
+    def set_files(self, base: str, overrides, custom: bool = True) -> None:
+        self.base_file = base
+        self.override_files = [str(p) for p in overrides]
+        self.files_custom = custom
+        self.draw_files()
+        self._files_changed()
+
+    def use_editor_files(self, *_) -> None:
+        self.set_files("", self.sim_info.get("overrides") or [], custom=False)
+
+    def draw_files(self) -> None:
+        """(Re)create the rows of the simulation files."""
+        parent = self.t("files")
+        dpg.delete_item(parent, children_only=True)
+        self._rows += 1
+        editor = self.sim_info.get("name") or "unsaved simulation"
+        self._file_row(parent, "Base", self.base_file, None,
+                       hint=f"empty = the simulation open in the editor ({editor})")
+        for i, path in enumerate(self.override_files):
+            self._file_row(parent, f"Override {i + 1}", path, i)
+        self._show_file_status()
+
+    def _row_tag(self, index, what: str) -> str:
+        return self.t(f"file{self._rows}_{'base' if index is None else index}_{what}")
+
+    def _file_row(self, parent, label: str, path: str, index, hint: str = "") -> None:
+        with dpg.group(horizontal=True, parent=parent):
+            dpg.add_text(f"{label:<11}")
+            dpg.add_input_text(tag=self._row_tag(index, "path"), default_value=path,
+                               width=520, hint=hint, user_data=index,
+                               callback=self._on_file_edited)
+            dpg.add_button(label="...", user_data=index,
+                           callback=lambda s, a, u: self._browse_yaml(u))
+            if index is None:
+                dpg.add_button(label="Editor", callback=lambda: self._set_base(""))
+            else:
+                dpg.add_button(label="x", user_data=index,
+                               callback=lambda s, a, u: self._remove_override(u))
+            dpg.add_text("", tag=self._row_tag(index, "status"))
+
+    def _on_file_edited(self, sender, value, index) -> None:
+        value = value.strip()
+        if index is None:
+            self.base_file = value
+        else:
+            self.override_files[index] = value
+        self.files_custom = True
+        self._show_file_status()
+        self._files_changed()
+
+    def _set_base(self, path: str) -> None:
+        self.base_file = path
+        self.files_custom = True
+        dpg.set_value(self._row_tag(None, "path"), path)
+        self._show_file_status()
+        self._files_changed()
+
+    def _remove_override(self, index: int) -> None:
+        if 0 <= index < len(self.override_files):
+            del self.override_files[index]
+            self.set_files(self.base_file, self.override_files)
+
+    def _add_override(self, *_) -> None:
+        self._browse_yaml("add")
+
+    def _browse_yaml(self, index) -> None:
+        """File dialog for the base (None), override *index*, or a new override ("add")."""
+        tag = self.t("yaml_dialog")
+        if dpg.does_item_exist(tag):
+            dpg.delete_item(tag)
+        current = self.base_file if index is None else (
+            self.override_files[index] if isinstance(index, int) else "")
+
+        def chosen(sender, app_data):
+            path = app_data.get("file_path_name", "")
+            if not path:
+                return
+            if index is None:
+                self._set_base(path)
+            elif index == "add":
+                self.set_files(self.base_file, [*self.override_files, path])
+            else:
+                self.override_files[index] = path
+                self.set_files(self.base_file, self.override_files)
+
+        start = os.path.dirname(current) if current else (
+            os.path.dirname(self.override_files[-1]) if self.override_files else os.getcwd())
+        with dpg.file_dialog(show=True, tag=tag, width=760, height=420, callback=chosen,
+                             default_path=start if os.path.isdir(start) else os.getcwd()):
+            dpg.add_file_extension(".yml")
+            dpg.add_file_extension(".yaml")
+            dpg.add_file_extension(".*")
+
+    def _show_file_status(self) -> None:
+        ok, bad = self.tm.get_color("text_success"), self.tm.get_color("text_error")
+        rows = [(None, self.base_file), *enumerate(self.override_files)]
+        for index, path in rows:
+            tag = self._row_tag(index, "status")
+            if not dpg.does_item_exist(tag):
+                continue
+            if index is None and not path:
+                dpg.set_value(tag, "")
+            elif os.path.isfile(path):
+                dpg.set_value(tag, "ok")
+                dpg.configure_item(tag, color=ok)
+            else:
+                dpg.set_value(tag, "not found on this machine")
+                dpg.configure_item(tag, color=bad)
+
+    def missing_files(self) -> list[str]:
+        paths = ([self.base_file] if self.base_file else []) + self.override_files
+        return [p for p in paths if not p or not os.path.isfile(p)]
+
+    def _files_changed(self) -> None:
+        self._show_root_dir()
+        if self.generated_script is None or \
+                dpg.get_value(self.t("script")) == self.generated_script:
+            self.generate_script()
+
+    # ── loading / saving a job script ─────────────────────────────────────────
+
+    def _browse_script(self, *_) -> None:
+        tag = self.t("script_dialog")
+        if dpg.does_item_exist(tag):
+            dpg.delete_item(tag)
+
+        def chosen(sender, app_data):
+            path = app_data.get("file_path_name", "")
+            if path:
+                self.load_script(path)
+
+        with dpg.file_dialog(show=True, tag=tag, width=760, height=420, callback=chosen,
+                             default_path=os.getcwd()):
+            for ext in (".slurm", ".sh", ".sbatch", ".job", ".*"):
+                dpg.add_file_extension(ext)
+
+    def load_script(self, path: str) -> None:
+        """Read a job script into the form and the simulation files."""
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                parsed = slurm.parse_script(f.read())
+        except OSError as exc:
+            self.append_log(f"Cannot read {path}: {exc}")
+            return
+        self._apply_options(parsed.options)
+        if parsed.files:
+            folder = os.path.dirname(os.path.abspath(path))
+            files = [f if os.path.isabs(f) else os.path.normpath(os.path.join(folder, f))
+                     for f in parsed.files]
+            self.set_files(files[0], files[1:])
+        self.generate_script()
+        self.append_log(f"Loaded {path}: {len(parsed.files)} simulation file(s)")
+        for note in parsed.notes:
+            self.append_log(f"  {note}")
+        for missing in self.missing_files():
+            self.append_log(f"  Not found on this machine: {missing} "
+                            "(choose the file with '...')")
+
+    def _apply_options(self, options: dict) -> None:
+        t = self.t
+        for name, value in options.items():
+            if name == "modules":
+                dpg.set_value(t("modules"), "\n".join(str(m) for m in value))
+            elif name == "precision":
+                dpg.set_value(t("precision"), str(value))
+            elif name in ("partition", "qos"):
+                # combos keep values that are not in their list
+                dpg.set_value(t(name), str(value))
+            elif dpg.does_item_exist(t(name)):
+                dpg.set_value(t(name), value)
+
+    def _browse_save_script(self, *_) -> None:
+        tag = self.t("save_dialog")
+        if dpg.does_item_exist(tag):
+            dpg.delete_item(tag)
+
+        def chosen(sender, app_data):
+            path = app_data.get("file_path_name", "")
+            if not path:
+                return
+            try:
+                with open(path, "w", encoding="utf-8", newline="\n") as f:
+                    f.write(dpg.get_value(self.t("script")).replace("\r\n", "\n"))
+                self.append_log(f"Script saved to {path}")
+            except OSError as exc:
+                self.append_log(f"Cannot save {path}: {exc}")
+
+        with dpg.file_dialog(show=True, tag=tag, width=760, height=420, callback=chosen,
+                             default_path=os.getcwd(),
+                             default_filename=f"{self.options().job_name or 'job'}"):
+            dpg.add_file_extension(".slurm")
+            dpg.add_file_extension(".*")
+
+    # ── root_dir on the cluster ───────────────────────────────────────────────
+
+    def _base_root_dir(self) -> str:
+        """root_dir of the base simulation, as written in it."""
+        if not self.base_file:
+            return self.sim_info.get("root_dir", "")
+        try:
+            mtime = os.path.getmtime(self.base_file)
+        except OSError:
+            return ""
+        path, stamp, root = self._root_cache
+        if path != self.base_file or stamp != mtime:
+            data = yaml_io.read_yaml_file(self.base_file) or {}
+            root = next((str(obj.get("root_dir") or "") for obj in data.values()
+                         if isinstance(obj, dict) and obj.get("class") == "SimulParams"), "")
+            self._root_cache = (self.base_file, mtime, root)
+        return root
 
     def cluster_root_dir(self) -> str:
         """root_dir the job will use (cluster prefixes not expanded)."""
         explicit = dpg.get_value(self.t("remote_root_dir")).strip()
         if explicit:
             return explicit
-        root = self.sim_info.get("root_dir", "")
+        root = self._base_root_dir()
         mapped = slurm.map_path(root, slurm.parse_path_map(dpg.get_value(self.t("path_map"))))
         return mapped if mapped is not None else root
 
     def _show_root_dir(self, *_) -> None:
-        root = self.sim_info.get("root_dir", "")
+        root = self._base_root_dir()
         cluster = self.cluster_root_dir()
         if not root and not cluster:
             text = "The simulation has no root_dir."
@@ -217,14 +463,14 @@ class HpcSubmitView:
         kind = msg.get("type")
         if kind == "sim_info":
             self.sim_info = {k: v for k, v in msg.items() if k != "type"}
-            self._show_sim_info()
-            self._show_root_dir()
+            if not self.files_custom:
+                # follow the editor's overrides until the list is changed here
+                self.override_files = list(self.sim_info.get("overrides") or [])
+            self.draw_files()
             if not dpg.get_value(self.t("calib_local")).strip():
                 dpg.set_value(self.t("calib_local"), self.sim_info.get("local_calib", ""))
-                self.update_root_dir()
-            if self.generated_script is None or \
-                    dpg.get_value(self.t("script")) == self.generated_script:
-                self.generate_script()       # follow the simulation unless hand-edited
+            self.update_root_dir()
+            self._files_changed()            # follows the simulation unless hand-edited
         elif kind == "log":
             self.append_log(msg.get("text", ""))
         elif kind == "conn_status":
@@ -241,13 +487,6 @@ class HpcSubmitView:
             dpg.set_value(self.t("log"), dpg.get_value(self.t("log")) + f"[{stamp}] {text}\n")
 
     # ── form ──────────────────────────────────────────────────────────────────
-
-    def _show_sim_info(self) -> None:
-        info = self.sim_info
-        n_ov = int(info.get("n_overrides", 0))
-        dpg.set_value(self.t("sim_info"),
-                      f"Simulation: {info.get('name') or '(unsaved simulation)'}"
-                      + (f"   ({n_ov} override file(s) will be passed too)" if n_ov else ""))
 
     def update_root_dir(self, *_) -> None:
         t = self.t
@@ -310,8 +549,7 @@ class HpcSubmitView:
 
     def generate_script(self, *_) -> None:
         opts = self.options()
-        self.generated_script = slurm.render_script(
-            opts, list(self.sim_info.get("run_files") or []))
+        self.generated_script = slurm.render_script(opts, self.run_files())
         dpg.set_value(self.t("script"), self.generated_script)
         for err in slurm.validate(opts):
             self.append_log(f"Check: {err}")
@@ -358,13 +596,21 @@ class HpcSubmitView:
             for err in errors:
                 self.append_log(f"Cannot submit: {err}")
             return
+        missing = self.missing_files()
+        if missing:
+            for path in missing:
+                self.append_log(f"Cannot submit: simulation file not found: {path or '(empty)'}")
+            return
         script = dpg.get_value(self.t("script"))
         if script == self.generated_script:
             script = None          # not edited by hand: generated from the current state
         else:
-            self.append_log("Submitting the hand-edited script")
+            self.append_log("Submitting the hand-edited script (its specula line must use "
+                            f"the job's file names: {' '.join(self.run_files())})")
         self.command({"type": "submit", "profile": self.profile_from_ui(),
-                      "options": opts.to_dict(), "script": script})
+                      "options": opts.to_dict(), "script": script,
+                      "files": {"base": self.base_file,
+                                "overrides": list(self.override_files)}})
 
     def _on_save_profile(self, *_) -> None:
         self.command({"type": "save_profile", "profile": self.profile_from_ui()})

@@ -46,6 +46,11 @@
   always copied before being drawn.
 - Monitor options: *Image filtering* (off by default: image pixels stay
   sharp when enlarged) and snapshot vectors drawn as a line or a histogram.
+- HPC: *Load script...* reads an existing SLURM job script into the form
+  (#SBATCH options, modules, environment setup, specula options) and its
+  YAML files into the new *Simulation files* list (base + overrides, each
+  replaceable from a local file; by default the editor's simulation and
+  overrides); *Save script...* writes the script to a file.
 - HPC: *Path mapping* for data mirrored on the cluster (default `/raid1`,
   `/raid2`, `/home` → the same paths below `$WORK`), applied to root_dir and
   every other path of the simulation; the mapped paths are checked on the

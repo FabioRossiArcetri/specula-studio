@@ -68,6 +68,79 @@ def test_hpc_override_adapts_simulation():
     assert slurm.hpc_override(base, [], None)["main_override"] == {"display_server": False}
 
 
+def test_parse_script_reads_back_a_generated_script():
+    opts = _opts(setup="cd $WORK\nsource specula/bin/activate", extra_sbatch="--mem=100G",
+                 cpu=True, nsimul=3, precision=0, diagram=True, extra_args="--profile",
+                 nodes=2, ntasks_per_node=2, gpus_per_node=4, cpus_per_task=4)
+    parsed = slurm.parse_script(slurm.render_script(opts, FILES))
+    assert parsed.found_specula
+    assert parsed.files == FILES[:-1]                 # Studio adds its override itself
+    expected = opts.to_dict()
+    expected["extra_sbatch"] = "#SBATCH --mem=100G"
+    for name, value in expected.items():
+        assert parsed.options[name] == value, name
+
+
+def test_parse_script_hand_written_leonardo_job():
+    text = """#!/bin/bash
+#SBATCH -J andes
+#SBATCH -A IscrC_SPECIAL
+#SBATCH -p boost_usr_prod
+#SBATCH --qos boost_qos_dbg
+#SBATCH --time=00:20:00
+#SBATCH -N 1
+#SBATCH --ntasks-per-node=1 --cpus-per-task=8
+#SBATCH --gres=gpu:a100:2      # two GPUs
+#SBATCH --mem=100G
+#SBATCH --output=andes.out
+module purge
+module load cuda/12.2 python/3.11
+cd $WORK
+source specula/bin/activate
+srun specula --cpu --nsimul 2 params_andes.yml ovr/ov1.yml --foo bar
+echo done
+"""
+    parsed = slurm.parse_script(text)
+    o = parsed.options
+    assert (o["job_name"], o["account"], o["partition"], o["qos"], o["time"]) == \
+        ("andes", "IscrC_SPECIAL", "boost_usr_prod", "boost_qos_dbg", "00:20:00")
+    assert (o["nodes"], o["ntasks_per_node"], o["cpus_per_task"], o["gpus_per_node"]) == \
+        (1, 1, 8, 2)
+    assert o["extra_sbatch"] == "#SBATCH --mem=100G"
+    assert o["modules"] == ["cuda/12.2", "python/3.11"]
+    assert o["setup"] == "cd $WORK\nsource specula/bin/activate"
+    assert o["cpu"] is True and o["nsimul"] == 2 and o["extra_args"] == "--foo bar"
+    assert "precision" not in o                      # not in the script: form value kept
+    assert parsed.files == ["params_andes.yml", "ovr/ov1.yml"]
+    notes = " | ".join(parsed.notes)
+    assert "module purge" in notes and "--output" in notes and "echo done" in notes
+
+
+def test_parse_script_specula_wrappers():
+    for line in ("python -m specula a.yml b.yaml",
+                 "mpirun -np 4 /leonardo_work/x/venv/bin/specula --mpi a.yml b.yaml",
+                 "srun --mpi=none bash -c 'specula --precision=0 a.yml b.yaml'"):
+        parsed = slurm.parse_script(f"#!/bin/bash\n{line}\n")
+        assert parsed.found_specula and parsed.files == ["a.yml", "b.yaml"], line
+    none = slurm.parse_script("#!/bin/bash\n#SBATCH -A x\npython run.py\n")
+    assert not none.found_specula and none.files == []
+    assert none.options["setup"] == "python run.py"
+    assert any("No specula command" in n for n in none.notes)
+
+
+def test_run_file_names_match_the_written_files(tmp_path):
+    from specula_studio.core.run_prep import write_run_files
+    ov = tmp_path / "ov_a.yml"
+    ov.write_text("main_override:\n  total_time: 0.1\n")
+    out = tmp_path / "out"
+    out.mkdir()
+    written = write_run_files(str(out), {"main": {"class": "SimulParams"}}, [str(ov)],
+                              sim_name="andes")
+    names = [p.replace("\\", "/").rsplit("/", 1)[-1] for p in written]
+    assert slurm.run_file_names("andes", [str(ov)]) == [*names, slurm.HPC_OVERRIDE_NAME]
+    assert slurm.safe_name("my sim (v2)") == "my_sim__v2_"
+
+
 def test_path_map_parsing_and_matching():
     pairs = slurm.parse_path_map(slurm.DEFAULT_PATH_MAP + "\n# comment\n\nbad line\n"
                                  "/raid2/gcarla -> /leonardo_work/x/andes  # longer wins\n"

@@ -31,7 +31,7 @@ import dearpygui.dearpygui as dpg
 
 from . import hpc, sshutil
 from .control_link import ControlServer, WindowProcess
-from .core import slurm
+from .core import slurm, yaml_io
 from .ui.hpc_views import HpcJobsView, HpcSubmitView
 
 log = logging.getLogger(__name__)
@@ -113,11 +113,10 @@ class HpcControl:
         om = ed.override_manager
         overrides = om.get_enabled_overrides() if om.any_enabled() else []
         name = ed.current_simulation_name or ""
-        files = [f"{name or 'untitled'}_simul.yml"]
-        files += [f"override{i}_{os.path.basename(p)}" for i, p in enumerate(overrides, 1)]
         root = self._root_dir()
         return {"name": name, "n_overrides": len(overrides),
-                "run_files": [*files, slurm.HPC_OVERRIDE_NAME],
+                "overrides": [str(p) for p in overrides],
+                "run_files": slurm.run_file_names(name or "untitled", overrides),
                 "root_dir": root, "local_calib": self._local_calib(root)}
 
     def _root_dir(self) -> str:
@@ -257,7 +256,7 @@ class HpcControl:
                 self._step_login(msg["email"], msg["profile"], msg.get("setup", ""))
             elif kind == "submit":
                 self._submit(msg["profile"], slurm.SlurmOptions.from_dict(msg["options"]),
-                             msg.get("script"))
+                             msg.get("script"), msg.get("files"))
             elif kind == "save_profile":
                 self._save_profile(msg["profile"])
                 self._log("Settings saved")
@@ -347,14 +346,45 @@ class HpcControl:
 
     # ── submission ────────────────────────────────────────────────────────────
 
-    def _submit(self, prof: dict, opts: slurm.SlurmOptions, script: str | None) -> None:
+    def _job_inputs(self, files: dict | None) -> tuple[dict | None, list, str]:
+        """(base simulation, override paths, name) of the job.
+
+        *files* comes from the submit window: ``base`` is a YAML file, or
+        empty for the simulation open in the editor; ``overrides`` the
+        override files (missing = the editor's enabled ones)."""
+        files = files or {}
+        base_path = str(files.get("base") or "")
+        if base_path:
+            if not os.path.isfile(base_path):
+                raise hpc.HpcError(f"Simulation file not found: {base_path}")
+            base = yaml_io.read_yaml_file(base_path)
+            if base is None:
+                raise hpc.HpcError(f"Cannot read the simulation file {base_path}")
+            overrides: list = []
+            name = slurm.safe_name(pathlib.Path(base_path).stem)
+        else:
+            ed = self.editor
+            base, overrides = ed.sim_control._run_inputs()
+            name = slurm.safe_name(ed.current_simulation_name or "untitled")
+        if "overrides" in files:
+            overrides = [str(p) for p in files["overrides"]]
+        for path in overrides:
+            if not os.path.isfile(path):
+                raise hpc.HpcError(f"Override file not found: {path}")
+        return base, overrides, name
+
+    def _submit(self, prof: dict, opts: slurm.SlurmOptions, script: str | None,
+                files: dict | None = None) -> None:
         errors = slurm.validate(opts)
         if errors:
             for err in errors:
                 self._log(f"Cannot submit: {err}")
             return
-        ed = self.editor
-        base, overrides = ed.sim_control._run_inputs()
+        try:
+            base, overrides, sim_name = self._job_inputs(files)
+        except hpc.HpcError as exc:
+            self._log(f"Cannot submit: {exc}")
+            return
         if not base:
             self._log("The simulation is empty")
             return
@@ -362,7 +392,7 @@ class HpcControl:
             login_host=prof["login_host"],
             transfer_host=prof["transfer_host"],
             remote_base=prof["remote_base"] or "$WORK/specula_studio",
-            sim_name=ed.current_simulation_name or "untitled",
+            sim_name=sim_name,
             base=base,
             override_paths=overrides,
             options=opts,

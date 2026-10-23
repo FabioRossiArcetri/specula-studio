@@ -119,6 +119,23 @@ def specula_command(opts: SlurmOptions, files) -> str:
     return f"srun --mpi=none bash -c {shlex.quote(cmd)}"
 
 
+def safe_name(name: str) -> str:
+    """*name* usable in file and job directory names."""
+    return re.sub(r"[^A-Za-z0-9_.+-]", "_", name.strip()) or "untitled"
+
+
+def run_file_names(sim_name: str, override_paths) -> list[str]:
+    """Names of the files passed to specula, as ``run_prep.write_run_files``
+    writes them, followed by the cluster override (applied last)."""
+    names = [f"{sim_name}_simul.yml"]
+    names += [f"override{i}_{_basename(p)}" for i, p in enumerate(override_paths, 1)]
+    return [*names, HPC_OVERRIDE_NAME]
+
+
+def _basename(path: str) -> str:
+    return re.split(r"[\\/]", str(path))[-1]
+
+
 def render_script(opts: SlurmOptions, files) -> str:
     """The complete sbatch script (LF line endings)."""
     sb = [
@@ -162,6 +179,202 @@ def render_script(opts: SlurmOptions, files) -> str:
         "",
     ]
     return "\n".join(lines)
+
+
+# ── reading an existing job script ────────────────────────────────────────────
+
+_SBATCH_FIELDS = {"job-name": "job_name", "account": "account", "partition": "partition",
+                  "qos": "qos", "time": "time", "nodes": "nodes",
+                  "ntasks-per-node": "ntasks_per_node", "cpus-per-task": "cpus_per_task",
+                  "gpus-per-node": "gpus_per_node"}
+_SBATCH_SHORT = {"-J": "job-name", "-A": "account", "-p": "partition", "-q": "qos",
+                 "-t": "time", "-N": "nodes", "-c": "cpus-per-task", "-n": "ntasks",
+                 "-o": "output", "-e": "error"}
+_INT_FIELDS = ("nodes", "ntasks_per_node", "cpus_per_task", "gpus_per_node")
+# lines render_script writes around the specula command
+_BOILERPLATE = {"export MPLBACKEND=Agg", "status=$?", "exit $status",
+                'echo "SPECULA job $SLURM_JOB_ID on $(hostname) started at $(date)"',
+                'echo "finished at $(date) with exit code $status"'}
+
+
+@dataclass
+class ParsedScript:
+    """What :func:`parse_script` understood of a job script."""
+    options: dict = field(default_factory=dict)   # SlurmOptions fields found
+    files: list = field(default_factory=list)      # YAML files of the specula command
+    found_specula: bool = False
+    notes: list = field(default_factory=list)      # what was not kept, and why
+
+
+def parse_script(text: str) -> ParsedScript:
+    """
+    Read a SLURM job script into :class:`SlurmOptions` fields and the list of
+    YAML files given to specula.
+
+    ``#SBATCH`` options go to their fields (unknown ones to *extra_sbatch*),
+    ``module load`` lines to *modules*, other shell lines before the specula
+    command to *setup*; the specula command may be wrapped in ``srun``,
+    ``mpirun`` and ``bash -c '...'``.  ``--output``/``--error``, ``module
+    purge`` and lines after the specula command are dropped (noted).
+    """
+    out = ParsedScript()
+    extra_sbatch: list[str] = []
+    setup: list[str] = []
+    modules: list[str] = []
+    for raw in text.replace("\r\n", "\n").split("\n"):
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("#SBATCH"):
+            _parse_sbatch(line, out, extra_sbatch)
+            continue
+        if line.startswith("#") or line in _BOILERPLATE:
+            continue
+        try:
+            words = shlex.split(line, comments=True)
+        except ValueError:
+            words = []
+        if not words:
+            setup.append(line)
+            continue
+        if words[0] == "module":
+            if words[1:2] == ["load"]:
+                modules += words[2:]
+            elif words[1:2] == ["purge"]:
+                out.notes.append("'module purge' dropped: the job loads the listed modules")
+            else:
+                setup.append(line)
+            continue
+        args = _specula_args(words)
+        if args is not None:
+            if out.found_specula:
+                out.notes.append(f"Only the first specula command is used; dropped: {line}")
+                continue
+            out.found_specula = True
+            _parse_specula_args(args, out)
+            continue
+        if out.found_specula:
+            out.notes.append(f"Dropped (after the specula command): {line}")
+        else:
+            setup.append(line)
+    out.options["modules"] = modules
+    out.options["setup"] = "\n".join(setup)
+    out.options["extra_sbatch"] = "\n".join(extra_sbatch)
+    if not out.found_specula:
+        out.notes.append("No specula command found: the simulation files are unchanged")
+    return out
+
+
+def _parse_sbatch(line: str, out: ParsedScript, extra: list[str]) -> None:
+    try:
+        words = shlex.split(line[len("#SBATCH"):], comments=True)
+    except ValueError:
+        words = []
+    i = 0
+    while i < len(words):
+        word = words[i]
+        value = ""
+        if word.startswith("--"):
+            key, eq, value = word[2:].partition("=")
+            if not eq and i + 1 < len(words) and not words[i + 1].startswith("-"):
+                i += 1
+                value = words[i]
+        elif word[:2] in _SBATCH_SHORT:
+            key = _SBATCH_SHORT[word[:2]]
+            value = word[2:]
+            if not value and i + 1 < len(words):
+                i += 1
+                value = words[i]
+        else:
+            extra.append(f"#SBATCH {word}")
+            i += 1
+            continue
+        i += 1
+        _sbatch_option(key, value, out, extra)
+
+
+def _sbatch_option(key: str, value: str, out: ParsedScript, extra: list[str]) -> None:
+    name = _SBATCH_FIELDS.get(key)
+    if name in _INT_FIELDS:
+        try:
+            out.options[name] = int(value)
+        except ValueError:
+            out.notes.append(f"#SBATCH --{key}={value}: not a number, kept as an extra option")
+            extra.append(f"#SBATCH --{key}={value}")
+    elif name:
+        out.options[name] = value
+    elif key == "gres":
+        m = re.match(r"^gpu(?::[^:,]+)?:(\d+)$", value)
+        if m:
+            out.options["gpus_per_node"] = int(m.group(1))
+        else:
+            extra.append(f"#SBATCH --gres={value}")
+    elif key == "ntasks":
+        try:
+            out.options["ntasks_per_node"] = int(value)
+            out.notes.append(f"--ntasks={value} read as tasks per node")
+        except ValueError:
+            extra.append(f"#SBATCH --ntasks={value}")
+    elif key in ("output", "error"):
+        out.notes.append(f"--{key} dropped: the job writes slurm-<id>.out / .err, "
+                         "which Studio downloads")
+    else:
+        extra.append(f"#SBATCH --{key}={value}" if value else f"#SBATCH --{key}")
+
+
+def _specula_args(words: list[str]) -> list[str] | None:
+    """Arguments of the specula command in *words*, or None if there is none."""
+    for i, word in enumerate(words):
+        base = posixpath.basename(word)
+        if base == "specula":
+            return words[i + 1:]
+        if base.startswith("python") and words[i + 1:i + 3] in (["-m", "specula"],
+                                                                 ["-m", "specula.main"]):
+            return words[i + 3:]
+        if base in ("bash", "sh") and words[i + 1:i + 2] == ["-c"] and i + 2 < len(words):
+            try:
+                inner = shlex.split(words[i + 2])
+            except ValueError:
+                return None
+            return _specula_args(inner)
+    return None
+
+
+def _parse_specula_args(args: list[str], out: ParsedScript) -> None:
+    opts = out.options
+    opts["cpu"] = False
+    opts["diagram"] = False
+    extra: list[str] = []
+    i = 0
+    while i < len(args):
+        word = args[i]
+        key, eq, value = word.partition("=")
+        if key in ("--precision", "--nsimul"):
+            if not eq and i + 1 < len(args):
+                i += 1
+                value = args[i]
+            try:
+                opts[key[2:]] = int(value)
+            except ValueError:
+                extra += [key, value]
+        elif word == "--mpi":
+            pass                                   # follows from the number of tasks
+        elif word == "--cpu":
+            opts["cpu"] = True
+        elif key in ("--diagram", "--diagram-filename", "--diagram-title",
+                     "--diagram-colors-on"):
+            opts["diagram"] = True
+            if key in ("--diagram-filename", "--diagram-title") and not eq:
+                i += 1                             # its value
+        elif word.lower().endswith((".yml", ".yaml")) and not word.startswith("-"):
+            if posixpath.basename(word) == HPC_OVERRIDE_NAME:
+                out.notes.append(f"{HPC_OVERRIDE_NAME} dropped: Studio adds it to every job")
+            else:
+                out.files.append(word)
+        else:
+            extra.append(word)
+        i += 1
+    opts["extra_args"] = " ".join(shlex.quote(a) for a in extra)
 
 
 # ── adapting the simulation to the cluster ────────────────────────────────────
