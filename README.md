@@ -23,6 +23,8 @@ simulations, built on [Dear PyGui](https://github.com/hoffstadt/DearPyGui).
   the job script, submit, follow the job in *HPC → Batch Jobs* (state,
   output, cancel) and download the results when it ends.  Batch jobs run
   without a display server, so live monitors are not available for them.
+  Both HPC windows open as separate windows (*Preferences* can put them
+  back inside the editor).
 * Undo/redo, copy/paste/duplicate, unsaved-changes tracking.
 * *View → Issues* lists incomplete objects (missing required parameters,
   references or inputs); *Edit → Find Object* (Ctrl+F) and *Add Objects →

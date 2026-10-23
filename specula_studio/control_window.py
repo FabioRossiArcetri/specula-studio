@@ -1,11 +1,18 @@
 """
-The simulation control panel in its own OS window.
+The editor's tool windows in their own OS windows.
 
 Started by the editor (``python -m specula_studio.control_window --address
-host:port``, key in the environment); everything it does is sent to the
-editor over :mod:`specula_studio.control_link`, which runs the simulations.
-Closing this window does not stop a running simulation; it can be reopened
-from *Simulation → Control Panel*.
+host:port --kind KIND``, key in the environment), one process per window:
+
+* ``control``    — the simulation control panel;
+* ``hpc_submit`` — HPC → Submit Batch Job;
+* ``hpc_jobs``   — HPC → Batch Jobs.
+
+Everything a window does is sent to the editor over
+:mod:`specula_studio.control_link`; the editor runs the simulations and the
+HPC work and sends back what the window shows.  Closing a window stops
+nothing (a running simulation, the following of batch jobs); it can be
+reopened from its menu.
 """
 
 from __future__ import annotations
@@ -21,39 +28,50 @@ log = logging.getLogger(__name__)
 
 _MAIN = "control_main_window"
 
+# kind -> (default title, viewport width, viewport height)
+KINDS = {
+    "control":    ("SPECULA Studio - Simulation Control", 1020, 700),
+    "hpc_submit": ("SPECULA Studio - HPC Batch Job (SLURM)", 900, 960),
+    "hpc_jobs":   ("SPECULA Studio - HPC Jobs", 1020, 440),
+}
 
-class RemoteActions:
-    """ControlPanelView actions forwarded to the editor."""
+
+class _Sender:
+    """Thread-safe sending of plain-dict messages to the editor."""
 
     def __init__(self, conn):
         self.conn = conn
         self.lock = threading.Lock()
 
-    def _send(self, msg: dict) -> None:
+    def send(self, msg: dict) -> None:
         with self.lock:
             try:
                 self.conn.send(msg)
             except (OSError, EOFError, ValueError):
                 log.warning("Editor connection lost")
 
+
+class RemoteActions(_Sender):
+    """ControlPanelView actions forwarded to the editor."""
+
     def start(self, options: dict) -> None:
-        self._send({"type": "start", "options": options})
+        self.send({"type": "start", "options": options})
 
     def step(self, n: int = 1) -> None:
-        self._send({"type": "step", "n": int(n)})
+        self.send({"type": "step", "n": int(n)})
 
     def abort(self) -> None:
-        self._send({"type": "abort"})
+        self.send({"type": "abort"})
 
     def test_ssh(self, target: str) -> None:
-        self._send({"type": "test_ssh", "target": target})
+        self.send({"type": "test_ssh", "target": target})
 
     def clear_terminal(self) -> None:
-        self._send({"type": "clear_terminal"})
+        self.send({"type": "clear_terminal"})
 
 
 def apply_event(view, msg: dict, dpg) -> bool:
-    """Apply one editor event to *view*; False means the window must close."""
+    """Apply one editor event to the control panel *view*; False means the window must close."""
     kind = msg.get("type")
     if kind == "terminal":
         view.append_terminal(msg.get("text", ""))
@@ -63,22 +81,46 @@ def apply_event(view, msg: dict, dpg) -> bool:
         view.set_status(msg.get("text", ""))
     elif kind == "ssh_test":
         view.set_ssh_test(msg.get("message", ""), msg.get("ok"))
-    elif kind == "raise":
-        # No "focus" API for the viewport: briefly keeping it on top brings it
-        # in front of the other windows.
-        dpg.set_viewport_always_top(True)
-        dpg.set_frame_callback(dpg.get_frame_count() + 2,
-                               lambda: dpg.set_viewport_always_top(False))
     elif kind in ("quit", "closed"):
         return False
     return True
 
 
+def _build_view(kind: str, conn, init: dict, tm):
+    """Build the view of *kind* in the main window; return its event handler."""
+    if kind == "control":
+        from .ui.control_panel import ControlPanelView
+
+        view = ControlPanelView(RemoteActions(conn), tm,
+                                recent_hosts=init.get("recent_hosts", []))
+        view.build(_MAIN)
+        view.reset_terminal(init.get("terminal", ""))
+        view.set_status(init.get("status", "idle"))
+        return lambda msg: apply_event(view, msg, None)
+
+    from .ui.hpc_views import HpcJobsView, HpcSubmitView
+
+    sender = _Sender(conn)
+    hpc_view: HpcSubmitView | HpcJobsView
+    if kind == "hpc_submit":
+        hpc_view = HpcSubmitView(sender.send, tm, init["profile"], init.get("sim_info", {}))
+    else:
+        hpc_view = HpcJobsView(sender.send, tm, init.get("jobs", []))
+    hpc_view.build(_MAIN)
+
+    def apply(msg: dict) -> bool:
+        hpc_view.apply(msg)
+        return True
+    return apply
+
+
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="SPECULA Studio simulation control window")
+    parser = argparse.ArgumentParser(description="SPECULA Studio tool window")
     parser.add_argument("--address", required=True, help="host:port of the editor")
-    parser.add_argument("--title", default="SPECULA Studio - Simulation Control")
+    parser.add_argument("--kind", choices=sorted(KINDS), default="control")
+    parser.add_argument("--title", default="")
     args = parser.parse_args(argv)
+    default_title, width, height = KINDS[args.kind]
 
     from .logs import setup_logging
     setup_logging(os.environ.get("SPECULA_STUDIO_LOG_LEVEL", "INFO"))
@@ -92,14 +134,13 @@ def main(argv=None) -> int:
         log.error("Cannot connect to the editor at %s: %s", args.address, exc)
         return 1
 
-    # The editor sends recent hosts, terminal backlog and status first.
+    # The editor sends what the window shows first (an "init" event).
     init = conn.recv() if conn.poll(15) else {}
 
     import dearpygui.dearpygui as dpg
 
     from . import render_scale, settings
     from .theme_manager import ThemeManager
-    from .ui.control_panel import ControlPanelView
 
     dpg.create_context()
     tm = ThemeManager()
@@ -111,13 +152,9 @@ def main(argv=None) -> int:
         with dpg.font_registry():
             dpg.bind_font(dpg.add_font(font, render_scale.font_size()))
 
-    view = ControlPanelView(RemoteActions(conn), tm,
-                            recent_hosts=init.get("recent_hosts", []))
     with dpg.window(tag=_MAIN):
         pass
-    view.build(_MAIN)
-    view.reset_terminal(init.get("terminal", ""))
-    view.set_status(init.get("status", "idle"))
+    apply = _build_view(args.kind, conn, init, tm)
 
     events: queue.Queue = queue.Queue()
 
@@ -131,7 +168,7 @@ def main(argv=None) -> int:
 
     threading.Thread(target=receive, daemon=True, name="editor-link").start()
 
-    dpg.create_viewport(title=args.title, width=1020, height=700)
+    dpg.create_viewport(title=args.title or default_title, width=width, height=height)
     dpg.setup_dearpygui()
     dpg.show_viewport()
     dpg.set_primary_window(_MAIN, True)
@@ -143,7 +180,20 @@ def main(argv=None) -> int:
                     msg = events.get_nowait()
                 except queue.Empty:
                     break
-                keep = apply_event(view, msg, dpg)
+                kind = msg.get("type")
+                if kind in ("quit", "closed"):
+                    keep = False
+                elif kind == "raise":
+                    # No "focus" API for the viewport: briefly keeping it on top
+                    # brings it in front of the other windows.
+                    dpg.set_viewport_always_top(True)
+                    dpg.set_frame_callback(dpg.get_frame_count() + 2,
+                                           lambda: dpg.set_viewport_always_top(False))
+                else:
+                    try:
+                        keep = apply(msg)
+                    except Exception:
+                        log.exception("Cannot show the editor event %s", kind)
             if not keep:
                 break
             dpg.render_dearpygui_frame()

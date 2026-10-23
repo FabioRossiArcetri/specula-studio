@@ -196,6 +196,11 @@ class PreferencesMixin:
                 color=self.theme_manager.get_color("text_hint"),
                 wrap=490,
             )
+            dpg.add_checkbox(
+                label="HPC windows (batch job, jobs) in separate windows",
+                default_value=self.preferences.get("hpc_windows", "window") != "docked",
+                callback=self._on_hpc_windows_mode_changed,
+            )
             dpg.add_spacer(height=16)
             dpg.add_separator()
             dpg.add_spacer(height=12)
@@ -337,6 +342,10 @@ class PreferencesMixin:
 
     def _on_control_panel_mode_changed(self, sender, app_data):
         self.preferences['control_panel'] = "window" if app_data else "docked"
+        self._save_settings()
+
+    def _on_hpc_windows_mode_changed(self, sender, app_data):
+        self.preferences['hpc_windows'] = "window" if app_data else "docked"
         self._save_settings()
 
     def _on_class_source_changed(self, sender, app_data):

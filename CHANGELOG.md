@@ -46,6 +46,10 @@
   always copied before being drawn.
 - Monitor options: *Image filtering* (off by default: image pixels stay
   sharp when enlarged) and snapshot vectors drawn as a line or a histogram.
+- *HPC → Submit Batch Job* and *HPC → Batch Jobs* open in their own OS
+  windows, like the simulation control panel (Preferences: "HPC windows in
+  separate windows"); jobs are still followed by the editor when they are
+  closed.
 - A display server lost while the run goes on is reported in the control
   panel (terminal and status); monitor windows say when the server is not
   reachable, and while the simulation is paused they ask for data less and

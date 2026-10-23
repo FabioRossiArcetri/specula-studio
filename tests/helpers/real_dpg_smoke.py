@@ -132,19 +132,34 @@ def main(path):
 
     # ── HPC dialogs (no network: nothing is submitted) ────────────────────────
     from specula_studio import hpc
-    step("hpc_window", editor._show_hpc_window)
-    step("hpc_preset", editor._hpc_apply_preset, None, "Booster production (24 h)")
+    # The separate HPC windows are other processes: build the in-editor ones,
+    # which share all the widget code.
+    from specula_studio.hpc_control import JOBS, SUBMIT
+    step("hpc_window", editor.hpc.show_docked, SUBMIT)
+    submit_view = editor.hpc._docked[SUBMIT]
+    step("hpc_preset", submit_view.apply_preset, None, "Booster production (24 h)")
     dpg.set_value("hpc_account", "try25_test")
-    step("hpc_script", editor._hpc_generate_script)
+    step("hpc_script", submit_view.generate_script)
     if "#SBATCH --account=try25_test" not in dpg.get_value("hpc_script"):
         raise RuntimeError("HPC script not generated")
-    editor._hpc_jobs.append(hpc.HpcJob(job_id="1", name="t", login_host="h",
-                                       transfer_host="h", job_dir="/w/j", state="RUNNING"))
-    editor._hpc_jobs.append(hpc.HpcJob(job_id="2", name="t", login_host="h",
-                                       transfer_host="h", job_dir="/w/j", state="COMPLETED"))
-    step("hpc_jobs_window", editor._show_hpc_jobs_window)
-    editor._hpc_jobs_version += 1
-    step("hpc_jobs_table", editor._poll_hpc_ui)
+    editor.hpc._log("hello")
+    editor.hpc.poll()
+    if "hello" not in dpg.get_value("hpc_log"):
+        raise RuntimeError("HPC log event not delivered")
+    editor.hpc.jobs.append(hpc.HpcJob(job_id="1", name="t", login_host="h",
+                                      transfer_host="h", job_dir="/w/j", state="RUNNING"))
+    editor.hpc.jobs.append(hpc.HpcJob(job_id="2", name="t", login_host="h",
+                                      transfer_host="h", job_dir="/w/j", state="COMPLETED"))
+    step("hpc_jobs_window", editor.hpc.show_docked, JOBS)
+    editor.hpc._jobs_version += 1
+    step("hpc_jobs_table", editor.hpc.poll)
+    jobs_view = editor.hpc._docked[JOBS]
+    if [j.job_id for j in jobs_view.jobs] != ["1", "2"]:
+        raise RuntimeError("HPC jobs table not updated")
+    step("hpc_job_output", jobs_view.apply, {"type": "job_output", "job_id": "1",
+                                             "text": "slurm output"})
+    if dpg.get_value("hpc_out_1_text") != "slurm output":
+        raise RuntimeError("HPC job output not shown")
     step("create_node", editor._on_menu_create, None, None, "Integrator")
     step("rebuild", nm.rebuild_all_nodes_ui)
     step("theme_light", editor.on_theme_changed, None, "light")

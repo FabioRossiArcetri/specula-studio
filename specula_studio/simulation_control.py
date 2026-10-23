@@ -32,7 +32,7 @@ import uuid
 import dearpygui.dearpygui as dpg
 
 from . import sshutil
-from .control_link import ControlServer, ControlWindowProcess
+from .control_link import ControlServer, WindowProcess
 from .core.run_prep import write_run_files
 from .simulation_backend import InProcessBackend, RemoteBackend, SimulationBackend
 from .theme_manager import ThemeManager
@@ -77,7 +77,7 @@ class SimulationControl:
         self._status = "idle"
         self.view: ControlPanelView | None = None       # panel inside the editor
         self._link: ControlServer | None = None         # separate control window
-        self._window: ControlWindowProcess | None = None
+        self._window: WindowProcess | None = None
         self.theme_manager = ThemeManager()
 
     # ── Coordination file ─────────────────────────────────────────────────────
@@ -165,7 +165,7 @@ class SimulationControl:
     def _ensure_link(self):
         if self._link is None:
             self._link = ControlServer(on_connect=self._on_window_connected)
-            self._window = ControlWindowProcess(self._link)
+            self._window = WindowProcess(self._link, "control", "SPECULA Studio - Simulation Control")
 
     def _on_window_connected(self):
         self._link.send({"type": "init", "recent_hosts": self._recent_hosts(),

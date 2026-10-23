@@ -19,6 +19,7 @@ from .core import catalog
 from .core.model import Graph
 from .core.overrides import OverrideManager
 from .core.templates import load_template_dir
+from .hpc_control import HpcControl
 from .file_handler import FileHandler, auto_layout_nodes
 from .logs import LEVELS, setup_logging
 from .node_manager import NodeManager
@@ -29,7 +30,6 @@ from .ui.edit_actions import EditMixin
 from .ui.log_window import LogWindowMixin
 from .ui.overrides_menu import OverridesMixin
 from .ui.preferences import PreferencesMixin
-from .ui.hpc_dialog import HpcMixin
 from .ui.tools import ToolsMixin
 
 log = logging.getLogger(__name__)
@@ -38,7 +38,6 @@ log = logging.getLogger(__name__)
 class SpeculaEditor(
     EditMixin,
     ToolsMixin,
-    HpcMixin,
     DialogsMixin,
     AddObjectsMixin,
     PreferencesMixin,
@@ -90,7 +89,7 @@ class SpeculaEditor(
         self._recent_menu_items: list = []
         self._log_window_version = -1
         self._init_edit_state()
-        self._init_hpc_state()
+        self.hpc = HpcControl(self)
 
         # 5. Apply render scale before any UI is built
         render_scale.set_size(self.preferences['render_size'])
@@ -257,8 +256,8 @@ class SpeculaEditor(
 
                 with dpg.menu(label="HPC"):
                     dpg.add_menu_item(label="Submit Batch Job (SLURM)...",
-                                      callback=self._show_hpc_window)
-                    dpg.add_menu_item(label="Batch Jobs...", callback=self._show_hpc_jobs_window)
+                                      callback=self.hpc.show_submit_window)
+                    dpg.add_menu_item(label="Batch Jobs...", callback=self.hpc.show_jobs_window)
 
                 with dpg.menu(label="Layout"):
                     dpg.add_menu_item(label="Auto Layout",
@@ -479,7 +478,7 @@ class SpeculaEditor(
                 self._refresh_log_window()
                 self._poll_history()
                 self._poll_catalog_build()
-                self._poll_hpc_ui()
+                self.hpc.poll()
                 self.sim_control.poll_commands()
                 dpg.render_dearpygui_frame()
         finally:
@@ -498,7 +497,10 @@ class SpeculaEditor(
         except Exception:
             log.exception("Error while closing monitors on exit")
         # batch jobs keep running on the cluster; only stop following them
-        self.stop_hpc_poller()
+        try:
+            self.hpc.shutdown()
+        except Exception:
+            log.exception("Error while closing the HPC windows on exit")
         try:
             self.sim_control.close_control_window()
         except Exception:

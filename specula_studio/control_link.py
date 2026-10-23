@@ -1,15 +1,17 @@
 """
-Link between the editor and the simulation control window.
+Link between the editor and its tool windows in separate processes.
 
-DearPyGui has one OS window per process, so the control panel shown "in its
-own window" is a separate process (:mod:`specula_studio.control_window`).
-Simulations still run in the editor (in-process runs, probes and monitors
-live there); the window is a remote control:
+DearPyGui has one OS window per process, so the simulation control panel
+and the HPC windows shown "in their own window" are separate processes
+(:mod:`specula_studio.control_window`, one per window).  The work still
+happens in the editor (simulations, probes and monitors, ssh to the
+cluster, the settings file); a window is a remote control:
 
-* window → editor: commands ``start {options}``, ``step {n}``, ``abort``,
-  ``test_ssh {target}``, ``clear_terminal``;
-* editor → window: events ``init``, ``terminal {text}``, ``status {text}``,
-  ``ssh_test {message, ok}``, ``raise``, ``quit``.
+* window → editor: commands, e.g. ``start {options}``, ``step {n}``,
+  ``abort`` for the control panel (see :mod:`.ui.hpc_views` for the HPC
+  windows);
+* editor → window: events ``init`` (first), view updates, ``raise``,
+  ``quit``.
 
 Messages are plain dicts over :mod:`multiprocessing.connection` on
 127.0.0.1, authenticated with a random key passed to the child process in
@@ -35,7 +37,7 @@ KEY_ENV = "SPECULA_STUDIO_CONTROL_KEY"
 
 
 class ControlServer:
-    """Editor side: accepts one control window at a time."""
+    """Editor side of one tool window: accepts one connection at a time."""
 
     def __init__(self, on_connect=None):
         self.authkey = secrets.token_bytes(32)
@@ -47,7 +49,7 @@ class ControlServer:
         self._send_lock = threading.Lock()
         self._closed = False
         threading.Thread(target=self._accept_loop, daemon=True,
-                         name="control-link").start()
+                         name="tool-window-link").start()
 
     @property
     def connected(self) -> bool:
@@ -60,7 +62,7 @@ class ControlServer:
             except Exception as exc:              # closed listener / failed auth
                 if self._closed:
                     return
-                log.warning("Control window connection refused: %s", exc)
+                log.warning("Tool window connection refused: %s", exc)
                 continue
             with self._send_lock:
                 old, self._conn = self._conn, conn
@@ -70,7 +72,7 @@ class ControlServer:
                 try:
                     self.on_connect()
                 except Exception:
-                    log.exception("Control window initialisation failed")
+                    log.exception("Tool window initialisation failed")
             self._receive(conn)
 
     def _receive(self, conn) -> None:
@@ -84,7 +86,7 @@ class ControlServer:
         with self._send_lock:
             if self._conn is conn:
                 self._conn = None
-        log.info("Control window disconnected")
+        log.info("Tool window disconnected")
 
     def send(self, msg: dict) -> bool:
         with self._send_lock:
@@ -122,18 +124,23 @@ def connect(address, authkey: bytes):
     return Client(tuple(address), authkey=authkey)
 
 
-class ControlWindowProcess:
-    """Launches (once) the control window process for a :class:`ControlServer`."""
+class WindowProcess:
+    """Launches (once) the tool window process of *kind* for a :class:`ControlServer`.
 
-    def __init__(self, server: ControlServer):
+    *kind* selects the view (see ``control_window.KINDS``).
+    """
+
+    def __init__(self, server: ControlServer, kind: str, title: str):
         self.server = server
+        self.kind = kind
+        self.title = title
         self.process: subprocess.Popen | None = None
 
     @property
     def running(self) -> bool:
         return self.process is not None and self.process.poll() is None
 
-    def launch(self, title: str = "SPECULA Studio - Simulation Control") -> None:
+    def launch(self) -> None:
         if self.running:
             self.server.send({"type": "raise"})
             return
@@ -144,10 +151,10 @@ class ControlWindowProcess:
         host, port = self.server.address
         self.process = subprocess.Popen(
             [sys.executable, "-m", "specula_studio.control_window",
-             "--address", f"{host}:{port}", "--title", title],
+             "--address", f"{host}:{port}", "--kind", self.kind, "--title", self.title],
             env=env, cwd=os.getcwd(),
         )
-        log.info("Simulation control window started (pid %s)", self.process.pid)
+        log.info("%s window started (pid %s)", self.title, self.process.pid)
 
     def stop(self, timeout: float = 3.0) -> None:
         if not self.running or self.process is None:
