@@ -112,7 +112,8 @@ of replacing `sys.stdin`.
 
 `core/slurm.py` (pure) renders the sbatch script — modelled on SPECULA's
 `config/leonardo/jobScripts` (`srun --mpi=none bash -c 'specula [--mpi] …'`,
-cuda / openmpi / nvhpc modules) — and builds a last override file
+a CUDA module for CuPy; MPI runs also need an MPI module) — and builds a
+last override file
 (`zz_studio_hpc_override.yml`) that adapts the simulation to the cluster:
 `root_dir` → uploaded calibration data, no display server, local absolute
 DataStore paths → `results/` in the job directory.  `hpc.py` does the

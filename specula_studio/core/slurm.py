@@ -19,11 +19,12 @@ from dataclasses import dataclass, field, fields
 
 from .overrides import combine_params
 
-# Leonardo defaults, taken from SPECULA's config/leonardo/jobScripts.
+# Leonardo: the CUDA 12 libraries CuPy (cupy-cuda12x) loads at run time.
+# cuda/12.2 is the version Leonardo's own MPI builds use, so the compute nodes'
+# driver supports it.  MPI runs (more than one task, specula --mpi) also need
+# mpi4py and an MPI module, e.g. openmpi/4.1.6--gcc--12.2.0-cuda-12.2.
 DEFAULT_MODULES = [
-    "cuda/12.3",
-    "openmpi/4.1.6--nvhpc--23.11",
-    "nvhpc/23.11",
+    "cuda/12.2",
 ]
 
 PARTITIONS = ["boost_usr_prod", "dcgp_usr_prod", "lrd_all_serial"]

@@ -20,9 +20,10 @@ def test_render_script_single_gpu():
     for line in ("#SBATCH --job-name=scao", "#SBATCH --account=try25_rossi",
                  "#SBATCH --gres=gpu:1", "#SBATCH --partition=boost_usr_prod",
                  "#SBATCH --qos=boost_qos_dbg", "#SBATCH --output=slurm-%j.out",
-                 "module load cuda/12.3", "source $WORK/venv/bin/activate",
+                 "module load cuda/12.2", "source $WORK/venv/bin/activate",
                  "export MPLBACKEND=Agg"):
         assert line in script.splitlines(), line
+    assert "nvhpc" not in script                          # not on Leonardo any more
     srun = next(ln for ln in script.splitlines() if ln.startswith("srun"))
     assert srun.startswith("srun --mpi=none bash -c ")
     inner = shlex.split(srun)[-1]
