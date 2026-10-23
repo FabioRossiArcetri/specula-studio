@@ -128,6 +128,35 @@ def test_parse_script_specula_wrappers():
     assert any("No specula command" in n for n in none.notes)
 
 
+def test_resolve_job_file_finds_the_local_copy(tmp_path):
+    scripts = tmp_path / "SPECULA" / "config" / "leonardo" / "jobScripts"
+    scripts.mkdir(parents=True)
+    soul = tmp_path / "SPECULA" / "config" / "SOUL"
+    soul.mkdir()
+    (soul / "params_pyr_soul.yml").write_text("main: {}\n")
+    (scripts / "local.yml").write_text("main: {}\n")
+    mirror = tmp_path / "raid1" / "guido"
+    mirror.mkdir(parents=True)
+    (mirror / "ov.yml").write_text("x: {}\n")
+    pairs = [(str(tmp_path / "raid1"), "$WORK/raid1")]
+    here = str(scripts)
+
+    def resolve(name):
+        return slurm.resolve_job_file(name, here, pairs)
+
+    # cluster path of the same SPECULA checkout
+    assert resolve("$WORK/SPECULA/config/SOUL/params_pyr_soul.yml") == \
+        str(soul / "params_pyr_soul.yml")
+    assert resolve("/leonardo_work/IscrC_SPECIAL/SPECULA/config/SOUL/params_pyr_soul.yml") \
+        == str(soul / "params_pyr_soul.yml")
+    # mirrored data: the path mapping read backwards
+    assert resolve("$WORK/raid1/guido/ov.yml") == str(mirror / "ov.yml")
+    # relative to the script
+    assert resolve("local.yml") == str(scripts / "local.yml")
+    # nothing on this machine: unchanged, never glued to the script folder
+    assert resolve("$WORK/SPECULA/config/MISSING/x.yml") == "$WORK/SPECULA/config/MISSING/x.yml"
+
+
 def test_run_file_names_match_the_written_files(tmp_path):
     from specula_studio.core.run_prep import write_run_files
     ov = tmp_path / "ov_a.yml"

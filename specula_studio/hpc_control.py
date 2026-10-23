@@ -43,7 +43,7 @@ DEFAULT_PROFILE = {
     "step_email": "",
     "calib_upload": False,
     "calib_local": "",
-    "remote_calib_parent": "$WORK/specula_studio/calib",
+    "remote_calib_parent": "$WORK",
     "remote_root_dir": "",
     "download": True,
     "download_dir": str(pathlib.Path.home() / "specula_hpc_results"),

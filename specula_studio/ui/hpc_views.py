@@ -384,13 +384,18 @@ class HpcSubmitView:
             self.append_log(f"Cannot read {path}: {exc}")
             return
         self._apply_options(parsed.options)
+        resolved = []
         if parsed.files:
             folder = os.path.dirname(os.path.abspath(path))
-            files = [f if os.path.isabs(f) else os.path.normpath(os.path.join(folder, f))
-                     for f in parsed.files]
+            pairs = slurm.parse_path_map(dpg.get_value(self.t("path_map")))
+            files = [slurm.resolve_job_file(f, folder, pairs) for f in parsed.files]
+            resolved = [(f, local) for f, local in zip(parsed.files, files, strict=True)
+                        if local != f]
             self.set_files(files[0], files[1:])
         self.generate_script()
         self.append_log(f"Loaded {path}: {len(parsed.files)} simulation file(s)")
+        for name, local in resolved:
+            self.append_log(f"  {name} -> {local}")
         for note in parsed.notes:
             self.append_log(f"  {note}")
         for missing in self.missing_files():

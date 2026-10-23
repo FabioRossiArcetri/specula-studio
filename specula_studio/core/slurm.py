@@ -1,7 +1,8 @@
 """
 SLURM batch jobs for HPC clusters (written with CINECA Leonardo in mind).
 
-Pure functions, no I/O: the job script, the override file that adapts a
+Pure functions (no I/O, apart from looking for local files in
+resolve_job_file): the job script, the override file that adapts a
 simulation to the cluster, and parsers for the output of sbatch / squeue /
 sacct.  The transport (ssh / scp) lives in :mod:`specula_studio.hpc`.
 
@@ -12,6 +13,7 @@ simulation's DataStore objects and downloaded afterwards.
 
 from __future__ import annotations
 
+import os
 import posixpath
 import re
 import shlex
@@ -263,6 +265,47 @@ def parse_script(text: str) -> ParsedScript:
     if not out.found_specula:
         out.notes.append("No specula command found: the simulation files are unchanged")
     return out
+
+
+def resolve_job_file(name: str, script_dir: str, path_map=()) -> str:
+    """
+    The file on this machine for a YAML file named in a job script, or
+    *name* unchanged when none is found.
+
+    A job script names files as the cluster sees them (``$WORK/SPECULA/
+    config/x.yml``, ``/leonardo_work/...``, or relative to the job
+    directory).  Candidates, first existing one wins: *name* relative to
+    the script's folder; *name* translated back by *path_map* (``[(local
+    prefix, cluster prefix)]``); and, for every folder above the script
+    whose name is also a component of *name*, the rest of *name* below it
+    (a script in ``.../SPECULA/config/leonardo`` finds ``$WORK/SPECULA/
+    config/x.yml`` in the same SPECULA checkout).
+    """
+    if os.path.isfile(name):
+        return os.path.normpath(name)
+    candidates = []
+    is_cluster = "$" in name or name.startswith(("/", "~"))
+    if not is_cluster:
+        candidates.append(os.path.join(script_dir, name))
+    for local, remote in path_map:
+        back = map_path(name, [(remote, local)])
+        if back is not None:
+            candidates.append(back)
+    parts = [p for p in re.split(r"[\\/]", name) if p and p != "."]
+    folder = os.path.abspath(script_dir)
+    while True:
+        base = os.path.basename(folder)
+        if base in parts[:-1]:
+            below = parts[len(parts) - 1 - parts[::-1].index(base) + 1:]
+            candidates.append(os.path.join(folder, *below))
+        parent = os.path.dirname(folder)
+        if parent == folder:
+            break
+        folder = parent
+    for cand in candidates:
+        if os.path.isfile(cand):
+            return os.path.normpath(cand)
+    return name
 
 
 def _parse_sbatch(line: str, out: ParsedScript, extra: list[str]) -> None:
