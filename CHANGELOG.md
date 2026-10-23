@@ -46,6 +46,11 @@
   always copied before being drawn.
 - Monitor options: *Image filtering* (off by default: image pixels stay
   sharp when enlarged) and snapshot vectors drawn as a line or a histogram.
+- HPC: the *Batch Jobs* window shows the SLURM output (`slurm-<id>.out` /
+  `.err`) of the selected job, read from the cluster while the job runs and
+  when it ends; the window opens on a job as soon as it is submitted.
+  Loading a job script keeps the user's account, modules and environment
+  setup (optional), so scripts of other projects can be reused.
 - HPC: *Load script...* reads an existing SLURM job script into the form
   (#SBATCH options, modules, environment setup, specula options) and its
   YAML files into the new *Simulation files* list (base + overrides, each

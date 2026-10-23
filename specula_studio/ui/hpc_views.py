@@ -33,6 +33,17 @@ from .. import hpc
 from ..core import slurm, ssh_config, yaml_io
 
 
+# Options that belong to the user's site rather than to a job: kept when a
+# job script is loaded (unless the user unticks "keep").
+_SITE_OPTIONS = ("account", "modules", "setup")
+
+
+def _short(value) -> str:
+    text = ", ".join(value) if isinstance(value, list) else str(value)
+    text = text.replace("\n", "; ") or "(none)"
+    return text if len(text) <= 60 else text[:57] + "..."
+
+
 class HpcSubmitView:
     """The SLURM job form: simulation files, cluster, data, job options, script.
 
@@ -198,6 +209,8 @@ class HpcSubmitView:
                 dpg.add_button(label="Load script...", callback=self._browse_script)
                 dpg.add_button(label="Save script...", callback=self._browse_save_script)
                 dpg.add_text("The script can be edited before submitting.", color=hint)
+            dpg.add_checkbox(label="When loading a script, keep my account, modules and "
+                             "environment setup", tag=t("keep_site"), default_value=True)
             dpg.add_input_text(tag=t("script"), multiline=True, width=-1, height=220,
                                tab_input=True)
 
@@ -383,6 +396,16 @@ class HpcSubmitView:
         except OSError as exc:
             self.append_log(f"Cannot read {path}: {exc}")
             return
+        kept = []
+        if dpg.get_value(self.t("keep_site")):
+            # scripts often come from another project or an older module set:
+            # the account, modules and environment setup stay the user's own
+            mine = self.options()
+            for name in _SITE_OPTIONS:
+                if name in parsed.options:
+                    theirs = parsed.options.pop(name)
+                    if theirs != getattr(mine, name):
+                        kept.append((name, getattr(mine, name), theirs))
         self._apply_options(parsed.options)
         resolved = []
         if parsed.files:
@@ -396,6 +419,9 @@ class HpcSubmitView:
         self.append_log(f"Loaded {path}: {len(parsed.files)} simulation file(s)")
         for name, local in resolved:
             self.append_log(f"  {name} -> {local}")
+        for name, mine, theirs in kept:
+            self.append_log(f"  Kept your {name.replace('_', ' ')} {_short(mine)!r} "
+                            f"(the script has {_short(theirs)!r})")
         for note in parsed.notes:
             self.append_log(f"  {note}")
         for missing in self.missing_files():
@@ -635,35 +661,89 @@ class HpcSubmitView:
 
 
 class HpcJobsView:
-    """Table of the submitted jobs, with their output in a sub-window."""
+    """Table of the submitted jobs and the SLURM output of the selected one.
 
-    def __init__(self, command, theme_manager, jobs=(), prefix: str = "hpc"):
+    The output pane shows ``slurm-<id>.out`` / ``.err`` of the selected job
+    (by default the most recent): the editor sends it while the job runs and
+    when it ends; *Output* / *Refresh* ask for it now.
+    """
+
+    def __init__(self, command, theme_manager, jobs=(), outputs=None, selected: str = "",
+                 prefix: str = "hpc"):
         self.command = command
         self.tm = theme_manager
         self.p = prefix
         self.jobs = [hpc.HpcJob.from_dict(d) for d in jobs]
+        self.outputs: dict = dict(outputs or {})
+        self.selected = selected
+        self._requested: set = set()
 
     def t(self, name: str) -> str:
         return f"{self.p}_{name}"
 
     def build(self, parent) -> None:
+        hint = self.tm.get_color("text_hint")
         with dpg.group(parent=parent):
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Refresh now",
                                callback=lambda: self.command({"type": "refresh_jobs"}))
-                dpg.add_text("States are refreshed every minute while jobs are running.",
-                             color=self.tm.get_color("text_hint"))
-            dpg.add_child_window(tag=self.t("jobs_list"), border=False)
+                dpg.add_text("States and the output of running jobs are refreshed every "
+                             "minute.", color=hint)
+            dpg.add_child_window(tag=self.t("jobs_list"), border=False, height=200)
+            dpg.add_separator()
+            with dpg.group(horizontal=True):
+                dpg.add_text("", tag=self.t("output_title"),
+                             color=self.tm.get_color("control_subsection_header"))
+                dpg.add_button(label="Refresh output", tag=self.t("output_refresh"),
+                               callback=lambda: self.request_output(self.selected))
+            dpg.add_input_text(tag=self.t("output_text"), multiline=True, readonly=True,
+                               width=-1, height=-1)
         self._draw()
+        self._show_output()
 
     def apply(self, msg: dict) -> None:
         kind = msg.get("type")
         if kind == "jobs":
             self.jobs = [hpc.HpcJob.from_dict(d) for d in msg.get("jobs", [])]
             self._draw()
+            self._show_output()
         elif kind == "job_output":
-            text_tag = self._output_window(str(msg.get("job_id", "")))
-            dpg.set_value(text_tag, msg.get("text", ""))
+            job_id = str(msg.get("job_id", ""))
+            self.outputs[job_id] = msg.get("text", "")
+            self._requested.discard(job_id)
+            if job_id == self._current():
+                self._show_output()
+        elif kind == "select_job":
+            self.selected = str(msg.get("job_id", ""))
+            self._draw()
+            self._show_output()
+
+    def _current(self) -> str:
+        """The job whose output is shown: the selected one, else the most recent."""
+        ids = [j.job_id for j in self.jobs]
+        if self.selected in ids:
+            return self.selected
+        return ids[0] if ids else ""
+
+    def _show_output(self) -> None:
+        job_id = self._current()
+        job = next((j for j in self.jobs if j.job_id == job_id), None)
+        if job is None:
+            dpg.set_value(self.t("output_title"), "Job output")
+            dpg.set_value(self.t("output_text"), "")
+            return
+        dpg.set_value(self.t("output_title"),
+                      f"Output of job {job.job_id} ({job.name}, {job.state or 'submitted'})")
+        text = self.outputs.get(job_id)
+        if text is None:
+            if job.state in ("", "PENDING", "CONFIGURING"):
+                text = "The job has not started yet: its output appears here when it runs."
+            else:
+                text = "Fetching the job output…"
+                if job_id not in self._requested:
+                    self._requested.add(job_id)
+                    self.command({"type": "job_output", "job_id": job_id})
+        dpg.set_value(self.t("output_text"), text)
 
     def _draw(self) -> None:
         parent = self.t("jobs_list")
@@ -672,12 +752,13 @@ class HpcJobsView:
             dpg.add_text("No jobs submitted yet.", parent=parent)
             return
         tm = self.tm
+        current = self._current()
         with dpg.table(parent=parent, header_row=True, borders_innerH=True, resizable=True):
             for col in ("Job", "Name", "State", "Elapsed", "Info", "Submitted", ""):
                 dpg.add_table_column(label=col)
             for job in self.jobs:
                 with dpg.table_row():
-                    dpg.add_text(job.job_id)
+                    dpg.add_text(("> " if job.job_id == current else "  ") + job.job_id)
                     dpg.add_text(job.name)
                     color = ("text_success" if job.state == "COMPLETED"
                              else "text_error" if job.finished
@@ -704,17 +785,17 @@ class HpcJobsView:
                        callback=lambda s, a, u: self.command({"type": command, "job_id": u}))
 
     def request_output(self, job_id: str) -> None:
-        """Open the output window of *job_id* and ask the editor for the output."""
-        dpg.set_value(self._output_window(job_id), "Fetching the job output…")
+        """Show *job_id*'s output and ask the editor to read it now."""
+        if not job_id:
+            return
+        if job_id != self.selected:
+            self.selected = job_id
+            self._draw()
+        self._requested.add(job_id)
+        self._show_output()
+        if job_id in self.outputs:
+            dpg.set_value(self.t("output_text"),
+                          self.outputs[job_id] + "\n(refreshing…)")
+        else:
+            dpg.set_value(self.t("output_text"), "Fetching the job output…")
         self.command({"type": "job_output", "job_id": job_id})
-
-    def _output_window(self, job_id: str) -> str:
-        tag = self.t(f"out_{job_id}")
-        if not dpg.does_item_exist(tag):
-            with dpg.window(label=f"Job {job_id} output", tag=tag, width=900, height=520):
-                dpg.add_button(label="Refresh", callback=lambda: self.request_output(job_id))
-                dpg.add_input_text(tag=f"{tag}_text", multiline=True, readonly=True,
-                                   width=-1, height=-1)
-        dpg.show_item(tag)
-        dpg.focus_item(tag)
-        return f"{tag}_text"

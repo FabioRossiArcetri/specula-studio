@@ -32,7 +32,7 @@ _MAIN = "control_main_window"
 KINDS = {
     "control":    ("SPECULA Studio - Simulation Control", 1020, 700),
     "hpc_submit": ("SPECULA Studio - HPC Batch Job (SLURM)", 900, 960),
-    "hpc_jobs":   ("SPECULA Studio - HPC Jobs", 1020, 440),
+    "hpc_jobs":   ("SPECULA Studio - HPC Jobs", 1020, 720),
 }
 
 
@@ -105,7 +105,8 @@ def _build_view(kind: str, conn, init: dict, tm):
     if kind == "hpc_submit":
         hpc_view = HpcSubmitView(sender.send, tm, init["profile"], init.get("sim_info", {}))
     else:
-        hpc_view = HpcJobsView(sender.send, tm, init.get("jobs", []))
+        hpc_view = HpcJobsView(sender.send, tm, init.get("jobs", []), init.get("outputs"),
+                               init.get("selected", ""))
     hpc_view.build(_MAIN)
 
     def apply(msg: dict) -> bool:

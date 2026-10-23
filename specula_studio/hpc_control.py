@@ -59,9 +59,11 @@ SUBMIT, JOBS = "submit", "jobs"
 # window -> (process kind, title, docked window tag, docked size)
 _WINDOWS = {
     SUBMIT: ("hpc_submit", "HPC Batch Job (SLURM)", "hpc_window", (860, 900)),
-    JOBS:   ("hpc_jobs", "HPC Jobs", "hpc_jobs_window", (980, 360)),
+    JOBS:   ("hpc_jobs", "HPC Jobs", "hpc_jobs_window", (980, 640)),
 }
 _SIM_INFO_INTERVAL = 0.5        # seconds between checks of the simulation shown
+# job states without output to show yet
+_WAITING_STATES = ("", "PENDING", "CONFIGURING", "REQUEUED", "SUSPENDED")
 
 
 class HpcControl:
@@ -81,6 +83,9 @@ class HpcControl:
         self._poll_stop = threading.Event()
         self._poll_thread: threading.Thread | None = None
         self._busy = False
+        self._outputs: dict = {}               # job id -> last SLURM log text read
+        self._selected_job = ""                # job shown in the jobs window's output
+        self._open_job = ""                    # set after a submit: show it (GUI thread)
         if any(not j.finished or (j.download_to and not j.downloaded) for j in self.jobs):
             self._start_poller()
 
@@ -165,7 +170,10 @@ class HpcControl:
         if window == SUBMIT:
             self._sim_info = self.sim_info()
             return {"type": "init", "profile": self.profile(), "sim_info": self._sim_info}
-        return {"type": "init", "jobs": self._jobs_dicts()}
+        with self._lock:
+            outputs = dict(self._outputs)
+        return {"type": "init", "jobs": self._jobs_dicts(), "outputs": outputs,
+                "selected": self._selected_job}
 
     def _on_window_connected(self, window: str) -> None:
         link = self._links[window]
@@ -189,7 +197,8 @@ class HpcControl:
         if window == SUBMIT:
             view = HpcSubmitView(self.handle_command, tm, init["profile"], init["sim_info"])
         else:
-            view = HpcJobsView(self.handle_command, tm, init["jobs"])
+            view = HpcJobsView(self.handle_command, tm, init["jobs"], init["outputs"],
+                               init["selected"])
         view.build(tag)
         self._docked[window] = view
 
@@ -228,6 +237,11 @@ class HpcControl:
         if self._sent_jobs_version != self._jobs_version:
             self._sent_jobs_version = self._jobs_version
             self._deliver(JOBS, {"type": "jobs", "jobs": self._jobs_dicts()})
+        if self._open_job:
+            # a job was just submitted: show it with its output
+            self._selected_job, self._open_job = self._open_job, ""
+            self._deliver(JOBS, {"type": "select_job", "job_id": self._selected_job})
+            self.show_jobs_window()
         now = time.monotonic()
         if now - self._sim_info_checked > _SIM_INFO_INTERVAL:
             self._sim_info_checked = now
@@ -265,7 +279,8 @@ class HpcControl:
             elif kind == "refresh_jobs":
                 self._background(self._poll_once)
             elif kind == "job_output":
-                self._job_output(str(msg["job_id"]))
+                self._selected_job = str(msg["job_id"])
+                self._job_output(self._selected_job)
             elif kind == "cancel_job":
                 self._cancel(str(msg["job_id"]))
             elif kind == "download_job":
@@ -409,8 +424,10 @@ class HpcControl:
             with self._lock:
                 self.jobs.insert(0, job)
             self._save_jobs()
-            self._log(f"Job {job.job_id} in {job.job_dir}")
+            self._log(f"Job {job.job_id} in {job.job_dir}; its output is shown in "
+                      "the HPC Jobs window")
             self._start_poller()
+            self._open_job = job.job_id          # poll() opens the jobs window on it
 
         self._background(work)
 
@@ -432,7 +449,10 @@ class HpcControl:
             self._poll_stop.wait(interval)
 
     def _poll_once(self) -> bool:
-        """Refresh unfinished jobs, download finished ones; True if work remains."""
+        """Refresh unfinished jobs, download finished ones; True if work remains.
+
+        The logs of running jobs are fetched at every poll, and once more
+        when a job ends (so the jobs window shows its last lines)."""
         with self._lock:
             jobs = list(self.jobs)
         remaining = False
@@ -441,6 +461,9 @@ class HpcControl:
                 hpc.update_job(job)
                 if job.finished:
                     log.info("HPC job %s finished: %s", job.job_id, job.state)
+                    self._fetch_logs(job)
+                elif job.state not in _WAITING_STATES:
+                    self._fetch_logs(job)
             if job.finished and job.download_to and not job.downloaded:
                 try:
                     target = hpc.download_results(job, job.download_to)
@@ -456,24 +479,24 @@ class HpcControl:
         with self._lock:
             return next((j for j in self.jobs if j.job_id == job_id), None)
 
+    def _fetch_logs(self, job: hpc.HpcJob) -> None:
+        """Read the job's SLURM logs from the cluster and send them to the jobs window."""
+        try:
+            text = hpc.job_logs(job)
+        except hpc.HpcError as exc:
+            text = f"Cannot read the output of job {job.job_id}: {exc}"
+        stamp = time.strftime("%H:%M:%S")
+        text = f"[{job.state or 'unknown'} at {stamp}]\n{text}"
+        with self._lock:
+            self._outputs[job.job_id] = text
+        self._emit(JOBS, {"type": "job_output", "job_id": job.job_id, "text": text})
+
     def _job_output(self, job_id: str) -> None:
         job = self._job(job_id)
         if job is None:
             return
-
-        def work():
-            client = job.client()
-            parts = []
-            for suffix in ("out", "err"):
-                path = f"{job.job_dir}/slurm-{job.job_id}.{suffix}"
-                try:
-                    parts.append(f"==> {path} <==\n{client.tail(path)}")
-                except hpc.HpcError as exc:
-                    parts.append(f"==> {path} <==\n{exc}")
-            self._emit(JOBS, {"type": "job_output", "job_id": job_id,
-                              "text": "\n".join(parts)})
-
-        threading.Thread(target=self._safe, args=(work,), daemon=True).start()
+        threading.Thread(target=self._safe, args=(lambda: self._fetch_logs(job),),
+                         daemon=True).start()
 
     def _cancel(self, job_id: str) -> None:
         job = self._job(job_id)

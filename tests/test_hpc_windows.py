@@ -128,6 +128,39 @@ def test_job_inputs_from_files_or_the_editor(tmp_path):
         hc._job_inputs({"base": str(tmp_path / "nope.yml")})
 
 
+def test_poll_reads_the_logs_of_running_and_ending_jobs(monkeypatch):
+    ed = _editor()
+    hc = HpcControl(ed)
+    job = hpc.HpcJob(job_id="9", name="soul", login_host="h", transfer_host="h",
+                     job_dir="/w/jobs/j9", state="PENDING")
+    hc.jobs = [job]
+    states = iter(["PENDING", "RUNNING", "COMPLETED"])
+
+    def fake_update(j, runner=None):
+        j.state = next(states)
+        return j
+
+    reads = []
+    monkeypatch.setattr(hpc, "update_job", fake_update)
+    monkeypatch.setattr(hpc, "job_logs",
+                        lambda j, runner=None, lines=200: reads.append(j.state) or "line 1\n")
+    assert hc._poll_once() is True          # pending: no output yet
+    assert reads == []
+    hc._poll_once()                         # running: read at every poll
+    hc._poll_once()                         # finished: read once more
+    assert reads == ["RUNNING", "COMPLETED"]
+    events = []
+    while not hc._events.empty():
+        events.append(hc._events.get_nowait())
+    outputs = [e for w, e in events if w == JOBS and e["type"] == "job_output"]
+    assert len(outputs) == 2 and "line 1" in outputs[-1]["text"]
+    assert "COMPLETED" in hc._outputs["9"]
+    # a reopened jobs window gets the last output and the selected job
+    hc._selected_job = "9"
+    init = hc._init_event(JOBS)
+    assert init["selected"] == "9" and "line 1" in init["outputs"]["9"]
+
+
 def test_unknown_command_is_harmless():
     hc = HpcControl(_editor())
     hc.handle_command({"type": "nonsense"})

@@ -186,6 +186,18 @@ def test_job_status_follows_queue_then_accounting(tmp_path):
     assert again == job
 
 
+def test_job_logs_reads_both_files_in_one_call():
+    fake = FakeCluster()
+    job = hpc.HpcJob(job_id="4242", name="scao", login_host="leonardo",
+                     transfer_host="leonardo", job_dir="/w/jobs/j")
+    hpc.job_logs(job, runner=fake, lines=50)
+    assert len(fake.calls) == 1 and "BatchMode=yes" in fake.calls[0]
+    command = fake.calls[0][-1]
+    for name in ("/w/jobs/j/slurm-4242.out", "/w/jobs/j/slurm-4242.err"):
+        assert f"tail -n 50 {name}" in command
+    assert "not written yet" in command
+
+
 def test_expand_remote():
     env = {"WORK": "/leonardo_work/p", "HOME": "/home/u"}
     assert hpc.expand_remote("$WORK/a/${WORK}", env) == "/leonardo_work/p/a//leonardo_work/p"

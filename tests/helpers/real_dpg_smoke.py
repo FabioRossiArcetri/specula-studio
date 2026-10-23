@@ -94,10 +94,21 @@ def _check_hpc_load_script(view):
                 "#SBATCH --gres=gpu:2\nmodule load cuda/12.2\n"
                 "source $WORK/specula/bin/activate\n"
                 "srun specula --nsimul 2 andes.yml ov_seeing.yml missing.yml\n")
+    account, modules = dpg.get_value("hpc_account"), dpg.get_value("hpc_modules")
     view.load_script(script)
     if (dpg.get_value("hpc_job_name"), dpg.get_value("hpc_gpus_per_node"),
             dpg.get_value("hpc_nsimul")) != ("andes", 2, 2):
         raise RuntimeError("job script options not loaded")
+    if (dpg.get_value("hpc_account"), dpg.get_value("hpc_modules")) != (account, modules):
+        raise RuntimeError("the user's account / modules were replaced by the script's")
+    if "Kept your account" not in dpg.get_value("hpc_log"):
+        raise RuntimeError("kept account not reported")
+    dpg.set_value("hpc_keep_site", False)
+    view.load_script(script)
+    if dpg.get_value("hpc_account") != "IscrC_SPECIAL":
+        raise RuntimeError("the script's account not loaded with 'keep' off")
+    dpg.set_value("hpc_account", account)
+    dpg.set_value("hpc_keep_site", True)
     if view.base_file != os.path.join(folder, "andes.yml") or \
             [os.path.basename(p) for p in view.override_files] != ["ov_seeing.yml",
                                                                     "missing.yml"]:
@@ -180,6 +191,7 @@ def main(path):
 
     # ── HPC dialogs (no network: nothing is submitted) ────────────────────────
     from specula_studio import hpc
+    hpc.job_logs = lambda job, runner=None, lines=200: f"log of {job.job_id}"   # no ssh
     # The separate HPC windows are other processes: build the in-editor ones,
     # which share all the widget code.
     from specula_studio.hpc_control import JOBS, SUBMIT
@@ -207,8 +219,15 @@ def main(path):
         raise RuntimeError("HPC jobs table not updated")
     step("hpc_job_output", jobs_view.apply, {"type": "job_output", "job_id": "1",
                                              "text": "slurm output"})
-    if dpg.get_value("hpc_out_1_text") != "slurm output":
+    if dpg.get_value("hpc_output_text") != "slurm output":            # most recent job
         raise RuntimeError("HPC job output not shown")
+    jobs_view.apply({"type": "job_output", "job_id": "2", "text": "job 2 output"})
+    if dpg.get_value("hpc_output_text") != "slurm output":
+        raise RuntimeError("another job's output replaced the selected one")
+    step("hpc_select_job", jobs_view.apply, {"type": "select_job", "job_id": "2"})
+    if dpg.get_value("hpc_output_text") != "job 2 output" or \
+            "job 2" not in dpg.get_value("hpc_output_title"):
+        raise RuntimeError("selected job's output not shown")
     step("create_node", editor._on_menu_create, None, None, "Integrator")
     step("rebuild", nm.rebuild_all_nodes_ui)
     step("theme_light", editor.on_theme_changed, None, "light")

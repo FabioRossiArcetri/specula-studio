@@ -249,6 +249,20 @@ def update_job(job: HpcJob, runner=run_command) -> HpcJob:
     return job
 
 
+def job_logs(job: HpcJob, runner=run_command, lines: int = 200) -> str:
+    """The last *lines* of the job's ``slurm-<id>.out`` and ``.err`` (one ssh call)."""
+    paths = [f"{job.job_dir}/slurm-{job.job_id}.{suffix}" for suffix in ("out", "err")]
+    cmd = "; ".join(
+        f"echo {shlex.quote(f'==> {p} <==')}; "
+        f"if [ -e {shlex.quote(p)} ]; then tail -n {int(lines)} {shlex.quote(p)}; "
+        f"else echo '(not written yet)'; fi; echo"
+        for p in paths)
+    res = job.client(runner).ssh(cmd, timeout=60)
+    if not res.ok:
+        raise HpcError(explain_ssh_failure(res))
+    return res.stdout
+
+
 def download_results(job: HpcJob, local_dir: str, runner=run_command) -> str:
     """Copy the job's outputs (DataStore results + SLURM logs) into *local_dir*."""
     client = job.client(runner)
@@ -362,8 +376,12 @@ def submit(req: SubmitRequest, progress=lambda msg: None, runner=run_command,
         raise HpcError(info["message"])
     progress(info["message"])
     if not info["specula"]:
-        progress("Warning: 'specula' was not found in the login environment; "
-                 "check the environment setup lines.")
+        setup = "; ".join(ln.strip() for ln in req.options.setup.splitlines() if ln.strip())
+        progress("Warning: 'specula' was not found "
+                 + (f"after the environment setup ({setup})" if setup
+                    else "and there is no environment setup line")
+                 + ": the job will fail with 'specula: command not found' "
+                 "(e.g. add: source $WORK/specula/bin/activate).")
 
     env = info["env"]
     remote_base = expand_remote(req.remote_base, env)
