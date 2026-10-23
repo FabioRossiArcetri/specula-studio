@@ -46,6 +46,11 @@
   always copied before being drawn.
 - Monitor options: *Image filtering* (off by default: image pixels stay
   sharp when enlarged) and snapshot vectors drawn as a line or a histogram.
+- A display server lost while the run goes on is reported in the control
+  panel (terminal and status); monitor windows say when the server is not
+  reachable, and while the simulation is paused they ask for data less and
+  less often instead of every 10 s.  Stepping runs with a display server
+  warn that older SPECULA versions stop it after 60 s without a step.
 
 ### Fixes
 - `REQUIRED` template marker no longer exported as a value.

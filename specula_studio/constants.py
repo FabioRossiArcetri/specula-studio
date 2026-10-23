@@ -7,8 +7,15 @@ DEFAULT_PLOT_WIDTH = 780
 DEFAULT_PLOT_HEIGHT = 400
 MAX_QUEUE_ITEMS_PER_FRAME = 5
 
-# Seconds a monitor waits for a 'done' event before it re-arms the pull cycle.
+# Seconds a monitor waits for a 'done' event before it re-arms the pull cycle;
+# the wait doubles at each re-arm (a paused simulation answers nothing) up to
+# STREAM_STALL_MAX_TIMEOUT, and is reset by the next 'done'.
 STREAM_STALL_TIMEOUT = 10.0
+STREAM_STALL_MAX_TIMEOUT = 60.0
+
+# Failed connection attempts after which a monitor reports the display server
+# as unreachable (it keeps retrying).
+MONITOR_UNREACHABLE_ATTEMPTS = 3
 
 # A monitor logs its dropped frames every time this many have been dropped.
 MONITOR_DROP_LOG_INTERVAL = 200

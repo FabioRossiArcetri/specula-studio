@@ -33,7 +33,9 @@ from .constants import (
     MAX_QUEUE_ITEMS_PER_FRAME,
     MONITOR_QUEUE_SIZE,
     STREAM_STALL_TIMEOUT,
+    STREAM_STALL_MAX_TIMEOUT,
     MONITOR_DROP_LOG_INTERVAL,
+    MONITOR_UNREACHABLE_ATTEMPTS,
 )
 from .theme_manager import ThemeManager
 import logging
@@ -108,6 +110,7 @@ class StandaloneMonitor:
         # Stall watchdog
         self._stall_timer: threading.Timer | None = None
         self._stall_lock = threading.Lock()
+        self._stall_delay = STREAM_STALL_TIMEOUT
 
         # Render state
         self.dpg_plotter: DPGPlotter | None = None
@@ -181,12 +184,14 @@ class StandaloneMonitor:
     # Stall watchdog
     # =========================================================================
 
-    def _arm_stall_watchdog(self):
+    def _arm_stall_watchdog(self, reset: bool = False):
         with self._stall_lock:
+            if reset:
+                self._stall_delay = STREAM_STALL_TIMEOUT
             if self._stall_timer is not None:
                 self._stall_timer.cancel()
             self._stall_timer = threading.Timer(
-                STREAM_STALL_TIMEOUT, self._on_stall_detected
+                self._stall_delay, self._on_stall_detected
             )
             self._stall_timer.daemon = True
             self._stall_timer.start()
@@ -198,18 +203,23 @@ class StandaloneMonitor:
                 self._stall_timer = None
 
     def _on_stall_detected(self):
+        """No 'done' in time: usually a paused simulation (stepping mode),
+        which answers at its next step; a lost 'done' is covered by asking
+        again, less and less often so requests do not pile up on the server."""
         if not self.connected:
             return
         log.info(
-            f"[MONITOR] Stream stall detected (no 'done' in {STREAM_STALL_TIMEOUT}s). "
-            "Re-arming pull cycle."
+            f"[MONITOR] No 'done' in {self._stall_delay:.0f}s "
+            "(simulation paused?). Re-arming pull cycle."
         )
-        self._set_status("retrying")
+        self._set_status("waiting")
         with self._sio_lock:
             sio = self.sio
         if sio and self.connected:
             try:
                 sio.emit("newdata", [self.server_output_name])
+                with self._stall_lock:
+                    self._stall_delay = min(self._stall_delay * 2, STREAM_STALL_MAX_TIMEOUT)
                 self._arm_stall_watchdog()
             except Exception:
                 pass
@@ -233,7 +243,7 @@ class StandaloneMonitor:
             self._set_status("connected")
             try:
                 client.emit("newdata", [self.server_output_name])
-                self._arm_stall_watchdog()
+                self._arm_stall_watchdog(reset=True)
                 self._set_status("subscribed")
                 log.info(f"[MONITOR] Subscribed to {self.server_output_name}")
             except Exception as e:
@@ -295,7 +305,7 @@ class StandaloneMonitor:
             if self.connected:
                 try:
                     client.emit("newdata", [self.server_output_name])
-                    self._arm_stall_watchdog()
+                    self._arm_stall_watchdog(reset=True)
                 except Exception:
                     pass
 
@@ -316,6 +326,7 @@ class StandaloneMonitor:
         """Background thread: keep trying to connect with exponential back-off."""
         retry_delay = 1.0
         max_delay   = 10.0
+        failures    = 0
 
         while not self._stop_flag.is_set():
             if self.connected:
@@ -338,10 +349,13 @@ class StandaloneMonitor:
                     self.sio = self._build_sio_client()
                 self.sio.connect(url, namespaces=["/"])
                 retry_delay = 1.0
+                failures    = 0
             except Exception as e:
                 err = str(e)[:120]
+                failures += 1
                 log.warning(f"[MONITOR] Connection failed ({err}), retry in {retry_delay:.1f}s")
-                self._set_status("retrying")
+                self._set_status("unreachable" if failures >= MONITOR_UNREACHABLE_ATTEMPTS
+                                 else "retrying")
                 self._stop_flag.wait(timeout=retry_delay)
                 retry_delay = min(retry_delay * 1.5, max_delay)
 
@@ -641,6 +655,8 @@ class StandaloneMonitor:
                 "disconnected": "monitor_status_error",
                 "error":        "monitor_status_error",
                 "retrying":     "monitor_status_waiting",
+                "waiting":      "monitor_status_waiting",
+                "unreachable":  "monitor_status_error",
             }
             label_map = {
                 "connected":    "+ Connected",
@@ -649,6 +665,8 @@ class StandaloneMonitor:
                 "disconnected": "- Disconnected",
                 "error":        "! Error",
                 "retrying":     "~ Retrying …",
+                "waiting":      "~ Waiting for the simulation (paused?) …",
+                "unreachable":  "! Display server not reachable (stopped?), retrying …",
             }
             label = label_map.get(status, status.capitalize())
             color = tm.get_color(color_keys.get(status, "text_secondary"))

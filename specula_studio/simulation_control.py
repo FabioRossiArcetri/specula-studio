@@ -43,6 +43,19 @@ log = logging.getLogger(__name__)
 _LOCAL_HOSTS = ("localhost", "127.0.0.1", "")
 _DOCKED_WINDOW = "sim_control_window"
 
+DISPLAY_SERVER_LOST = (
+    "[WARNING] Lost the display server ({url}) while the simulation is still running: "
+    "monitors stop updating.\n"
+    "  SPECULA versions without the DisplayServer idle fix stop the display server after "
+    "60 s without a simulation step (e.g. a stepping run left paused).  Otherwise look "
+    "for an error above, or check the network.\n"
+)
+STEPPING_DISPLAY_NOTE = (
+    "[NOTE] Stepping mode with a display server: SPECULA versions without the "
+    "DisplayServer idle fix stop the display server after 60 s without a step, and the "
+    "monitors with it.\n"
+)
+
 
 class SimulationControl:
     def __init__(self, editor):
@@ -57,6 +70,10 @@ class SimulationControl:
         # coordination file and passed to every subprocess monitor, so stale
         # monitors of a previous run never attach to a new server.
         self._session_id: str = ""
+        # Session whose display server the editor reached, and whether it was
+        # lost while the run went on (reported in the terminal)
+        self._ds_session: str = ""
+        self._ds_lost = False
         self._status = "idle"
         self.view: ControlPanelView | None = None       # panel inside the editor
         self._link: ControlServer | None = None         # separate control window
@@ -240,6 +257,35 @@ class SimulationControl:
         if not sio.connected:
             threading.Thread(target=sio.reconnect, daemon=True).start()
 
+    # Seconds to wait after a lost connection before reporting it: the
+    # display server also goes away at the normal end of a run.
+    DS_LOST_GRACE = 5.0
+
+    def _on_display_server_connection(self, connected: bool):
+        """The editor's connection to the run's DisplayServer went up or down (any thread)."""
+        session = self._session_id
+        if connected:
+            self._ds_session = session
+            if self._ds_lost:
+                self._ds_lost = False
+                self.append_terminal("[INFO] Reconnected to the display server\n")
+                self._set_status(self._status.replace(" — display server lost", ""))
+            return
+        if not self.is_running or self._ds_session != session:
+            return
+
+        def report():
+            sio = self.editor.nm.sio_client
+            if (self.is_running and self._session_id == session and not sio.connected
+                    and not self._ds_lost):
+                self._ds_lost = True
+                self.append_terminal(DISPLAY_SERVER_LOST.format(url=sio.server_url))
+                self._set_status(f"{self._status} — display server lost")
+
+        timer = threading.Timer(self.DS_LOST_GRACE, report)
+        timer.daemon = True
+        timer.start()
+
     def _schedule_display_server_reconnect(self, expected_url: str, delay: float = 4.0):
         """Fallback when SPECULA does not print its port: try the expected URL."""
         def _attempt(attempt_no, delay_s):
@@ -312,6 +358,8 @@ class SimulationControl:
         )
         if overrides:
             self.append_terminal(f"[INFO] {len(overrides)} override file(s) passed to SPECULA\n")
+        if not in_process and opts["stepping"]:
+            self.append_terminal(STEPPING_DISPLAY_NOTE)
 
         # ── backend ───────────────────────────────────────────────────────────
         mm = self.editor.nm.monitors
@@ -341,6 +389,9 @@ class SimulationControl:
         }
 
         sio = self.editor.nm.sio_client
+        sio.on_connection_change = self._on_display_server_connection
+        self._ds_session = ""
+        self._ds_lost = False
         if sio.connected:
             try:
                 sio.disconnect()

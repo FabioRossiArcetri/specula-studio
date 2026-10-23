@@ -33,6 +33,10 @@ class SocketIOClient:
         self.server_session_id: str | None = None
 
         self._on_params_cb = on_params
+        # Called with True / False when the connection goes up / is lost
+        # (not when disconnect() is called).  Set by SimulationControl.
+        self.on_connection_change = None
+        self._closing = False
 
         # Prevents concurrent _connect_worker threads from racing on sio.connect.
         self._connect_lock: threading.Lock = threading.Lock()
@@ -68,6 +72,7 @@ class SocketIOClient:
                 self.sio.emit("get_params")
             except Exception as e:
                 log.error(f"[SOCKET.IO] get_params emit error: {e}")
+            self._notify(True)
 
         @self.sio.event
         def params(data):
@@ -105,9 +110,18 @@ class SocketIOClient:
             log.error(f"[SOCKET.IO] Connection error: {data}")
 
         @self.sio.event
-        def disconnect():
+        def disconnect(*_reason):
             self.connected = False
             log.info("[SOCKET.IO] Disconnected")
+            if not self._closing:
+                self._notify(False)
+
+    def _notify(self, connected: bool) -> None:
+        if self.on_connection_change is not None:
+            try:
+                self.on_connection_change(connected)
+            except Exception:
+                log.exception("Connection-change callback failed")
 
     # ──────────────────────────────────────────────────────────────────────────
     # Connection management
@@ -134,11 +148,15 @@ class SocketIOClient:
         threading.Thread(target=self._connect_worker, daemon=True).start()
 
     def disconnect(self):
+        """Close the connection on purpose (no connection-change callback)."""
         if self.connected:
+            self._closing = True
             try:
                 self.sio.disconnect()
             except Exception:
                 pass
+            finally:
+                self._closing = False
 
     # ──────────────────────────────────────────────────────────────────────────
     # Node-to-server name mapping
