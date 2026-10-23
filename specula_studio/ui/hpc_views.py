@@ -75,17 +75,6 @@ class HpcSubmitView:
                          "not available; results are downloaded when the job ends.",
                          color=hint, wrap=820)
 
-            # ── simulation files ─────────────────────────────────────────────
-            dpg.add_separator()
-            dpg.add_text("Simulation files (passed to specula in this order)", color=head)
-            dpg.add_group(tag=t("files"))
-            with dpg.group(horizontal=True):
-                dpg.add_button(label="Add override...", callback=self._add_override)
-                dpg.add_button(label="Use the editor's files", callback=self.use_editor_files)
-            dpg.add_text(f"+ {slurm.HPC_OVERRIDE_NAME} (added by Studio, applied last: "
-                         "path mapping, no display server, results in the job directory)",
-                         color=hint, wrap=820)
-
             # ── cluster ──────────────────────────────────────────────────────
             dpg.add_separator()
             dpg.add_text("Cluster", color=head)
@@ -187,6 +176,23 @@ class HpcSubmitView:
                                  default_value=opts.diagram)
             dpg.add_input_text(label="Extra specula arguments", tag=t("extra_args"),
                                width=w, default_value=opts.extra_args)
+
+            # ── simulation files (the YAML files of the specula command) ─────
+            dpg.add_separator()
+            dpg.add_text("Simulation files (passed to specula in this order)", color=head)
+            dpg.add_text("Loading a script fills this list; generating the script uses it. "
+                         "Each file is uploaded with the name shown after the arrow.",
+                         color=hint, wrap=820)
+            dpg.add_group(tag=t("files"))
+            with dpg.group(horizontal=True):
+                dpg.add_button(label="Add override...", callback=self._add_override)
+                dpg.add_button(label="Use the editor's files", callback=self.use_editor_files)
+            dpg.add_text(f"+ {slurm.HPC_OVERRIDE_NAME} (added by Studio, applied last: "
+                         "path mapping, no display server, results in the job directory)",
+                         color=hint, wrap=820)
+
+            # ── job script ───────────────────────────────────────────────────
+            dpg.add_separator()
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Generate script", callback=self.generate_script)
                 dpg.add_button(label="Load script...", callback=self._browse_script)
@@ -255,7 +261,7 @@ class HpcSubmitView:
         with dpg.group(horizontal=True, parent=parent):
             dpg.add_text(f"{label:<11}")
             dpg.add_input_text(tag=self._row_tag(index, "path"), default_value=path,
-                               width=520, hint=hint, user_data=index,
+                               width=420, hint=hint, user_data=index,
                                callback=self._on_file_edited)
             dpg.add_button(label="...", user_data=index,
                            callback=lambda s, a, u: self._browse_yaml(u))
@@ -264,6 +270,8 @@ class HpcSubmitView:
             else:
                 dpg.add_button(label="x", user_data=index,
                                callback=lambda s, a, u: self._remove_override(u))
+            dpg.add_text("", tag=self._row_tag(index, "job"),
+                         color=self.tm.get_color("text_hint"))
             dpg.add_text("", tag=self._row_tag(index, "status"))
 
     def _on_file_edited(self, sender, value, index) -> None:
@@ -320,9 +328,14 @@ class HpcSubmitView:
             dpg.add_file_extension(".*")
 
     def _show_file_status(self) -> None:
+        """Per row: the file's name in the job, and whether it exists here."""
         ok, bad = self.tm.get_color("text_success"), self.tm.get_color("text_error")
         rows = [(None, self.base_file), *enumerate(self.override_files)]
-        for index, path in rows:
+        job_names = self.run_files()
+        for row, (index, path) in enumerate(rows):
+            job_tag = self._row_tag(index, "job")
+            if dpg.does_item_exist(job_tag):
+                dpg.set_value(job_tag, f"-> {job_names[row]}")
             tag = self._row_tag(index, "status")
             if not dpg.does_item_exist(tag):
                 continue

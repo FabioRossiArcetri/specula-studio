@@ -106,6 +106,10 @@ def _check_hpc_load_script(view):
     status = dpg.get_value(view._row_tag(1, "status"))
     if status != "not found on this machine":
         raise RuntimeError(f"missing override not flagged: {status!r}")
+    labels = [dpg.get_value(view._row_tag(i, "job")) for i in (None, 0, 1)]
+    if labels != ["-> andes_simul.yml", "-> override1_ov_seeing.yml",
+                  "-> override2_missing.yml"]:
+        raise RuntimeError(f"job file names not shown: {labels}")
     srun = next(ln for ln in dpg.get_value("hpc_script").splitlines() if ln.startswith("srun"))
     if "andes_simul.yml override1_ov_seeing.yml override2_missing.yml" not in srun:
         raise RuntimeError(f"specula line does not use the job's file names: {srun}")
