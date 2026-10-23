@@ -1,7 +1,7 @@
 """DearPyGui plots for monitor windows: line, history, scatter and image views."""
 import numpy as np
 import dearpygui.dearpygui as dpg
-from matplotlib import cm
+from matplotlib import colormaps
 import traceback
 from .constants import MAX_PLOT_HISTORY, DEFAULT_PLOT_WIDTH, DEFAULT_PLOT_HEIGHT
 import logging
@@ -22,7 +22,7 @@ def _dpg_colormap(name: str):
     item = _COLORMAPS.get(name)
     if item is not None and dpg.does_item_exist(item):
         return item
-    colors = (cm.get_cmap(name)(np.linspace(0.0, 1.0, 256)) * 255).round().astype(int)
+    colors = (colormaps[name](np.linspace(0.0, 1.0, 256)) * 255).round().astype(int)
     with dpg.colormap_registry(show=False):
         item = dpg.add_colormap([list(c) for c in colors], False)
     _COLORMAPS[name] = item
@@ -182,7 +182,7 @@ class InteractiveImageViewer:
             normalized = (data_2d - dmin) / (dmax - dmin)
         else:
             normalized = np.zeros_like(data_2d, dtype=np.float32)
-        rgba = cm.get_cmap(colormap)(normalized).astype(np.float32)   # (H, W, 4)
+        rgba = colormaps[colormap](normalized).astype(np.float32)   # (H, W, 4)
         pixel_data = np.ascontiguousarray(rgba).ravel()
         if not rebuild:
             # Same shape: stream new pixels into the existing texture

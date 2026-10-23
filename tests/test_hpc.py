@@ -3,6 +3,8 @@ HPC workflow (ssh/scp/sbatch) against a fake command runner that records
 every command and answers like a SLURM cluster would.
 """
 
+import re
+
 import pytest
 import yaml
 
@@ -32,10 +34,13 @@ class FakeCluster:
             return CommandResult(255, "", "frossi@login.leonardo.cineca.it: "
                                               "Permission denied (publickey).")
         if prog == "scp":
-            dest = argv[-1].split(":", 1)[1]
-            self.uploaded.setdefault(dest.rstrip("/"), []).extend(
-                a for a in argv[1:-1] if not a.startswith("-") and a not in
-                ("BatchMode=yes", "ConnectTimeout=20"))
+            dest = argv[-1]
+            # an upload ends with host:path; a download with a local directory
+            # (which on Windows also has a colon: C:\...)
+            if ":" in dest and not re.match(r"^[A-Za-z]:[\\/]", dest):
+                self.uploaded.setdefault(dest.split(":", 1)[1].rstrip("/"), []).extend(
+                    a for a in argv[1:-1] if not a.startswith("-") and a not in
+                    ("BatchMode=yes", "ConnectTimeout=20"))
             return CommandResult(0, "", "")
         command = argv[-1]
         if "echo \"HOME=$HOME\"" in command:
