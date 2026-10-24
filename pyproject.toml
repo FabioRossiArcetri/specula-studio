@@ -14,6 +14,7 @@ authors = [
 requires-python = ">=3.11"
 
 dependencies = [
+    "specula",
     "dearpygui>=2.1.1",
     "matplotlib>=3.8",
     "numpy>=1.26",
@@ -23,11 +24,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Only required for specula_studio/tools/compare_yamls.py
 utils = [
     "deepdiff>=6.7",
 ]
-# Full development environment
 dev = [
     "deepdiff>=6.7",
     "pytest>=8.0",
@@ -51,7 +50,7 @@ include = ["specula_studio*"]
 [tool.setuptools.package-data]
 specula_studio = ["specula_yaml_docs/**/*.yml"]
 
-# ── Ruff (linter + formatter) ────────────────────────────────────────────────
+# ── Ruff ─────────────────────────────────────────────────────────────────────
 
 [tool.ruff]
 target-version = "py311"
@@ -59,23 +58,10 @@ line-length = 100
 include = ["specula_studio/**/*.py", "tests/**/*.py"]
 
 [tool.ruff.lint]
-select = [
-    "E",   # pycodestyle errors
-    "W",   # pycodestyle warnings
-    "F",   # pyflakes (unused imports, undefined names, etc.)
-    "B",   # flake8-bugbear (likely bugs)
-]
-ignore = [
-    "E501",  # line-too-long — handled by formatter
-    "E221",  # aligned assignments are used deliberately throughout
-    "E241",
-    "E272",
-    "E701",
-    "E702",
-    "E731",
-]
+select = ["E", "W", "F", "B"]
+ignore = ["E501", "E221", "E241", "E272", "E701", "E702", "E731"]
 
-# ── Mypy (the DearPyGui-free core is fully checked) ──────────────────────────
+# ── Mypy ─────────────────────────────────────────────────────────────────────
 
 [tool.mypy]
 python_version = "3.11"
@@ -90,7 +76,6 @@ files = [
 ]
 check_untyped_defs = true
 ignore_missing_imports = true
-# report only the files listed above, not the (DearPyGui) modules they import
 follow_imports = "silent"
 warn_unused_ignores = true
 
