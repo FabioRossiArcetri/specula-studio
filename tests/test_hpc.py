@@ -20,12 +20,13 @@ ENV_OUT = ("HOME=/leonardo/home/userexternal/frossi\nWORK=/leonardo_work/try25_r
 
 
 class FakeCluster:
-    def __init__(self, auth_ok=True, existing=()):
+    def __init__(self, auth_ok=True, existing=None):
         self.calls = []
         self.auth_ok = auth_ok
         self.uploaded = {}         # remote dir -> list of local paths
         self.queue_state = "PENDING"
-        self.existing = set(existing)   # paths that exist on the cluster
+        # paths that exist on the cluster (None: every path exists)
+        self.existing = None if existing is None else set(existing)
 
     def __call__(self, argv, timeout=0, input_text=None):
         self.calls.append(list(argv))
@@ -49,7 +50,8 @@ class FakeCluster:
             import shlex
             paths = shlex.split(command[len("for p in "):command.index("; do")])
             return CommandResult(0, "".join(f"MISSING:{p}\n" for p in paths
-                                            if p not in self.existing), "")
+                                            if self.existing is not None
+                                            and p not in self.existing), "")
         if "sbatch" in command:
             return CommandResult(0, "Submitted batch job 4242\n", "")
         if command.startswith("squeue"):
@@ -141,6 +143,25 @@ def test_submit_maps_mirrored_data_and_checks_it(tmp_path):
     missing = [m for m in messages if "does not exist on the cluster" in m]
     assert missing == [f"Warning: {work_root}/raid1/guido/pist2modes.fits does not exist "
                        "on the cluster (check the path mapping, or copy the data there)"]
+
+
+def test_submit_refuses_a_root_dir_missing_on_the_cluster(tmp_path):
+    """jobScriptSOULGPU's override points root_dir to another project's area."""
+    ov = tmp_path / "ov_SOUL_GPU_leonardo.yml"
+    ov.write_text("main_override:\n  root_dir: /leonardo_work/try25_rossi/MORFEO_DATA0\n"
+                  "  display_server: false\n")
+    req = _request(tmp_path, calib=False)
+    req.base["main"]["root_dir"] = "/raid1/guido/PASSATA/LBT"
+    req.override_paths = [str(ov)]
+    req.path_map = slurm.parse_path_map(slurm.DEFAULT_PATH_MAP)
+    fake = FakeCluster(existing={"/leonardo_work/try25_rossi/raid1/guido/PASSATA/LBT"})
+    with pytest.raises(hpc.HpcError, match="root_dir /leonardo_work/try25_rossi/MORFEO_DATA0"):
+        hpc.submit(req, runner=fake, work_dir=str(tmp_path / "job"))
+    assert not any("sbatch" in c[-1] or "mkdir" in c[-1] for c in fake.calls)  # nothing made
+    # without that override the base's root_dir is mapped and found
+    req.override_paths = []
+    job = hpc.submit(req, runner=fake, work_dir=str(tmp_path / "job2"))
+    assert job.job_id == "4242"
 
 
 def test_check_connection_reports_the_specula_checkout():

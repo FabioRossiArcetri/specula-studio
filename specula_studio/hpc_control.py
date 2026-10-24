@@ -118,18 +118,20 @@ class HpcControl:
         om = ed.override_manager
         overrides = om.get_enabled_overrides() if om.any_enabled() else []
         name = ed.current_simulation_name or ""
-        root = self._root_dir()
+        simul_params, root = self._simul_params()
         return {"name": name, "n_overrides": len(overrides),
                 "overrides": [str(p) for p in overrides],
                 "run_files": slurm.run_file_names(name or "untitled", overrides),
+                "simul_params": simul_params,
                 "root_dir": root, "local_calib": self._local_calib(root)}
 
-    def _root_dir(self) -> str:
-        """SimulParams.root_dir as written in the simulation."""
+    def _simul_params(self) -> tuple[str, str]:
+        """(name, root_dir as written) of the simulation's SimulParams object."""
         for node in self.editor.graph.nodes.values():
             if node.get("type") == "SimulParams":
-                return str(node.get("values", {}).get("root_dir") or "")
-        return ""
+                return (str(node.get("name") or "main"),
+                        str(node.get("values", {}).get("root_dir") or ""))
+        return "main", ""
 
     def _local_calib(self, root: str) -> str:
         """*root* (the simulation's root_dir) resolved on this machine."""

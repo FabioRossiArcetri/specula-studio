@@ -305,11 +305,11 @@ def job_directory(remote_base: str, sim_name: str) -> str:
 
 
 def prepare_job_files(local_dir: str, req: SubmitRequest, job_dir: str
-                      ) -> tuple[list[str], str, dict, list[str]]:
+                      ) -> tuple[list[str], str, dict, list[str], str]:
     """
     Write the job's files into *local_dir*.  Returns (paths to upload,
-    remote names passed to specula, result directories, data paths the job
-    reads on the cluster).
+    script name, result directories, other data paths the job reads on the
+    cluster, the job's absolute root_dir or "").
     """
     import yaml
 
@@ -334,7 +334,13 @@ def prepare_job_files(local_dir: str, req: SubmitRequest, job_dir: str
     with open(script_path, "w", encoding="utf-8", newline="\n") as f:
         f.write(script.replace("\r\n", "\n"))
     dirs = slurm.result_dirs(req.base, [*overrides, hpc_ov], job_dir)
-    return [*files, script_path], "job.slurm", dirs, _cluster_data_paths(hpc_ov)
+    data_paths = _cluster_data_paths(hpc_ov)
+    # the root_dir the job really uses (an override may set a path the
+    # mapping does not translate, e.g. another project's area)
+    root = slurm.root_dir_of(slurm.merge_simulation(req.base, [*overrides, hpc_ov]))
+    if not root.startswith("/"):
+        root = ""                              # relative: inside the job directory
+    return [*files, script_path], "job.slurm", dirs, [p for p in data_paths if p != root], root
 
 
 def _cluster_data_paths(hpc_ov: dict) -> list[str]:
@@ -391,6 +397,28 @@ def submit(req: SubmitRequest, progress=lambda msg: None, runner=run_command,
     req = SubmitRequest(**{**req.__dict__, "remote_root_dir": remote_root,
                            "path_map": path_map})
 
+    # Prepare the job and check its data first: nothing is created on the
+    # cluster for a job that could not run.
+    local_dir = work_dir or tempfile.mkdtemp(prefix="specula_studio_hpc_")
+    os.makedirs(local_dir, exist_ok=True)
+    paths, script_name, result_dirs, data_paths, root = prepare_job_files(local_dir, req,
+                                                                           job_dir)
+    if req.calib_local_dir:
+        root = ""                              # uploaded below: not there yet
+    if root or data_paths:
+        missing = client.missing_paths([root, *data_paths])
+        if root and root in missing:
+            raise HpcError(f"root_dir {root} does not exist on the cluster: the job would "
+                           "not find its calibration data (check the path mapping and the "
+                           "override files, which may set another root_dir)")
+        for path in missing:
+            progress(f"Warning: {path} does not exist on the cluster "
+                     "(check the path mapping, or copy the data there)")
+        if not missing:
+            found = len({p for p in [root, *data_paths] if p})
+            progress(f"{found} data path(s) found on the cluster"
+                     + (f", root_dir = {root}" if root else ""))
+
     progress(f"Creating {job_dir}")
     client.mkdir(job_dir)
 
@@ -406,16 +434,6 @@ def submit(req: SubmitRequest, progress=lambda msg: None, runner=run_command,
         progress(f"Uploading calibration data to {remote_root} (via {client.transfer_host})…")
         client.upload([os.path.normpath(req.calib_local_dir)], parent, recursive=True)
 
-    local_dir = work_dir or tempfile.mkdtemp(prefix="specula_studio_hpc_")
-    os.makedirs(local_dir, exist_ok=True)
-    paths, script_name, result_dirs, data_paths = prepare_job_files(local_dir, req, job_dir)
-    if data_paths:
-        missing = client.missing_paths(data_paths)
-        for path in missing:
-            progress(f"Warning: {path} does not exist on the cluster "
-                     "(check the path mapping, or copy the data there)")
-        if not missing:
-            progress(f"{len(set(data_paths))} data path(s) found on the cluster")
     progress(f"Uploading {len(paths)} job file(s)…")
     client.upload(paths, job_dir)
 

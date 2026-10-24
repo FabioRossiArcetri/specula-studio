@@ -64,7 +64,7 @@ class HpcSubmitView:
         self.override_files: list[str] = list(self.sim_info.get("overrides") or [])
         self.files_custom = False                    # True once changed in this window
         self._rows = 0                               # widget generation of the file rows
-        self._root_cache: tuple[str, float, str] = ("", 0.0, "")
+        self._yaml_cache: dict = {}                  # path -> (mtime, parsed YAML)
 
     def t(self, name: str) -> str:
         return f"{self.p}_{name}"
@@ -465,41 +465,62 @@ class HpcSubmitView:
 
     # ── root_dir on the cluster ───────────────────────────────────────────────
 
-    def _base_root_dir(self) -> str:
-        """root_dir of the base simulation, as written in it."""
-        if not self.base_file:
-            return self.sim_info.get("root_dir", "")
+    def _read_yaml(self, path: str) -> dict:
+        """*path* parsed (cached while the file is unchanged); {} if unreadable."""
         try:
-            mtime = os.path.getmtime(self.base_file)
+            mtime = os.path.getmtime(path)
         except OSError:
-            return ""
-        path, stamp, root = self._root_cache
-        if path != self.base_file or stamp != mtime:
-            data = yaml_io.read_yaml_file(self.base_file) or {}
-            root = next((str(obj.get("root_dir") or "") for obj in data.values()
-                         if isinstance(obj, dict) and obj.get("class") == "SimulParams"), "")
-            self._root_cache = (self.base_file, mtime, root)
-        return root
+            return {}
+        cached = self._yaml_cache.get(path)
+        if cached is None or cached[0] != mtime:
+            cached = (mtime, yaml_io.read_yaml_file(path) or {})
+            self._yaml_cache[path] = cached
+        return cached[1]
+
+    def _base_sim(self) -> dict:
+        if self.base_file:
+            return self._read_yaml(self.base_file)
+        name = self.sim_info.get("simul_params") or "main"
+        return {name: {"class": "SimulParams", "root_dir": self.sim_info.get("root_dir", "")}}
+
+    def job_root_dir(self) -> tuple[str, str]:
+        """(root_dir after all the overrides, the file that sets it), as written."""
+        overrides = [self._read_yaml(p) for p in self.override_files]
+        root, source = slurm.root_dir_source(self._base_sim(), overrides)
+        if source >= 0:
+            where = os.path.basename(self.override_files[source])
+        else:
+            where = os.path.basename(self.base_file) if self.base_file \
+                else "the editor's simulation"
+        return root, where
 
     def cluster_root_dir(self) -> str:
         """root_dir the job will use (cluster prefixes not expanded)."""
         explicit = dpg.get_value(self.t("remote_root_dir")).strip()
         if explicit:
             return explicit
-        root = self._base_root_dir()
+        root, _ = self.job_root_dir()
         mapped = slurm.map_path(root, slurm.parse_path_map(dpg.get_value(self.t("path_map"))))
         return mapped if mapped is not None else root
 
     def _show_root_dir(self, *_) -> None:
-        root = self._base_root_dir()
+        root, where = self.job_root_dir()
         cluster = self.cluster_root_dir()
-        if not root and not cluster:
+        explicit = dpg.get_value(self.t("remote_root_dir")).strip()
+        warn = False
+        if explicit:
+            text = f"root_dir on the cluster: {explicit} (set here; {where} has {root or 'none'})"
+        elif not root:
             text = "The simulation has no root_dir."
         elif cluster == root:
-            text = f"root_dir on the cluster: {root} (not mapped)"
+            text = (f"root_dir on the cluster: {root}, from {where}, not mapped: it must "
+                    "exist on the cluster as written (checked when submitting)")
+            warn = root.startswith("/")
         else:
-            text = f"root_dir on the cluster: {cluster}   (in the simulation: {root})"
+            text = f"root_dir on the cluster: {cluster}   (from {where}: {root})"
         dpg.set_value(self.t("root_preview"), text)
+        dpg.configure_item(self.t("root_preview"), color=self.tm.get_color(
+            "monitor_status_waiting" if warn else "text_hint"))
 
     # ── editor events ─────────────────────────────────────────────────────────
 

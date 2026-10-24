@@ -24,8 +24,12 @@ def test_render_script_single_gpu():
                  "export MPLBACKEND=Agg"):
         assert line in script.splitlines(), line
     assert "nvhpc" not in script                          # not on Leonardo any more
-    srun = next(ln for ln in script.splitlines() if ln.startswith("srun"))
+    lines = script.splitlines()
+    srun = next(ln for ln in lines if ln.startswith("srun"))
     assert srun.startswith("srun --mpi=none bash -c ")
+    # back in the job directory after the setup lines, before specula
+    assert lines.index('cd "$SLURM_SUBMIT_DIR"') > lines.index("source $WORK/venv/bin/activate")
+    assert lines.index('cd "$SLURM_SUBMIT_DIR"') < lines.index(srun)
     inner = shlex.split(srun)[-1]
     assert "--mpi" not in shlex.split(inner)            # one task: no MPI
     assert shlex.split(inner)[-3:] == FILES               # override applied last

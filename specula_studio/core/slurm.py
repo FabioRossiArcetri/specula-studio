@@ -170,6 +170,9 @@ def render_script(opts: SlurmOptions, files) -> str:
         lines += ["", "# environment", *opts.setup.strip().splitlines()]
     lines += [
         "",
+        "# the job's files are in the directory sbatch was run from (setup lines may cd)",
+        'cd "$SLURM_SUBMIT_DIR"',
+        "",
         "# no display on compute nodes",
         "export MPLBACKEND=Agg",
         "",
@@ -194,7 +197,7 @@ _SBATCH_SHORT = {"-J": "job-name", "-A": "account", "-p": "partition", "-q": "qo
                  "-o": "output", "-e": "error"}
 _INT_FIELDS = ("nodes", "ntasks_per_node", "cpus_per_task", "gpus_per_node")
 # lines render_script writes around the specula command
-_BOILERPLATE = {"export MPLBACKEND=Agg", "status=$?", "exit $status",
+_BOILERPLATE = {"export MPLBACKEND=Agg", "status=$?", "exit $status", 'cd "$SLURM_SUBMIT_DIR"',
                 'echo "SPECULA job $SLURM_JOB_ID on $(hostname) started at $(date)"',
                 'echo "finished at $(date) with exit code $status"'}
 
@@ -462,6 +465,35 @@ def map_path(path: str, pairs) -> str | None:
     return best[1] + norm[len(best[0]):]
 
 
+def merge_simulation(base: dict, overrides) -> dict:
+    """*base* with the *overrides* (parsed YAML dicts) applied in order, as SPECULA does."""
+    merged = dict(base)
+    for ov in overrides:
+        merged = combine_params(merged, ov or {})
+    return merged
+
+
+def root_dir_of(sim: dict) -> str:
+    """SimulParams.root_dir of *sim* ("" if none)."""
+    for obj in sim.values():
+        if isinstance(obj, dict) and obj.get("class") == "SimulParams":
+            return str(obj.get("root_dir") or "")
+    return ""
+
+
+def root_dir_source(base: dict, overrides) -> tuple[str, int]:
+    """(root_dir after all *overrides*, index of the override that set it; -1 = the base)."""
+    root = root_dir_of(base)
+    source = -1
+    merged = dict(base)
+    for i, ov in enumerate(overrides):
+        merged = combine_params(merged, ov or {})
+        new = root_dir_of(merged)
+        if new != root:
+            root, source = new, i
+    return root, source
+
+
 def mapped_values(merged: dict, pairs) -> list[tuple[str, str, object]]:
     """(object, key, cluster value) for every path value that *pairs* map.
 
@@ -501,9 +533,7 @@ def hpc_override(base: dict, overrides: list[dict], remote_root_dir: str | None,
       mapping translates) write into ``results/<name>`` inside the job
       directory instead, where the results are downloaded from.
     """
-    merged = dict(base)
-    for ov in overrides:
-        merged = combine_params(merged, ov)
+    merged = merge_simulation(base, overrides)
 
     blocks: dict = {}
     for name, key, value in mapped_values(merged, path_map):
@@ -541,9 +571,7 @@ def _is_local_absolute(path: str) -> bool:
 
 def result_dirs(base: dict, overrides: list[dict], job_dir: str) -> dict:
     """{DataStore name: remote directory with its results}."""
-    merged = dict(base)
-    for ov in overrides:
-        merged = combine_params(merged, ov)
+    merged = merge_simulation(base, overrides)
     dirs = {}
     for name, obj in merged.items():
         if isinstance(obj, dict) and obj.get("class") == "DataStore":
