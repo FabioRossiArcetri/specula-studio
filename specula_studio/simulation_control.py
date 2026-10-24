@@ -24,6 +24,7 @@ import logging
 import os
 import queue
 import shutil
+import socket
 import tempfile
 import threading
 import time
@@ -57,6 +58,13 @@ STEPPING_DISPLAY_NOTE = (
 )
 
 
+def _free_local_port() -> int:
+    """A TCP port free on this machine (for a local display server)."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
 class SimulationControl:
     def __init__(self, editor):
         self.editor        = editor
@@ -74,6 +82,7 @@ class SimulationControl:
         # lost while the run went on (reported in the terminal)
         self._ds_session: str = ""
         self._ds_lost = False
+        self._ds_port = 0                  # display server port of the run (0 = unknown)
         self._status = "idle"
         self.view: ControlPanelView | None = None       # panel inside the editor
         self._link: ControlServer | None = None         # separate control window
@@ -247,6 +256,12 @@ class SimulationControl:
     # ── Display server ────────────────────────────────────────────────────────
 
     def _on_display_server_port_found(self, port: int, remote_ip: str | None = "localhost"):
+        if self._ds_port and port != self._ds_port:
+            # the server was started on a known port: a different number in
+            # the output is not it (e.g. a line mixed with the simulation's)
+            self.append_terminal(f"[INFO] Ignored port {port} in the output: the display "
+                                 f"server uses port {self._ds_port}\n")
+            return
         host = "127.0.0.1" if remote_ip in (None, *_LOCAL_HOSTS) else remote_ip
         url = f"http://{host}:{port}"
         self.append_terminal(f"[INFO] Display server running at {url}\n")
@@ -343,6 +358,12 @@ class SimulationControl:
         remote_user = "" if in_process else (opts["user"] or "").strip()
         is_ssh = not in_process and remote_ip not in _LOCAL_HOSTS
         ds_port = int(opts["ds_port"])
+        if ds_port == 0 and not in_process and not is_ssh:
+            # automatic port on this machine: choose it here, so the URL is
+            # known without reading it from the simulation's output
+            ds_port = _free_local_port()
+            self.append_terminal(f"[INFO] Display server port {ds_port} (a free port)\n")
+        self._ds_port = ds_port
 
         # ── files ─────────────────────────────────────────────────────────────
         run_dir = self._new_run_dir()

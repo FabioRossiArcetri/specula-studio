@@ -12,6 +12,11 @@ def test_extract_port():
     assert run_prep.extract_port(" * Running on http://127.0.0.1:5000") == 5000
     assert run_prep.extract_port("DisplayServer started on port 6000") == 6000
     assert run_prep.extract_port("t=0.001 step 12") is None
+    assert run_prep.extract_port(" * Running on http://10.223.178.247:53145") is None   # LAN only
+    # a line spliced from the server's and the simulation's output
+    assert run_prep.extract_port(" * Running on http://127.0.0.1:11768.27 Hz,  0.030 ms") is None
+    assert run_prep.extract_port("Running at 11768.27 Hz") is None
+    assert run_prep.extract_port("[INFO]: [specula.LoopControl]: t=0.01 server 11768 Hz") is None
 
 
 def test_inject_display_server():

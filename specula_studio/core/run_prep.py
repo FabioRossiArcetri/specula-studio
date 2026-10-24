@@ -26,10 +26,14 @@ DEFAULT_DISPLAY_SERVER_PORT = 5000
 
 # Printed by recent SPECULA versions when the DisplayServer picked a port.
 _MARKER_RE = re.compile(r"\[SPECULA_PORT:(\d{2,5})\]")
-_URL_RE = re.compile(r"https?://(?:0\.0\.0\.0|127\.0\.0\.1|localhost):(\d{4,5})", re.IGNORECASE)
+# The URL / port must end the line: the simulation and its display server
+# write to the same output, and a line spliced from both ("...127.0.0.1:" +
+# "11768.27 Hz ...") must not give a port.
+_URL_RE = re.compile(r"https?://(?:0\.0\.0\.0|127\.0\.0\.1|localhost):(\d{4,5})/?\s*$",
+                     re.IGNORECASE)
 _PORT_KW_RE = re.compile(
-    r"(?:display[_\s]?server|socket\.?io|server|running|listening|started)"
-    r".{0,80}?[:\s](\d{4,5})\b",
+    r"(?:display[_\s]?server|socket\.?io|server|listening|started)\b.{0,80}?"
+    r"\bport\s*[:=]?\s*(\d{4,5})\s*$",
     re.IGNORECASE,
 )
 

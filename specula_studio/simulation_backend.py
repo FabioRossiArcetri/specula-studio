@@ -30,9 +30,11 @@ InProcessBackend
 
 from __future__ import annotations
 
+import codecs
 import collections
 import contextlib
 import io
+import locale
 import logging
 import os
 import shlex
@@ -48,6 +50,9 @@ from .monitor_data import extract_display_array, make_payload
 from .sshutil import SSH_OPTIONS, explain_ssh_failure, run_command
 
 log = logging.getLogger(__name__)
+
+# Encoding of the specula process's output and input (as text pipes would use)
+_OUTPUT_ENCODING = locale.getpreferredencoding(False)
 
 
 # ---------------------------------------------------------------------------
@@ -154,9 +159,11 @@ class RemoteBackend(SimulationBackend):
             group = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
         else:
             group = {"start_new_session": True}
+        # Binary and unbuffered: the output is read as it arrives (a stepping
+        # prompt has no newline), see _read_output.
         self._process = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            stdin=subprocess.PIPE, text=True, bufsize=1, **group,
+            stdin=subprocess.PIPE, bufsize=0, **group,
         )
         self._running = True
         threading.Thread(
@@ -214,16 +221,36 @@ class RemoteBackend(SimulationBackend):
             on_finished()
 
     def _read_output(self, append_terminal, on_port_found, on_finished, remote_ip):
+        """Show the output as it arrives and look for the display-server port.
+
+        Read in chunks, not lines: SPECULA's stepping prompt ("Press Enter to
+        advance...") has no newline and would only appear with the next line.
+        The port is looked for in complete lines.
+        """
         port_found = False
         proc = self._process
+        decoder = codecs.getincrementaldecoder(_OUTPUT_ENCODING)(errors="replace")
+        pending = ""                         # incomplete last line
         try:
-            for line in proc.stdout:
-                append_terminal(line.replace("\r\n", "\n"))
-                if not port_found:
+            while True:
+                chunk = proc.stdout.read(4096)
+                if not chunk:
+                    break
+                text = decoder.decode(chunk).replace("\r\n", "\n")
+                if not text:
+                    continue
+                append_terminal(text)
+                if port_found:
+                    continue
+                pending += text
+                *lines, pending = pending.split("\n")
+                for line in lines:
                     port = extract_port(line)
                     if port:
                         port_found = True
                         on_port_found(port, self._resolved_ip or remote_ip)
+                        break
+                pending = pending[-4096:]
         except (ValueError, OSError):
             pass          # stream closed by abort
         finally:
@@ -253,7 +280,7 @@ class RemoteBackend(SimulationBackend):
     def step(self, n: int = 1) -> None:
         if self._process and self._process.poll() is None:
             try:
-                self._process.stdin.write(_step_line(n))
+                self._process.stdin.write(_step_line(n).encode(_OUTPUT_ENCODING))
                 self._process.stdin.flush()
             except Exception:
                 pass
