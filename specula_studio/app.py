@@ -285,7 +285,9 @@ class SpeculaEditor(
                             tag="specula_editor",
                             callback=self.nm.link_callback,
                             delink_callback=self.nm.delink_callback,
-                            minimap=True
+                            minimap=True,
+                            # bottom-right: the layout starts top-left
+                            minimap_location=dpg.mvNodeMiniMap_Location_BottomRight,
                         ):
                             pass
 

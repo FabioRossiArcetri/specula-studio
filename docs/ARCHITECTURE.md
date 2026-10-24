@@ -38,8 +38,9 @@ specula_studio/
   socketio_client.py    editor connection to a DisplayServer: maps nodes to
                         the running objects (monitor subprocesses connect
                         on their own)
-  theme_manager.py      the four colour themes: a palette per theme, every
-                        logical colour derived from it, bound to all widgets
+  theme_manager.py      the colour themes: a palette per theme, every logical
+                        colour derived from it (text kept readable: WCAG
+                        contrast), bound to all widgets
   settings.py, logs.py  user settings file, logging + in-app log buffer
 ```
 
@@ -139,8 +140,8 @@ authenticated localhost `multiprocessing.connection` (the key is passed in the
 child's environment): commands from a window (e.g. start with the options
 dict, step, abort; check_connection, submit, cancel_job) are queued and
 executed on the editor's GUI thread; terminal output, status, logs and the
-job list go back.  The separate windows and the optional in-editor ones
-(preferences *control_panel* / *hpc_windows* = "docked") use the same views,
-`ui/control_panel.ControlPanelView` and `ui/hpc_views`.  `HpcControl`'s
+job list go back.  If a window cannot start, it is shown inside the editor
+instead; both use the same views, `ui/control_panel.ControlPanelView` and
+`ui/hpc_views`.  `HpcControl`'s
 background threads never touch DearPyGui: they queue events, which its
 `poll()` delivers every frame.

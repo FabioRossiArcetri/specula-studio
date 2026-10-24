@@ -22,6 +22,8 @@ Parameter-name suffixes
 
 from __future__ import annotations
 
+import ast
+import re
 from typing import NamedTuple
 
 # Template marker for parameters without a default value.
@@ -155,3 +157,30 @@ def unique_name(base: str, existing) -> str:
     while f"{base}_{i}" in existing:
         i += 1
     return f"{base}_{i}"
+
+
+# Words of a parameter's type hint that make a typed value a number, list or
+# boolean: ``float | List[float]``, ``Optional[int]``, ``Any`` ...
+_LITERAL_TYPE_WORDS = {"float", "int", "bool", "list", "tuple", "any", "ndarray",
+                       "double", "number"}
+
+
+def accepts_literal(type_hint) -> bool:
+    """True if values of *type_hint* are numbers, lists or booleans and the
+    hint does not also accept plain strings (``str`` keeps the typed text)."""
+    words = set(re.findall(r"[a-z]+", str(type_hint).lower()))
+    return bool(words & _LITERAL_TYPE_WORDS) and "str" not in words
+
+
+def parse_literal(text: str):
+    """Number, list or boolean written in *text* (``inf`` allowed), or None
+    if *text* is not one of those."""
+    # 1e999 overflows to inf: literal_eval accepts no names or calls
+    text = re.sub(r"(?<![.\w])inf(?!\w)", "1e999", text.strip(), flags=re.IGNORECASE)
+    try:
+        value = ast.literal_eval(text)
+    except (ValueError, SyntaxError, MemoryError, RecursionError):
+        return None
+    if isinstance(value, tuple):
+        value = list(value)
+    return value if isinstance(value, (int, float, list)) else None

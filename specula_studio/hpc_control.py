@@ -3,9 +3,9 @@ HPC menu: submit the current simulation as a SLURM batch job and follow it.
 
 :class:`HpcControl` is the editor side of the two HPC windows (*Submit Batch
 Job* and *Batch Jobs*, see :mod:`.ui.hpc_views`).  Each is shown in its own
-OS window — a separate process linked by :mod:`.control_link` — or, with the
-preference *hpc_windows* = "docked" (or when that fails), as a window inside
-the editor.  Either way the views only send commands; everything else stays
+OS window — a separate process linked by :mod:`.control_link` — or, only if
+that window cannot start, as a window inside the editor.  Either way the
+views only send commands; everything else stays
 here: ssh/scp in background threads, the list of submitted jobs and its
 polling (which goes on with the windows closed), and the settings file.
 
@@ -152,10 +152,8 @@ class HpcControl:
         self._show(JOBS)
 
     def _show(self, window: str) -> None:
-        """Open *window* in its own OS window (or inside the editor, if so chosen)."""
-        if self.editor.preferences.get("hpc_windows", "window") == "docked":
-            self.show_docked(window)
-            return
+        """Open *window* in its own OS window (inside the editor only if that
+        window cannot start)."""
         try:
             if self._links[window] is None:
                 link = ControlServer(on_connect=lambda w=window: self._on_window_connected(w))

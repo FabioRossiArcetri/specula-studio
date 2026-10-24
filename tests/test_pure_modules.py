@@ -1,7 +1,26 @@
 """Unit tests for modules that do not depend on DearPyGui."""
 
+import math
+
 from specula_studio import render_scale
+from specula_studio.core import syntax
 from specula_studio.core.overrides import OverrideManager, combine_params
+
+
+def test_typed_values_of_union_hints_are_not_text():
+    # the installed catalog has hints like "float | List[float]" (WaveGenerator.constant)
+    for hint in ("float | List[float]", "int | List[int]", "Optional[float]", "Any"):
+        assert syntax.accepts_literal(hint)
+    for hint in ("str", "List[str]", "DM", "SimulParams"):
+        assert not syntax.accepts_literal(hint)
+    assert syntax.parse_literal("1.0") == 1.0
+    assert syntax.parse_literal(" [1, 2.5] ") == [1, 2.5]
+    assert syntax.parse_literal("(1, 2)") == [1, 2]
+    assert syntax.parse_literal("-inf") == -math.inf
+    assert syntax.parse_literal("[inf, 0]") == [math.inf, 0]
+    assert syntax.parse_literal("circular") is None
+    assert syntax.parse_literal("'text'") is None
+    assert syntax.parse_literal("") is None
 
 
 def test_combine_params_override_remove_add():

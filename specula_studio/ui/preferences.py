@@ -42,18 +42,15 @@ class PreferencesMixin:
             elif self.nm._selected_link_id is not None:
                 self.nm.update_connection_panel(self.nm._selected_link_id, "property_panel")
 
-        # Recreate the docked simulation control panel if open (the separate
-        # control window picks up the theme the next time it is opened)
+        # Recreate the in-editor simulation control panel if open (the fallback
+        # when its own window cannot start; that window picks up the theme the
+        # next time it is opened)
         if dpg.does_item_exist("sim_control_window"):
             was_open = dpg.is_item_shown("sim_control_window")
             dpg.delete_item("sim_control_window")
             self.sim_control.view = None
             if was_open:
                 self.sim_control.show_docked_panel()
-
-        # Close preferences dialog (it will be recreated on next open)
-        if dpg.does_item_exist("pref_window"):
-            dpg.delete_item("pref_window")
 
         # Force a redraw
         dpg.split_frame()
@@ -115,8 +112,7 @@ class PreferencesMixin:
                 callback=self._on_render_size_changed,
             )
             dpg.add_text(
-                "Controls font size and node dimensions.\n"
-                "MICRO, SMALL,  MEDIUM, LARGE .\n"
+                "Controls font size and node dimensions. "
                 "All text and nodes are updated immediately.",
                 color=self.theme_manager.get_color("text_hint"),
                 wrap=490,
@@ -159,8 +155,8 @@ class PreferencesMixin:
                     callback=self._on_auto_simul_params_changed,
                 )
                 dpg.add_text(
-                    "When enabled, newly added nodes with SimulParams reference\n"
-                    "will automatically connect to the existing SimulParams node.",
+                    "When enabled, newly added nodes with a SimulParams reference "
+                    "are connected automatically to the existing SimulParams node.",
                     color=self.theme_manager.get_color("text_hint"),
                     wrap=490,
                 )
@@ -184,26 +180,6 @@ class PreferencesMixin:
                     wrap=490,
                 )
 
-            dpg.add_spacer(height=16)
-            dpg.add_separator()
-            dpg.add_spacer(height=12)
-
-            # ── Simulation control panel ──────────────────────────────────────
-            dpg.add_checkbox(
-                label="Simulation control panel in a separate window",
-                default_value=self.preferences.get("control_panel", "window") != "docked",
-                callback=self._on_control_panel_mode_changed,
-            )
-            dpg.add_text(
-                "Off: the panel opens as a window inside the editor.",
-                color=self.theme_manager.get_color("text_hint"),
-                wrap=490,
-            )
-            dpg.add_checkbox(
-                label="HPC windows (batch job, jobs) in separate windows",
-                default_value=self.preferences.get("hpc_windows", "window") != "docked",
-                callback=self._on_hpc_windows_mode_changed,
-            )
             dpg.add_spacer(height=16)
             dpg.add_separator()
             dpg.add_spacer(height=12)
@@ -356,14 +332,6 @@ class PreferencesMixin:
         self.preferences['include_defaults'] = app_data
         self._save_settings()
         log.info(f"[PREFERENCES] Include Defaults set to: {app_data}")
-
-    def _on_control_panel_mode_changed(self, sender, app_data):
-        self.preferences['control_panel'] = "window" if app_data else "docked"
-        self._save_settings()
-
-    def _on_hpc_windows_mode_changed(self, sender, app_data):
-        self.preferences['hpc_windows'] = "window" if app_data else "docked"
-        self._save_settings()
 
     def _on_class_source_changed(self, sender, app_data):
         self.preferences['class_source'] = "bundled" if app_data.startswith("Bundled") else "installed"

@@ -1,5 +1,5 @@
 """
-Colour themes: two dark and two light.
+Colour themes: two dark, a medium-tone, two light and a high-contrast one.
 
 Each theme is a :class:`Palette` of base colours (background levels, text
 levels, accent, semantic colours, node colours).  :func:`_colors` derives
@@ -8,13 +8,24 @@ from the palette, so all themes define the same keys and stay consistent;
 :meth:`ThemeManager.apply_theme` maps them onto every DearPyGui widget,
 ImPlot and node-editor colour.
 
+Legibility is enforced, not hoped for: :func:`_legible` moves every text
+colour towards white (dark themes) or black (light themes) just enough to
+reach WCAG contrast 4.5 on every surface it is drawn on (3.0 for disabled
+text and for links on the canvas), and moves the surfaces that carry text
+(title bars, selections) the other way.
+
+Widgets get their meaningful colours (``color=get_color(...)``) when they
+are created; on a theme switch :meth:`ThemeManager.save_preference` gives
+every widget still showing a colour of the old theme the same logical colour
+of the new one, so windows that stay open do not keep unreadable colours.
+
 Theme ids are stored in the settings (``"theme"``); ``"dark"`` and
 ``"light"`` are the ids of the original two themes.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import dearpygui.dearpygui as dpg
 
@@ -77,9 +88,97 @@ def _rgba(c, alpha: int = 255) -> tuple[int, int, int, int]:
     return (c[0], c[1], c[2], alpha)
 
 
+# ── legibility ────────────────────────────────────────────────────────────────
+
+TEXT_CONTRAST = 4.5         # WCAG AA, normal text
+DISABLED_CONTRAST = 3.0     # disabled text, links and outlines on the canvas
+_WHITE, _BLACK = (255, 255, 255), (0, 0, 0)
+# palette fields drawn as text
+_TEXT_FIELDS = ("text", "text2", "text3", "accent_text", "heading", "success", "warning",
+                "error", "info", "data", "ref")
+# palette fields drawn on the canvas as lines
+_CANVAS_FIELDS = ("link", "link_feedback", "accent")
+# palette fields that text is drawn on
+_TEXT_CARRIERS = ("title", "title_active", "frame_active", "button_active",
+                  "node_data_title", "node_proc_title")
+
+
+def luminance(c) -> float:
+    """WCAG relative luminance of an RGB(A) colour (0-255)."""
+    def channel(v):
+        v /= 255
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+    r, g, b = (channel(x) for x in c[:3])
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def contrast(a, b) -> float:
+    """WCAG contrast ratio of two colours (1 to 21)."""
+    la, lb = sorted((luminance(a), luminance(b)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+def _towards(c: RGB, target: RGB, ok) -> RGB:
+    """*c* moved towards *target* in small steps until ``ok(colour)``."""
+    for i in range(41):
+        moved = _mix(c, target, i / 40)
+        if ok(moved):
+            return moved
+    return target
+
+
+def _surfaces(p: Palette) -> tuple:
+    """The surfaces ordinary text is drawn on."""
+    return (p.bg, p.panel, p.raised, p.frame, p.frame_hover, p.button, p.button_hover,
+            p.node_data, p.node_proc)
+
+
+def _readable(c: RGB, p: Palette, backgrounds, minimum: float) -> RGB:
+    """Text colour *c*, made just readable enough on all *backgrounds*."""
+    ink = _WHITE if p.dark else _BLACK
+    return _towards(c, ink, lambda x: all(contrast(x, b) >= minimum for b in backgrounds))
+
+
+def _backdrop(c: RGB, p: Palette, *texts: RGB) -> RGB:
+    """Surface *c*, made just dark (light) enough for *texts* on it."""
+    paper = _BLACK if p.dark else _WHITE
+    texts = texts or (p.text,)
+    return _towards(c, paper, lambda x: all(contrast(t, x) >= TEXT_CONTRAST for t in texts))
+
+
+def _legible(p: Palette) -> Palette:
+    """*p* with every text readable on every surface it is drawn on."""
+    surfaces = _surfaces(p)
+    p = replace(p, **{f: _readable(getattr(p, f), p, surfaces, TEXT_CONTRAST)
+                      for f in _TEXT_FIELDS},
+                text_disabled=_readable(p.text_disabled, p, surfaces, DISABLED_CONTRAST))
+    p = replace(p, **{f: _readable(getattr(p, f), p, (p.canvas,), DISABLED_CONTRAST)
+                      for f in _CANVAS_FIELDS})
+    return replace(p, **{f: _backdrop(getattr(p, f), p) for f in _TEXT_CARRIERS})
+
+
+# logical colours used as backgrounds only (never as a widget's text colour)
+BACKGROUND_KEYS = frozenset({
+    "window_bg", "child_bg", "popup_bg", "frame_bg", "frame_hovered", "frame_active",
+    "button_bg", "button_hovered", "button_active", "title_bg", "title_bg_active",
+    "menu_bar_bg", "table_row_bg", "table_row_bg_alt", "table_header_bg", "header",
+    "header_hovered", "header_active", "node_editor_bg", "plot_bg", "plot_grid",
+    "node_data_bg", "node_proc_bg", "node_data_selected", "node_proc_selected",
+    "node_data_title", "node_proc_title", "node_data_title_hover", "node_proc_title_hover",
+    "node_data_title_selected", "node_proc_title_selected", "text_selected",
+})
+
+
 def _colors(p: Palette) -> dict:
     """Every logical colour of the GUI, derived from palette *p* (RGBA 0-255)."""
+    p = _legible(p)
+    # selections (list rows, combo items, tree headers) and node states carry text
+    header = _backdrop(_mix(p.accent, p.panel, 0.62 if p.dark else 0.78), p)
+    header_hover = _backdrop(_mix(p.accent, p.panel, 0.48 if p.dark else 0.66), p)
+    header_active = _backdrop(_mix(p.accent, p.panel, 0.34 if p.dark else 0.54), p)
+    on_nodes = (p.text, p.text2)
     c = {
+        "header": header, "header_hovered": header_hover, "header_active": header_active,
         # ── surfaces ───────────────────────────────────────────────────────
         "window_bg": p.bg, "child_bg": p.panel, "popup_bg": p.raised,
         "frame_bg": p.frame, "frame_hovered": p.frame_hover, "frame_active": p.frame_active,
@@ -94,14 +193,14 @@ def _colors(p: Palette) -> dict:
         "node_editor_bg": p.canvas, "plot_grid": p.grid, "plot_bg": p.canvas,
         "link_default": p.link, "link_selected": p.accent,
         "node_data_bg": p.node_data, "node_proc_bg": p.node_proc,
-        "node_data_selected": _mix(p.node_data, p.ref, 0.30),
-        "node_proc_selected": _mix(p.node_proc, p.success, 0.28),
+        "node_data_selected": _backdrop(_mix(p.node_data, p.ref, 0.30), p, *on_nodes),
+        "node_proc_selected": _backdrop(_mix(p.node_proc, p.success, 0.28), p, *on_nodes),
         "node_data_outline": p.node_data_outline, "node_proc_outline": p.node_proc_outline,
         "node_data_title": p.node_data_title, "node_proc_title": p.node_proc_title,
-        "node_data_title_hover": _mix(p.node_data_title, p.accent, 0.20),
-        "node_proc_title_hover": _mix(p.node_proc_title, p.accent, 0.20),
-        "node_data_title_selected": _mix(p.node_data_title, p.ref, 0.40),
-        "node_proc_title_selected": _mix(p.node_proc_title, p.success, 0.40),
+        "node_data_title_hover": _backdrop(_mix(p.node_data_title, p.accent, 0.20), p),
+        "node_proc_title_hover": _backdrop(_mix(p.node_proc_title, p.accent, 0.20), p),
+        "node_data_title_selected": _backdrop(_mix(p.node_data_title, p.ref, 0.40), p),
+        "node_proc_title_selected": _backdrop(_mix(p.node_proc_title, p.success, 0.40), p),
         "node_pin": p.text2, "node_pin_hover": p.accent,
         "node_incomplete_outline": p.error, "node_highlight": p.highlight,
         "node_feedback_link_color": p.link_feedback,
@@ -144,7 +243,7 @@ def _colors(p: Palette) -> dict:
     return out
 
 
-# ── the four themes ───────────────────────────────────────────────────────────
+# ── the themes ────────────────────────────────────────────────────────────────
 
 GRAPHITE = Palette(
     dark=True,
@@ -218,12 +317,53 @@ PAPER = Palette(
     link=(108, 94, 78), link_feedback=(186, 38, 34), highlight=(212, 118, 0),
 )
 
+# Medium tones: mid-grey surfaces, light text (a "dark" palette for the
+# derivations: text is lighter than its background).
+SLATE = Palette(
+    dark=True,
+    bg=(62, 68, 78), panel=(68, 74, 85), raised=(76, 83, 95),
+    frame=(78, 85, 98), frame_hover=(86, 94, 108), frame_active=(58, 92, 130),
+    border=(112, 121, 137), title=(56, 61, 70), title_active=(64, 84, 110),
+    button=(82, 90, 103), button_hover=(90, 98, 112), button_active=(62, 104, 150),
+    text=(250, 251, 253), text2=(228, 232, 238), text3=(208, 214, 222),
+    text_disabled=(166, 172, 182),
+    accent=(126, 194, 255), accent_text=(170, 216, 255), heading=(255, 218, 150),
+    success=(160, 232, 160), warning=(255, 212, 120), error=(255, 172, 162),
+    info=(150, 230, 242), data=(180, 212, 255), ref=(255, 196, 150),
+    canvas=(66, 72, 82), grid=(78, 85, 97),
+    node_data=(80, 87, 99), node_proc=(64, 80, 102),
+    node_data_title=(96, 104, 118), node_proc_title=(66, 94, 130),
+    node_data_outline=(132, 140, 156), node_proc_outline=(112, 142, 182),
+    link=(206, 216, 238), link_feedback=(255, 138, 128), highlight=(255, 224, 96),
+)
+
+# High contrast: black surfaces, white text, saturated accents, white outlines.
+CONTRAST = Palette(
+    dark=True,
+    bg=(0, 0, 0), panel=(0, 0, 0), raised=(12, 12, 12),
+    frame=(22, 22, 22), frame_hover=(40, 40, 40), frame_active=(0, 56, 104),
+    border=(220, 220, 220), title=(0, 0, 0), title_active=(0, 48, 96),
+    button=(28, 28, 28), button_hover=(48, 48, 48), button_active=(0, 72, 140),
+    text=(255, 255, 255), text2=(240, 240, 240), text3=(222, 222, 222),
+    text_disabled=(150, 150, 150),
+    accent=(255, 230, 0), accent_text=(0, 228, 255), heading=(255, 236, 64),
+    success=(96, 255, 128), warning=(255, 196, 0), error=(255, 104, 104),
+    info=(64, 232, 255), data=(130, 204, 255), ref=(255, 172, 72),
+    canvas=(0, 0, 0), grid=(38, 38, 38),
+    node_data=(16, 16, 16), node_proc=(0, 22, 44),
+    node_data_title=(58, 58, 58), node_proc_title=(0, 62, 122),
+    node_data_outline=(230, 230, 230), node_proc_outline=(120, 200, 255),
+    link=(235, 235, 235), link_feedback=(255, 84, 84), highlight=(255, 255, 96),
+)
+
 # id -> (label, palette); ids are stored in the settings
 THEMES: dict[str, tuple[str, Palette]] = {
     "dark": ("Dark - Graphite", GRAPHITE),
     "midnight": ("Dark - Midnight", MIDNIGHT),
+    "slate": ("Medium - Slate", SLATE),
     "light": ("Light - Daylight", DAYLIGHT),
     "paper": ("Light - Paper", PAPER),
+    "contrast": ("High Contrast", CONTRAST),
 }
 DEFAULT_THEME = "dark"
 
@@ -245,7 +385,7 @@ class Theme:
 
     def __init__(self, name: str, palette: Palette):
         self.name = name                       # theme id
-        self.palette = palette
+        self.palette = _legible(palette)
         self.colors = _colors(palette)
 
     @property
@@ -282,8 +422,31 @@ class ThemeManager:
         store = settings.store()
         store["theme"] = theme_id(theme_name)
         store.save()
+        old = self.current_theme
         self.load_preference()
         self.apply_theme()
+        if old is not None:
+            self.recolor_items(old, self.current_theme)
+
+    @staticmethod
+    def recolor_items(old: Theme, new: Theme) -> None:
+        """Give every widget showing a colour of *old* the same logical colour
+        of *new* (widgets get their colours when they are created: without
+        this, windows that stay open keep the old theme's colours)."""
+        mapping = {}
+        for key, value in old.colors.items():
+            if key not in BACKGROUND_KEYS:
+                mapping.setdefault(tuple(value), new.colors[key])
+        for item in dpg.get_all_items():
+            try:
+                color = dpg.get_item_configuration(item).get("color")
+            except Exception:       # items without a configuration
+                continue
+            if not color or color[0] < 0:          # no colour, or the default one
+                continue
+            target = mapping.get(tuple(round(v * 255) for v in color))
+            if target is not None:
+                dpg.configure_item(item, color=target)
 
     def get_color(self, key: str):
         assert self.current_theme is not None
@@ -298,9 +461,8 @@ class ThemeManager:
         p = self.current_theme.palette
         g = self.current_theme.get
         dim = (0, 0, 0, 120) if p.dark else (40, 34, 28, 70)
-        header = _mix(p.accent, p.panel, 0.62 if p.dark else 0.78)
-        header_hover = _mix(p.accent, p.panel, 0.48 if p.dark else 0.66)
-        header_active = _mix(p.accent, p.panel, 0.34 if p.dark else 0.54)
+        header, header_hover, header_active = (g("header"), g("header_hovered"),
+                                               g("header_active"))
 
         core = {
             dpg.mvThemeCol_WindowBg: g("window_bg"),
@@ -322,9 +484,9 @@ class ThemeManager:
             dpg.mvThemeCol_Button: g("button_bg"),
             dpg.mvThemeCol_ButtonHovered: g("button_hovered"),
             dpg.mvThemeCol_ButtonActive: g("button_active"),
-            dpg.mvThemeCol_Header: _rgba(header),
-            dpg.mvThemeCol_HeaderHovered: _rgba(header_hover),
-            dpg.mvThemeCol_HeaderActive: _rgba(header_active),
+            dpg.mvThemeCol_Header: header,
+            dpg.mvThemeCol_HeaderHovered: header_hover,
+            dpg.mvThemeCol_HeaderActive: header_active,
             dpg.mvThemeCol_CheckMark: _rgba(p.accent),
             dpg.mvThemeCol_SliderGrab: _rgba(p.accent),
             dpg.mvThemeCol_SliderGrabActive: _rgba(_mix(p.accent, p.text, 0.25)),
@@ -339,11 +501,11 @@ class ThemeManager:
             dpg.mvThemeCol_ResizeGripHovered: _rgba(p.accent, 170),
             dpg.mvThemeCol_ResizeGripActive: _rgba(p.accent, 230),
             dpg.mvThemeCol_Tab: g("frame_bg"),
-            dpg.mvThemeCol_TabHovered: _rgba(header_hover),
-            dpg.mvThemeCol_TabSelected: _rgba(header_active),
+            dpg.mvThemeCol_TabHovered: header_hover,
+            dpg.mvThemeCol_TabSelected: header_active,
             dpg.mvThemeCol_TabSelectedOverline: _rgba(p.accent),
             dpg.mvThemeCol_TabDimmed: _rgba(p.panel),
-            dpg.mvThemeCol_TabDimmedSelected: _rgba(header),
+            dpg.mvThemeCol_TabDimmedSelected: header,
             dpg.mvThemeCol_TableHeaderBg: g("table_header_bg"),
             dpg.mvThemeCol_TableBorderStrong: g("border"),
             dpg.mvThemeCol_TableBorderLight: _rgba(_mix(p.border, p.panel, 0.5)),
@@ -391,6 +553,19 @@ class ThemeManager:
             dpg.mvNodeCol_BoxSelectorOutline: _rgba(p.accent, 160),
             dpg.mvNodeCol_GridBackground: g("node_editor_bg"),
             dpg.mvNodeCol_GridLine: g("plot_grid"),
+            # minimap: a small copy of the canvas, the visible part outlined
+            dpg.mvNodesCol_MiniMapBackground: _rgba(p.panel, 225),
+            dpg.mvNodesCol_MiniMapBackgroundHovered: _rgba(p.panel, 245),
+            dpg.mvNodesCol_MiniMapOutline: g("border"),
+            dpg.mvNodesCol_MiniMapOutlineHovered: _rgba(p.accent),
+            dpg.mvNodesCol_MiniMapNodeBackground: g("node_proc_title"),
+            dpg.mvNodesCol_MiniMapNodeBackgroundHovered: g("node_proc_title_hover"),
+            dpg.mvNodesCol_MiniMapNodeBackgroundSelected: _rgba(p.accent),
+            dpg.mvNodesCol_MiniMapNodeOutline: g("node_proc_outline"),
+            dpg.mvNodesCol_MiniMapLink: g("link_default"),
+            dpg.mvNodesCol_MiniMapLinkSelected: _rgba(p.accent),
+            dpg.mvNodesCol_MiniMapCanvas: _rgba(p.canvas, 120),
+            dpg.mvNodesCol_MiniMapCanvasOutline: g("text_secondary"),
         }
 
         with dpg.theme() as global_theme:

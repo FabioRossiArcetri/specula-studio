@@ -51,7 +51,7 @@ import dearpygui.dearpygui as dpg
 
 import logging
 
-from .core import yaml_io
+from .core import syntax, yaml_io
 from .dpg_utils import apply_link_style
 from .theme_manager import ThemeManager
 from .help_provider import (
@@ -812,6 +812,12 @@ class PropertyPanel:
                 final_val = int(raw_input)
             elif target_type in ["bool", "boolean"]:
                 final_val = lower_input in ["true", "1", "yes", "on"]
+            elif syntax.accepts_literal(target_type):
+                # unions and Any (``float | List[float]``, ``Optional[int]``):
+                # a typed number or list must not be stored as text
+                parsed = syntax.parse_literal(raw_input)
+                if parsed is not None:
+                    final_val = parsed
 
             # Allow clearing a value back to "unset"
             if raw_input == "":

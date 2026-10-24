@@ -39,8 +39,6 @@ DEFAULTS: dict = {
     "log_level": "INFO",
     "class_source": "installed",  # "installed" (SPECULA catalog) | "bundled"
     "remote_hosts": [],         # [{"host": ..., "user": ...}], most recent first
-    "control_panel": "window",  # simulation control panel: "window" | "docked"
-    "hpc_windows": "window",    # HPC submit / jobs windows: "window" | "docked"
     "hpc": {},                  # HPC batch profile (hosts, paths, SLURM options)
     "hpc_jobs": [],             # submitted batch jobs (see hpc.HpcJob)
 }

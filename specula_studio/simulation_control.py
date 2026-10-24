@@ -1,10 +1,10 @@
 """
 Starting, stepping and aborting SPECULA runs.
 
-The control panel (:class:`~.ui.control_panel.ControlPanelView`) is shown
-either in its own OS window — a separate process connected through
-:mod:`.control_link` (default) — or as a window inside the editor
-(preference *control_panel* = "docked").  Both pass the run options as a dict
+The control panel (:class:`~.ui.control_panel.ControlPanelView`) is shown in
+its own OS window — a separate process connected through
+:mod:`.control_link` — or, only if that window cannot start, as a window
+inside the editor.  Both pass the run options as a dict
 to :meth:`SimulationControl.start`; terminal output and status go back to
 whichever panel is open.  Runs always execute in the editor process.
 
@@ -133,7 +133,7 @@ class SimulationControl:
             dpg.add_input_text(default_value=yaml_content, multiline=True, readonly=True,
                                width=-1, height=-1)
 
-    # ── Control panel: separate window or docked ──────────────────────────────
+    # ── Control panel: its own window (in the editor as a fallback) ───────────
 
     def _new_run_dir(self) -> str:
         """Fresh private directory for this run (the previous one is removed)."""
@@ -143,10 +143,8 @@ class SimulationControl:
         return self._run_dir
 
     def show_control_window(self, *_):
-        """Open the control panel (separate window unless the user chose docked)."""
-        if self.editor.preferences.get("control_panel", "window") == "docked":
-            self.show_docked_panel()
-            return
+        """Open the control panel in its own window (inside the editor only if
+        that window cannot start)."""
         try:
             self._ensure_link()
             self._window.launch()

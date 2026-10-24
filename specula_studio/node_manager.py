@@ -40,6 +40,8 @@ import logging
 
 log = logging.getLogger(__name__)
 
+_NODE_PADDING = 8       # imnodes node padding: a node's rect_min is inside it
+
 
 class NodeManager:
     """
@@ -303,7 +305,7 @@ class NodeManager:
             else self._generate_unique_name(node_type)
         )
         node_data["name"] = node_name
-        final_pos = pos if pos else [100, 100]
+        final_pos = pos if pos else self._free_position()
 
         header_spacer_w = render_scale.node_header_spacer_width()
         tm = self.theme_manager
@@ -366,6 +368,37 @@ class NodeManager:
             self._apply_node_theme(dpg_id, node_type, node_uuid)
 
         return node_uuid
+
+    def _canvas_panning(self) -> tuple[float, float]:
+        """Panning of the node editor: DearPyGui does not expose it, but any
+        node already drawn gives it (screen position - grid position)."""
+        try:
+            ex, ey = dpg.get_item_rect_min("specula_editor_parent")
+            for dpg_id in self.uuid_to_dpg.values():
+                state = dpg.get_item_state(dpg_id)
+                if state.get("visible") and "rect_min" in state:
+                    gx, gy = dpg.get_item_pos(dpg_id)
+                    sx, sy = state["rect_min"]
+                    return sx - ex - gx - _NODE_PADDING, sy - ey - gy - _NODE_PADDING
+        except Exception:       # no editor yet (tests, loading)
+            pass
+        return 0.0, 0.0
+
+    def _free_position(self) -> list:
+        """Grid position for a new node: the middle of the visible canvas,
+        moved down-right while another node already starts there."""
+        try:
+            w, h = dpg.get_item_rect_size("specula_editor_parent")
+        except Exception:
+            w, h = 0, 0
+        if not w or not h:
+            return [100, 100]
+        px, py = self._canvas_panning()
+        x, y = round(w / 2 - px - 110), round(h / 2 - py - 60)
+        taken = [dpg.get_item_pos(i) for i in self.uuid_to_dpg.values() if dpg.does_item_exist(i)]
+        while any(abs(x - tx) < 20 and abs(y - ty) < 20 for tx, ty in taken):
+            x, y = x + 32, y + 32
+        return [x, y]
 
     def _create_node_outputs(self, dpg_id, node_uuid, node_type, node_data):
         """
