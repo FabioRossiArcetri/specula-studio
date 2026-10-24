@@ -50,7 +50,8 @@ class FileHandler:
             # nodes have been drawn (their sizes are only known after a frame).
             dpg.set_frame_callback(
                 dpg.get_frame_count() + 3,
-                lambda: auto_layout_nodes(graph, self.nm.uuid_to_dpg),
+                (lambda: self.editor.auto_layout()) if self.editor is not None
+                else (lambda: auto_layout_nodes(graph, self.nm.uuid_to_dpg)),
             )
         log.info("[%s] %d objects, %d connections",
                  operation_name, len(graph.nodes), len(graph.connections))

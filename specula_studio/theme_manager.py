@@ -77,6 +77,8 @@ class Palette:
     link: RGB
     link_feedback: RGB
     highlight: RGB       # "find" flash
+    pin: RGB             # input / output pins (orange)
+    pin_ref: RGB         # reference pins (yellow)
 
 
 def _mix(a: RGB, b: RGB, t: float) -> RGB:
@@ -98,6 +100,8 @@ _TEXT_FIELDS = ("text", "text2", "text3", "accent_text", "heading", "success", "
                 "error", "info", "data", "ref")
 # palette fields drawn on the canvas as lines
 _CANVAS_FIELDS = ("link", "link_feedback", "accent")
+# palette fields drawn on the node bodies as pins
+_PIN_FIELDS = ("pin", "pin_ref")
 # palette fields that text is drawn on
 _TEXT_CARRIERS = ("title", "title_active", "frame_active", "button_active",
                   "node_data_title", "node_proc_title")
@@ -154,6 +158,8 @@ def _legible(p: Palette) -> Palette:
                 text_disabled=_readable(p.text_disabled, p, surfaces, DISABLED_CONTRAST))
     p = replace(p, **{f: _readable(getattr(p, f), p, (p.canvas,), DISABLED_CONTRAST)
                       for f in _CANVAS_FIELDS})
+    p = replace(p, **{f: _readable(getattr(p, f), p, (p.node_data, p.node_proc),
+                                   DISABLED_CONTRAST) for f in _PIN_FIELDS})
     return replace(p, **{f: _backdrop(getattr(p, f), p) for f in _TEXT_CARRIERS})
 
 
@@ -201,7 +207,9 @@ def _colors(p: Palette) -> dict:
         "node_proc_title_hover": _backdrop(_mix(p.node_proc_title, p.accent, 0.20), p),
         "node_data_title_selected": _backdrop(_mix(p.node_data_title, p.ref, 0.40), p),
         "node_proc_title_selected": _backdrop(_mix(p.node_proc_title, p.success, 0.40), p),
-        "node_pin": p.text2, "node_pin_hover": p.accent,
+        "node_pin": p.pin, "node_pin_hover": _mix(p.pin, _WHITE if p.dark else _BLACK, 0.35),
+        "node_ref_pin": p.pin_ref,
+        "node_ref_pin_hover": _mix(p.pin_ref, _WHITE if p.dark else _BLACK, 0.35),
         "node_incomplete_outline": p.error, "node_highlight": p.highlight,
         "node_feedback_link_color": p.link_feedback,
         "node_ref_link_color": _rgba(_mix(p.link, p.canvas, 0.35), 110),
@@ -261,6 +269,7 @@ GRAPHITE = Palette(
     node_data_title=(64, 68, 78), node_proc_title=(38, 70, 112),
     node_data_outline=(80, 84, 96), node_proc_outline=(60, 92, 134),
     link=(150, 166, 206), link_feedback=(255, 96, 90), highlight=(255, 206, 64),
+    pin=(245, 160, 60), pin_ref=(240, 208, 80),
 )
 
 MIDNIGHT = Palette(
@@ -279,6 +288,7 @@ MIDNIGHT = Palette(
     node_data_title=(44, 56, 84), node_proc_title=(16, 84, 92),
     node_data_outline=(60, 74, 106), node_proc_outline=(30, 112, 114),
     link=(132, 162, 222), link_feedback=(255, 102, 112), highlight=(255, 214, 90),
+    pin=(255, 168, 80), pin_ref=(250, 218, 100),
 )
 
 DAYLIGHT = Palette(
@@ -297,6 +307,7 @@ DAYLIGHT = Palette(
     node_data_title=(214, 220, 230), node_proc_title=(188, 210, 243),
     node_data_outline=(166, 174, 190), node_proc_outline=(136, 166, 212),
     link=(88, 102, 138), link_feedback=(200, 38, 38), highlight=(230, 146, 0),
+    pin=(206, 104, 0), pin_ref=(166, 124, 0),
 )
 
 PAPER = Palette(
@@ -315,6 +326,7 @@ PAPER = Palette(
     node_data_title=(226, 215, 196), node_proc_title=(196, 219, 208),
     node_data_outline=(194, 178, 152), node_proc_outline=(148, 182, 166),
     link=(108, 94, 78), link_feedback=(186, 38, 34), highlight=(212, 118, 0),
+    pin=(196, 98, 10), pin_ref=(160, 116, 0),
 )
 
 # Medium tones: mid-grey surfaces, light text (a "dark" palette for the
@@ -335,6 +347,7 @@ SLATE = Palette(
     node_data_title=(96, 104, 118), node_proc_title=(66, 94, 130),
     node_data_outline=(132, 140, 156), node_proc_outline=(112, 142, 182),
     link=(206, 216, 238), link_feedback=(255, 138, 128), highlight=(255, 224, 96),
+    pin=(255, 182, 96), pin_ref=(255, 226, 124),
 )
 
 # High contrast: black surfaces, white text, saturated accents, white outlines.
@@ -354,6 +367,7 @@ CONTRAST = Palette(
     node_data_title=(58, 58, 58), node_proc_title=(0, 62, 122),
     node_data_outline=(230, 230, 230), node_proc_outline=(120, 200, 255),
     link=(235, 235, 235), link_feedback=(255, 84, 84), highlight=(255, 255, 96),
+    pin=(255, 160, 0), pin_ref=(255, 232, 0),
 )
 
 # id -> (label, palette); ids are stored in the settings

@@ -18,6 +18,7 @@ from .dpg_utils import (
     create_proc_node_theme,
     create_data_node_theme_incomplete,
     create_proc_node_theme_incomplete,
+    create_ref_pin_theme,
 )
 from .constants import (
     SOCKETIO_SERVER,
@@ -29,7 +30,7 @@ from .constants import (
     REF_SHAPE_FILLED,
 )
 from . import render_scale
-from .core import validation
+from .core import layout, validation
 from .core.syntax import add_ref_value, is_ref_attr, remove_ref_value, validate_node_name
 from .socketio_client import SocketIOClient
 from .monitor_bus import MonitorBus
@@ -147,6 +148,7 @@ class NodeManager:
         self.proc_theme            = create_proc_node_theme()
         self.data_theme_incomplete = create_data_node_theme_incomplete()
         self.proc_theme_incomplete = create_proc_node_theme_incomplete()
+        self.ref_pin_theme         = create_ref_pin_theme()
 
     def _apply_node_theme(self, dpg_id, node_type: str, node_uuid: str):
         is_complete = self.is_node_complete(node_uuid)
@@ -366,23 +368,56 @@ class NodeManager:
 
             # Apply theme
             self._apply_node_theme(dpg_id, node_type, node_uuid)
+            self._bind_ref_pin_themes(node_uuid)
 
         return node_uuid
 
-    def _canvas_panning(self) -> tuple[float, float]:
-        """Panning of the node editor: DearPyGui does not expose it, but any
-        node already drawn gives it (screen position - grid position)."""
+    def _bind_ref_pin_themes(self, node_uuid: str) -> None:
+        """Reference pins (``*_ref`` inputs, ``ref`` outputs) in their own colour."""
+        for registry in (self.input_attr_registry, self.output_attr_registry):
+            for attr_id, (uid, name) in registry.items():
+                if uid == node_uuid and (name == "ref" or is_ref_attr(name)):
+                    dpg.bind_item_theme(attr_id, self.ref_pin_theme)
+
+    def arrange_in_grid(self, node_uuids: list, spacing: int = 60) -> None:
+        """Place *node_uuids* (already drawn) in a grid, as square as possible,
+        in the middle of the visible canvas."""
+        items = {u: self.uuid_to_dpg.get(u) for u in node_uuids}
+        items = {u: i for u, i in items.items() if i and dpg.does_item_exist(i)}
+        if len(items) < 2:
+            return
+        sizes = {u: tuple(dpg.get_item_rect_size(i)) for u, i in items.items()}
         try:
-            ex, ey = dpg.get_item_rect_min("specula_editor_parent")
+            w, h = dpg.get_item_rect_size("specula_editor_parent")
+        except Exception:
+            w, h = 1600, 900
+        px, py = self._canvas_panning()
+        positions = layout.grid(list(items), sizes, spacing, spacing, (w / 2 - px, h / 2 - py))
+        for u, (x, y) in positions.items():
+            dpg.set_item_pos(items[u], [round(x), round(y)])
+
+    def _canvas_panning(self) -> tuple[float, float]:
+        """Panning of the node editor: DearPyGui does not expose it, but every
+        drawn node gives it (screen position - grid position), on the canvas
+        or off it.  The value most nodes agree on wins: a node moved in this
+        frame may not have caught up yet."""
+        votes = {}
+        try:
+            ex, ey = dpg.get_item_pos("specula_editor_parent")
             for dpg_id in self.uuid_to_dpg.values():
                 state = dpg.get_item_state(dpg_id)
-                if state.get("visible") and "rect_min" in state:
-                    gx, gy = dpg.get_item_pos(dpg_id)
-                    sx, sy = state["rect_min"]
-                    return sx - ex - gx - _NODE_PADDING, sy - ey - gy - _NODE_PADDING
+                w, h = state.get("rect_size", (0, 0))
+                if "rect_min" not in state or w <= 0 or h <= 0:
+                    continue
+                gx, gy = dpg.get_item_pos(dpg_id)
+                key = (round(state["rect_min"][0] - _NODE_PADDING - ex - gx),
+                       round(state["rect_min"][1] - _NODE_PADDING - ey - gy))
+                votes[key] = votes.get(key, 0) + 1
         except Exception:       # no editor yet (tests, loading)
             pass
-        return 0.0, 0.0
+        if not votes:
+            return 0.0, 0.0
+        return tuple(float(v) for v in max(votes, key=votes.get))
 
     def _free_position(self) -> list:
         """Grid position for a new node: the middle of the visible canvas,
@@ -883,8 +918,13 @@ class NodeManager:
         self._show_connection_panel(link_id)
 
     def on_click_editor(self, sender, app_data):
+        """Mouse down: a click on a link selects it (nodes: on release)."""
+        self._link_clicked = False
         for link_id in self.link_registry:
-            if dpg.is_item_hovered(link_id):
+            # DearPyGui's hover flag of links is unreliable (a link can stay
+            # "hovered" after the mouse has left it): check the geometry too
+            if dpg.is_item_hovered(link_id) and self._mouse_on_link(link_id):
+                self._link_clicked = True
                 self._on_link_click(sender, app_data, link_id)
                 return
 
@@ -892,6 +932,52 @@ class NodeManager:
             if not self.get_selected_nodes():
                 self._clear_link_selection()
 
+    def _pin_position(self, attr_id) -> tuple | None:
+        """Screen position of an attribute's pin: left edge of its node for
+        inputs, right edge for outputs, level with the attribute's label."""
+        node = dpg.get_item_parent(attr_id)
+        node_state = dpg.get_item_state(node)
+        label = next(iter(dpg.get_item_children(attr_id, 1) or []), None)
+        label_state = dpg.get_item_state(label) if label is not None else {}
+        if "rect_min" not in node_state or "rect_min" not in label_state:
+            return None
+        left = node_state["rect_min"][0] - _NODE_PADDING
+        y = label_state["rect_min"][1] + label_state["rect_size"][1] / 2
+        if attr_id in self.output_attr_registry:
+            return left + node_state["rect_size"][0], y
+        return left, y
+
+    def _mouse_on_link(self, link_id, tolerance: float = 8.0) -> bool:
+        """True if the mouse is on the link: imnodes draws it as a cubic
+        Bézier between the pins, with horizontal tangents of a quarter of its
+        length."""
+        config = dpg.get_item_configuration(link_id)
+        attrs = [config.get("attr_1"), config.get("attr_2")]
+        if attrs[0] not in self.output_attr_registry:     # from the output to the input
+            attrs.reverse()
+        start, end = (self._pin_position(a) for a in attrs)
+        if start is None or end is None:
+            return True                  # cannot tell: trust DearPyGui
+        (x0, y0), (x3, y3) = start, end
+        off = 0.25 * ((x3 - x0) ** 2 + (y3 - y0) ** 2) ** 0.5
+        mx, my = dpg.get_mouse_pos(local=False)
+        for k in range(41):
+            s = k / 40
+            b = ((1 - s) ** 3, 3 * (1 - s) ** 2 * s, 3 * (1 - s) * s ** 2, s ** 3)
+            bx = b[0] * x0 + b[1] * (x0 + off) + b[2] * (x3 - off) + b[3] * x3
+            by = b[0] * y0 + b[1] * y0 + b[2] * y3 + b[3] * y3
+            if (bx - mx) ** 2 + (by - my) ** 2 <= tolerance ** 2:
+                return True
+        return False
+
+    def on_release_editor(self, sender, app_data):
+        """Mouse up: show the selected node's properties (or hide them).
+
+        On release, not when the button goes down: opening the panel narrows
+        the canvas, and a node being dragged towards the right would leave it
+        (the editor then pans by itself)."""
+        if getattr(self, "_link_clicked", False):
+            return
         selected = self.get_selected_nodes()
 
         if len(selected) == 1:

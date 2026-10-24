@@ -17,6 +17,9 @@ specula_studio/
     slurm.py            sbatch script + HPC override (see below)
     ssh_config.py       Host entries of ~/.ssh/config
     diagram.py          Graphviz export
+    layout.py           automatic layouts (Layout menu): left to right,
+                        compact (wrapped to the window width), data objects on top;
+                        node spacing: preference layout_spacing
   ui/                   DearPyGui mixins of the main window (SpeculaEditor)
     dialogs.py, add_objects.py, preferences.py, overrides_menu.py,
     log_window.py, edit_actions.py, tools.py;
