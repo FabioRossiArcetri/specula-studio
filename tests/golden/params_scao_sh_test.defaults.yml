@@ -1,0 +1,183 @@
+main:
+  class: SimulParams
+  pixel_pupil: 64
+  pixel_pitch: 0.015625
+  root_dir: ./calib/
+  total_time: 0.01
+  time_step: 0.001
+  zenithAngleInDeg: 0
+  display_server: false
+  stepping: false
+  add_modules: []
+seeing:
+  class: WaveGenerator
+  outputs: [output]
+  wave_type: SIN
+  amp: [0.0]
+  freq: [0.0]
+  offset: [0.0]
+  constant: 0.6
+  slope: [0.0]
+  output_size: 1
+wind_speed:
+  class: WaveGenerator
+  outputs: [output]
+  wave_type: SIN
+  amp: [0.0]
+  freq: [0.0]
+  offset: [0.0]
+  constant: [5.0]
+  slope: [0.0]
+  output_size: 1
+wind_direction:
+  class: WaveGenerator
+  outputs: [output]
+  wave_type: SIN
+  amp: [0.0]
+  freq: [0.0]
+  offset: [0.0]
+  constant: [10.0]
+  slope: [0.0]
+  output_size: 1
+on_axis_source:
+  class: Source
+  polar_coordinates: [0.0, 0.0]
+  magnitude: 5
+  wavelengthInNm: 600
+  height: .inf
+  zero_point: 0
+  error_coord: [0.0, 0.0]
+pupilstop:
+  class: Pupilstop
+  mask_diam: 1.0
+  shiftXYinPixel: [0.0, 0.0]
+  rotInDeg: 0.0
+  magnification: 1.0
+  simul_params_ref: main
+atmo:
+  class: AtmoEvolution
+  outputs: [layer_list]
+  L0: 25
+  heights: [0.0]
+  Cn2: [1.0]
+  fov: 0.0
+  pixel_phasescreens: 1024
+  seed: 1
+  extra_delta_time: 0
+  pupil_position: [0, 0]
+  inputs: {seeing: seeing.output, wind_speed: wind_speed.output, wind_direction: wind_direction.output}
+  simul_params_ref: main
+prop:
+  class: AtmoPropagation
+  outputs: [out_on_axis_source_ef]
+  doFresnel: false
+  wavelengthInNm: 500.0
+  enable_chromatic_effect: false
+  mergeLayersContrib: true
+  upwards: false
+  padding_factor: 1
+  inputs:
+    atmo_layer_list: [atmo.layer_list]
+    common_layer_list: [pupilstop, 'dm.out_layer:-1']
+  simul_params_ref: main
+  source_dict_ref: [on_axis_source]
+sh:
+  class: SH
+  outputs: [out_i]
+  wavelengthInNm: 600
+  subap_wanted_fov: 4.0
+  sensor_pxscale: 0.5
+  subap_on_diameter: 8
+  subap_npx: 8
+  squaremask: true
+  fov_ovs_coeff: 2.0
+  xShiftPhInPixel: 0
+  yShiftPhInPixel: 0
+  rotAnglePhInDeg: 0
+  set_fov_res_to_turbpxsc: false
+  inputs: {in_ef: prop.out_on_axis_source_ef}
+detector:
+  class: CCD
+  outputs: [out_pixels]
+  size: [64, 64]
+  dt: 0.001
+  bandw: 300
+  binning: 1
+  photon_noise: true
+  readout_noise: true
+  excess_noise: false
+  darkcurrent_noise: false
+  background_noise: false
+  cic_noise: false
+  cte_noise: false
+  readout_level: 1.0
+  darkcurrent_level: 0.0
+  background_level: 0.0
+  cic_level: 0
+  quantum_eff: 0.3
+  photon_seed: 1
+  readout_seed: 2
+  excess_seed: 3
+  excess_delta: 1.0
+  start_time: 0
+  ADU_bias: 400
+  inputs: {in_i: sh.out_i}
+  simul_params_ref: main
+slopec:
+  class: ShSlopec
+  outputs: [out_slopes, out_subapdata]
+  subapdata_object: scao_subaps_n8_th0.5
+  thr_value: -1
+  exp_weight: 1.0
+  weightedPixRad: 4.0
+  windowing: false
+  weight_int_pixel_dt: 0
+  window_int_pixel: false
+  window_int_threshold: 1.0
+  interleave: false
+  inputs: {in_pixels: detector.out_pixels}
+rec:
+  class: Modalrec
+  outputs: [out_modes]
+  recmat_object: scao_rec_n8_th0.5
+  inputs: {in_slopes: slopec.out_slopes}
+control:
+  class: Integrator
+  outputs: [out_comm]
+  int_gain: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5,
+    0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5,
+    0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
+  delay: 2
+  integration: true
+  inputs: {delta_comm: rec.out_modes}
+dm:
+  class: DM
+  outputs: [out_layer]
+  height: 0
+  type_str: zernike
+  nmodes: 40
+  obsratio: 0.1
+  sign: -1
+  inputs: {in_command: control.out_comm}
+  simul_params_ref: main
+psf:
+  class: PSF
+  outputs: [out_psf, out_sr]
+  wavelengthInNm: 1650
+  nd: 8
+  start_time: 0.0
+  compute_profile_metrics: false
+  compute_metrics_in_trigger: false
+  inputs: {in_ef: prop.out_on_axis_source_ef}
+  simul_params_ref: main
+data_store:
+  class: DataStore
+  store_dir: ./data
+  split_size: 0
+  first_suffix: 0
+  data_format: fits
+  start_time: 0
+  create_tn: true
+  downsample_factor: 1
+  inputs:
+    input_list: [res_sr-psf.out_sr]

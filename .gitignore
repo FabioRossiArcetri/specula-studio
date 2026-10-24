@@ -205,3 +205,11 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# ── SPECULA Studio runtime artefacts ─────────────────────────────────────────
+# Per-run files written by older versions into the working directory
+*_simul.yml
+_temp_yaml_display.yml
+specula_studio_server.json
+specula_studio_remote_server.json
+user_prefs.json

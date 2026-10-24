@@ -1,10 +1,10 @@
 [build-system]
 requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "specula-studio"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Node-based visual editor for SPECULA AO simulation pipelines"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -17,13 +17,13 @@ dependencies = [
     "dearpygui>=2.1.1",
     "matplotlib>=3.8",
     "numpy>=1.26",
+    "platformdirs>=2.5",
     "PyYAML>=6.0",
     "python-socketio>=5.0.0",
-    "psutil>=5.9",
 ]
 
 [project.optional-dependencies]
-# Only required for utils/compare_yamls.py
+# Only required for specula_studio/tools/compare_yamls.py
 utils = [
     "deepdiff>=6.7",
 ]
@@ -32,38 +32,67 @@ dev = [
     "deepdiff>=6.7",
     "pytest>=8.0",
     "ruff>=0.4",
+    "mypy>=1.8",
+    "types-PyYAML",
 ]
 
 [project.scripts]
-# Requires wrapping the __main__ block in a main() function first — see note below
-# specula-studio = "main:main"
-# specula-parse  = "parse_classes:run_parser"
+specula-studio = "specula_studio.app:main"
+specula-studio-parse = "specula_studio.tools.parse_classes:main"
+specula-studio-compare = "specula_studio.tools.compare_yamls:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "specula_studio.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["utils*"]
+include = ["specula_studio*"]
+
+[tool.setuptools.package-data]
+specula_studio = ["specula_yaml_docs/**/*.yml"]
 
 # ── Ruff (linter + formatter) ────────────────────────────────────────────────
 
 [tool.ruff]
 target-version = "py311"
 line-length = 100
+include = ["specula_studio/**/*.py", "tests/**/*.py"]
 
 [tool.ruff.lint]
 select = [
     "E",   # pycodestyle errors
     "W",   # pycodestyle warnings
     "F",   # pyflakes (unused imports, undefined names, etc.)
-    "I",   # isort (import ordering)
-    "UP",  # pyupgrade (modernise syntax)
     "B",   # flake8-bugbear (likely bugs)
 ]
 ignore = [
     "E501",  # line-too-long — handled by formatter
+    "E221",  # aligned assignments are used deliberately throughout
+    "E241",
+    "E272",
+    "E701",
+    "E702",
+    "E731",
 ]
 
-[tool.ruff.lint.isort]
-known-first-party = ["dpg_plotting", "dpg_utils", "file_handler", "graph_manager", "parse_classes"]
+# ── Mypy (the DearPyGui-free core is fully checked) ──────────────────────────
+
+[tool.mypy]
+python_version = "3.11"
+files = [
+    "specula_studio/core",
+    "specula_studio/settings.py",
+    "specula_studio/logs.py",
+    "specula_studio/monitor_data.py",
+    "specula_studio/hpc.py",
+    "specula_studio/control_link.py",
+    "specula_studio/sshutil.py",
+]
+check_untyped_defs = true
+ignore_missing_imports = true
+# report only the files listed above, not the (DearPyGui) modules they import
+follow_imports = "silent"
+warn_unused_ignores = true
 
 # ── Pytest ───────────────────────────────────────────────────────────────────
 
