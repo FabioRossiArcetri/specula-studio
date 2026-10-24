@@ -46,6 +46,14 @@
   always copied before being drawn.
 - Monitor options: *Image filtering* (off by default: image pixels stay
   sharp when enlarged) and snapshot vectors drawn as a line or a histogram.
+- Changing the render size or the font could crash the application: the
+  font was replaced from DearPyGui's callback thread while a frame was
+  being drawn, and the font in use was deleted.  Fonts are now switched by
+  the main loop between two frames, and loaded once per file and size.
+- Local runs: the display-server port configured for a run is trusted
+  (a port is never read from a line mixed with the simulation's output;
+  automatic port = a free port chosen by Studio), and the terminal shows
+  SPECULA's output as it arrives, including the stepping prompt.
 - Four colour themes, chosen in *Preferences*: *Dark - Graphite*, *Dark -
   Midnight*, *Light - Daylight* and *Light - Paper*.  Each theme is a small
   palette from which every colour of the GUI is derived, and it now covers

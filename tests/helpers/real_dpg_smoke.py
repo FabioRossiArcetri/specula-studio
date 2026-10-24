@@ -248,7 +248,23 @@ def main(path):
     step("theme_back_to_dark", editor.on_theme_changed, None, "dark")   # an id works too
     step("monitor_window_theme", _check_monitor_window_theme)
     for size in ("SMALL", "MEDIUM"):
+        before = editor._font_handle
         step(f"render_{size}", editor._on_render_size_changed, None, size)
+        if editor._font_handle != before:
+            raise RuntimeError("the font changed in the callback, not between frames")
+        editor.apply_pending_font()                    # what the main loop does
+        from specula_studio import render_scale
+        wanted = [h for (_, fs), h in editor._fonts.items() if fs == render_scale.font_size()]
+        if editor._fonts and editor._font_handle not in wanted:
+            raise RuntimeError(f"font not switched for render size {size}: "
+                               f"fonts={editor._fonts} bound={editor._font_handle}")
+    loaded = len(editor._fonts)
+    for size in ("SMALL", "MEDIUM", "SMALL", "MEDIUM"):          # back and forth
+        editor._on_render_size_changed(None, size)
+        editor.apply_pending_font()
+    if editor._fonts and len(editor._fonts) != loaded:
+        raise RuntimeError(f"fonts reloaded instead of reused: {len(editor._fonts)}")
+    steps.append("font_switch_between_frames")
     from specula_studio.core import clipboard
     uuids = list(nm.graph.nodes)[:3]
     step("duplicate", editor._paste, clipboard.copy_nodes(nm.graph, uuids))

@@ -289,35 +289,50 @@ class PreferencesMixin:
 
         log.info(f"[FONT] Font changed to: {file_path}")
 
-    def _reload_font(self):
-        """Reload the font in DPG and refresh the GUI."""
+    def _bind_ui_font(self) -> None:
+        """Load the UI font (once per file and size) and bind it.
+
+        Fonts are never deleted: a font in use must not be freed, and the
+        sizes and fonts a session uses are few.  Main thread only (between
+        frames): see :meth:`apply_pending_font`.
+        """
         font_path = self._font_path()
-
         if not os.path.exists(font_path):
-            log.warning(f"[FONT] Font file not found: {font_path}")
+            log.warning(f"[FONT] Font file not found: {font_path}, using the default font")
             return
-
-        try:
-            # Remove old font handle if it exists
-            if self._font_handle is not None and dpg.does_item_exist(self._font_handle):
-                dpg.delete_item(self._font_handle)
-
-            # Load new font
+        size = render_scale.font_size()
+        key = (os.path.normcase(os.path.abspath(font_path)), size)
+        handle = self._fonts.get(key)
+        if handle is None or not dpg.does_item_exist(handle):
             with dpg.font_registry():
-                current_fs = render_scale.font_size()
-                self._font_handle = dpg.add_font(font_path, current_fs)
-                log.info(f"[FONT] Loaded font from {font_path} at {current_fs} px")
+                handle = dpg.add_font(font_path, size)
+            self._fonts[key] = handle
+            log.info(f"[FONT] Loaded {font_path} at {size} px")
+        dpg.bind_font(handle)
+        self._font_handle = handle
 
-            # Bind the new font
-            dpg.bind_font(self._font_handle)
+    def _reload_font(self):
+        """Ask the main loop to switch to the current font and size.
 
-            # Rebuild UI with new font
+        Callbacks run on DearPyGui's callback thread: changing fonts there,
+        while the main thread renders a frame with them, crashed the
+        application now and then.  :meth:`apply_pending_font` does it
+        between two frames.
+        """
+        self._font_change_pending = True
+
+    def apply_pending_font(self):
+        """Main loop, between frames: switch the font if asked, then rebuild the nodes."""
+        if not getattr(self, "_font_change_pending", False):
+            return
+        self._font_change_pending = False
+        try:
+            self._bind_ui_font()
             if self.nm.graph.nodes:
-                self.nm.rebuild_all_nodes_ui()
-
-            log.info("[FONT] GUI refreshed with new font")
-        except Exception as e:
-            log.error(f"[FONT] Error loading font: {e}")
+                self.nm.rebuild_all_nodes_ui()      # node spacers follow the render size
+            log.info("[FONT] GUI refreshed with the new font")
+        except Exception:
+            log.exception("[FONT] Error switching the font")
 
     def _on_render_size_changed(self, sender, app_data):
         new_size = app_data
@@ -328,11 +343,7 @@ class PreferencesMixin:
         render_scale.set_size(new_size)
 
         log.info(f"[RENDER] Render size → {new_size}")
-        self._reload_font()
-
-        if self.nm.graph.nodes:
-            self.nm.rebuild_all_nodes_ui()
-
+        self._reload_font()                         # also rebuilds the nodes
         self._save_settings()
         log.info(f"[PREFERENCES] Render size set to: {new_size}")
 

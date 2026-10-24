@@ -175,16 +175,9 @@ class SpeculaEditor(
         self.theme_manager.apply_theme()
 
         self._font_handle = None
-        font_path = self._font_path()
-
-        if os.path.exists(font_path):
-            with dpg.font_registry():
-                current_fs = render_scale.font_size()
-                self._font_handle = dpg.add_font(font_path, current_fs)
-                log.info(f"[FONT] Loaded font from {font_path} at {current_fs} px (handle={self._font_handle})")
-            dpg.bind_font(self._font_handle)
-        else:
-            log.warning(f"[FONT] Font path not found: {font_path}, using default")
+        self._fonts: dict = {}                    # (font file, size) -> font item
+        self._font_change_pending = False
+        self._bind_ui_font()
 
         dpg.set_global_font_scale(1.0)
 
@@ -480,6 +473,7 @@ class SpeculaEditor(
                 self._poll_catalog_build()
                 self.hpc.poll()
                 self.sim_control.poll_commands()
+                self.apply_pending_font()           # font changes between frames
                 dpg.render_dearpygui_frame()
         finally:
             self.shutdown()
