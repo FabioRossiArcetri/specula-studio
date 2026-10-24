@@ -9,10 +9,10 @@ simulations, built on [Dear PyGui](https://github.com/hoffstadt/DearPyGui).
 * Load and save standard SPECULA YAML files (node positions are stored in the
   `gui_pos` key, which SPECULA ignores).
 * Apply SPECULA override files on top of a simulation.
-* Run the simulation in-process, as a local subprocess or on a remote host via
-  SSH, step it, and watch any output live in monitor windows.  The simulation
-  control panel opens in its own window (it can be moved to another screen);
-  *Preferences* can put it back inside the editor.  Remote hosts
+* Run the simulation inside the editor (*Local Run*), as a local subprocess or
+  on a remote host via SSH (*Remote*), step it, and watch any output live in
+  monitor windows.  The simulation control panel opens in its own window (it
+  can be moved to another screen).  Remote hosts
   can be picked from the `Host` entries of your OpenSSH client configuration
   (`~/.ssh/config`, i.e. `%USERPROFILE%\.ssh\config` on Windows); the alias is
   passed to `ssh`/`scp` as is, so `User`, `Port`, `IdentityFile`, `ProxyJump`…
@@ -26,8 +26,7 @@ simulations, built on [Dear PyGui](https://github.com/hoffstadt/DearPyGui).
   The job's simulation files default to the editor's simulation and
   overrides, and can be any local YAML files; an existing job script can be
   loaded (*Load script...*) to fill the form and the file list.  Both HPC
-  windows open as separate windows (*Preferences* can put them back inside
-  the editor).
+  windows open as separate windows.
 * Undo/redo, copy/paste/duplicate, unsaved-changes tracking.
 * *View → Issues* lists incomplete objects (missing required parameters,
   references or inputs); *Edit → Find Object* (Ctrl+F) and *Add Objects →
@@ -42,7 +41,7 @@ pip install -e .            # editable install from a checkout
 pip install -e ".[dev]"     # plus pytest / ruff for development
 ```
 
-SPECULA itself must be installed in the same environment for in-process runs,
+SPECULA itself must be installed in the same environment for *Local Run*,
 tooltips and online help.
 
 ## Running

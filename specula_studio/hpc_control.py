@@ -32,6 +32,7 @@ import dearpygui.dearpygui as dpg
 from . import hpc, sshutil
 from .control_link import ControlServer, WindowProcess
 from .core import slurm, yaml_io
+from .render_scale import px
 from .ui.hpc_views import HpcJobsView, HpcSubmitView
 
 log = logging.getLogger(__name__)
@@ -190,7 +191,7 @@ class HpcControl:
                 self._emit(SUBMIT, {"type": "sim_info", **self.sim_info()})
             return
         tm = self.editor.theme_manager
-        with dpg.window(label=title, tag=tag, width=width, height=height):
+        with dpg.window(label=title, tag=tag, width=px(width), height=px(height)):
             pass
         init = self._init_event(window)
         view: HpcSubmitView | HpcJobsView

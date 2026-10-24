@@ -2,7 +2,7 @@
 matplotlib_dpg_bridge.py
 ========================
 Bridges matplotlib (Agg backend) figures into DearPyGui windows for
-the In-Process simulation mode in Specula Studio.
+the Local Run simulation mode (InProcessBackend) in Specula Studio.
 
 Integration points:
   - simulation_backend.InProcessBackend._prepare_matplotlib()

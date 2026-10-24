@@ -39,6 +39,7 @@ logs.setup_logging("WARNING")
 
 from specula_studio.app import SpeculaEditor  # noqa: E402
 from specula_studio.core.templates import TEMPLATES_DIR  # noqa: E402
+from specula_studio.ui.control_panel import LOCAL_RUN, REMOTE  # noqa: E402
 
 
 def _check_monitor_plot_options():
@@ -176,14 +177,14 @@ def main(path):
     editor.sim_control.view.append_terminal("hello\n")
     if not editor.sim_control.view.options()["stepping"]:
         raise RuntimeError("control panel options not read")
-    # remote connection widgets are greyed out for In-Process, enabled for Remote
+    # remote connection widgets are greyed out for Local Run, enabled for Remote
     if dpg.get_item_configuration("sim_remote_ip")["enabled"]:
-        raise RuntimeError("remote fields should be disabled for In-Process")
-    dpg.set_value("sim_backend", "Remote")
+        raise RuntimeError("remote fields should be disabled for Local Run")
+    dpg.set_value("sim_backend", REMOTE)
     editor.sim_control.view.update_remote_enabled()
     if not dpg.get_item_configuration("sim_remote_ip")["enabled"]:
         raise RuntimeError("remote fields should be enabled for Remote")
-    dpg.set_value("sim_backend", "In-Process")
+    dpg.set_value("sim_backend", LOCAL_RUN)
     editor.sim_control.view.update_remote_enabled()
     steps.append("remote_fields_toggle")
     step("yaml_window", editor.sim_control.show_yaml_window)

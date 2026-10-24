@@ -16,15 +16,21 @@ import threading
 
 import dearpygui.dearpygui as dpg
 
+from .. import render_scale
 from ..core import ssh_config
 from ..core.run_prep import DEFAULT_DISPLAY_SERVER_PORT
+from ..render_scale import px
 
 log = logging.getLogger(__name__)
 
 TERMINAL_MAX_CHUNKS = 2000
 
+# execution modes, as the panel shows them
+LOCAL_RUN = "Local Run"             # inside the editor
+REMOTE = "Remote"                   # the 'specula' command, on localhost or over SSH
+
 DEFAULT_OPTIONS = {
-    "backend": "In-Process",        # "In-Process" | "Remote"
+    "backend": LOCAL_RUN,           # LOCAL_RUN | REMOTE
     "host": "localhost",
     "user": "",
     "ds_port": DEFAULT_DISPLAY_SERVER_PORT,
@@ -73,19 +79,19 @@ class ControlPanelView:
         last = self.recent_hosts[0] if self.recent_hosts else {"host": "localhost", "user": ""}
 
         with dpg.group(horizontal=True, parent=parent):
-            with dpg.child_window(width=520):
+            with dpg.child_window(width=px(520)):
                 dpg.add_text("Backend Mode", color=tm.get_color("control_section_header"))
-                dpg.add_combo(label="Execution Mode", items=["Remote", "In-Process"],
-                              tag=t("backend"), default_value="In-Process",
+                dpg.add_combo(label="Execution Mode", items=[REMOTE, LOCAL_RUN],
+                              tag=t("backend"), default_value=LOCAL_RUN,
                               callback=self.update_remote_enabled)
                 dpg.add_text(
-                    "In-Process: runs inside the editor, monitors fed directly.\n"
-                    "Remote: runs the 'specula' command, locally (localhost)\n"
-                    "or over SSH; monitors connect to its DisplayServer.",
+                    f"{LOCAL_RUN}: runs inside the editor, monitors fed directly.\n"
+                    f"{REMOTE}: runs the 'specula' command, on this machine\n"
+                    "(localhost) or over SSH; monitors connect to its DisplayServer.",
                     color=hint)
                 dpg.add_text("Remote Server Configuration", color=sub)
                 with dpg.group(horizontal=True):
-                    dpg.add_combo(label="", tag=t("ssh_hosts"), items=[], width=-180,
+                    dpg.add_combo(label="", tag=t("ssh_hosts"), items=[], width=px(-180),
                                   callback=self._on_ssh_config_host)
                     dpg.add_text("SSH config hosts")
                     dpg.add_button(label="Reload", tag=t("ssh_reload"),
@@ -94,22 +100,22 @@ class ControlPanelView:
                 if self.recent_hosts:
                     dpg.add_combo(label="Recent hosts", tag=t("recent_hosts"),
                                   items=[host_label(h) for h in self.recent_hosts],
-                                  default_value=host_label(last), width=-140,
+                                  default_value=host_label(last), width=px(-140),
                                   callback=self._on_recent_host)
                 dpg.add_input_text(label="Server IP / Hostname", tag=t("remote_ip"),
                                    default_value=last.get("host", "localhost"),
-                                   hint="localhost, 127.0.0.1, or remote host", width=-140)
+                                   hint="localhost, 127.0.0.1, or remote host", width=px(-140))
                 dpg.add_input_text(label="SSH Username", tag=t("remote_user"),
                                    default_value=last.get("user", ""),
-                                   hint="empty = current user", width=-140)
+                                   hint="empty = current user", width=px(-140))
                 with dpg.group(horizontal=True):
                     dpg.add_button(label="Test SSH", tag=t("test_ssh"),
                                    callback=self._on_test_ssh)
                     dpg.add_text("logins must work without prompts (keys / agent)",
-                                 tag=t("ssh_test_status"), color=hint, wrap=380)
+                                 tag=t("ssh_test_status"), color=hint, wrap=px(380))
                 dpg.add_input_int(label="Display server port", tag=t("ds_port"),
                                   default_value=DEFAULT_DISPLAY_SERVER_PORT,
-                                  min_value=0, max_value=65535, width=-140)
+                                  min_value=0, max_value=65535, width=px(-140))
                 dpg.add_text("0 = pick a free port (requires a recent SPECULA)", color=hint)
                 dpg.add_separator()
                 dpg.add_text("Simulation Arguments", color=sub)
@@ -127,37 +133,40 @@ class ControlPanelView:
                     dpg.add_checkbox(label="SPECULA diagram (PNG)", tag=t("diagram"))
                 dpg.add_text("(Profile / diagram: local and SSH runs only)", color=hint)
                 dpg.add_separator()
-                dpg.add_button(label="START SIMULATION", width=-1, height=35,
+                dpg.add_button(label="START SIMULATION", width=-1, height=px(35),
                                callback=lambda: self.actions.start(self.options()))
-                dpg.add_button(label="Advance Step", width=-1, height=25,
+                dpg.add_button(label="Advance Step", width=-1, height=px(25),
                                callback=lambda: self.actions.step(1))
                 with dpg.group(horizontal=True):
                     dpg.add_input_int(label="Steps", tag=t("advance_n_steps"),
-                                      default_value=100, min_value=1, width=140)
-                    dpg.add_button(label="Advance N Steps", width=-1, height=25,
+                                      default_value=100, min_value=1, width=px(140))
+                    dpg.add_button(label="Advance N Steps", width=-1, height=px(25),
                                    callback=self._on_step_n)
-                dpg.add_button(label="Abort Simulation", width=-1, height=25,
+                dpg.add_button(label="Abort Simulation", width=-1, height=px(25),
                                callback=lambda: self.actions.abort())
                 dpg.add_text("Status: idle", tag=t("status_text"), color=hint)
 
-            with dpg.child_window(width=-1, tag=t("terminal_child"), border=True):
+            with dpg.child_window(width=-1, border=True):
                 with dpg.group(horizontal=True):
                     dpg.add_text("Terminal Output", color=tm.get_color("control_terminal_title"))
                     dpg.add_button(label="Clear", callback=self._on_clear)
                     dpg.add_button(label="Save...", callback=self._on_save)
-                dpg.add_input_text(tag=t("terminal"), multiline=True, readonly=True,
-                                   width=-1, height=-1)
+                # the text field is as tall as its text (see _show_terminal):
+                # this child scrolls, and follows the latest output
+                with dpg.child_window(width=-1, height=-1, tag=t("terminal_child"), border=False):
+                    dpg.add_input_text(tag=t("terminal"), multiline=True, readonly=True,
+                                       width=-1, height=-1)
         self.refresh_ssh_hosts()
         self.update_remote_enabled()
         self._show_terminal()
 
-    # Widgets that only matter for Remote runs (greyed out for In-Process).
+    # Widgets that only matter for Remote runs (greyed out for Local Run).
     _REMOTE_WIDGETS = ("ssh_hosts", "ssh_reload", "recent_hosts", "remote_ip",
                        "remote_user", "test_ssh", "ds_port")
 
     def update_remote_enabled(self, *_):
         backend = self.t("backend")
-        remote = (dpg.get_value(backend) == "Remote") if dpg.does_item_exist(backend) else True
+        remote = (dpg.get_value(backend) == REMOTE) if dpg.does_item_exist(backend) else True
         for name in self._REMOTE_WIDGETS:
             if dpg.does_item_exist(self.t(name)):
                 dpg.configure_item(self.t(name), enabled=remote)
@@ -214,7 +223,7 @@ class ControlPanelView:
         # entry applies (HostName, User, Port, IdentityFile, ProxyJump, ...).
         dpg.set_value(self.t("remote_ip"), alias)
         dpg.set_value(self.t("remote_user"), "")
-        dpg.set_value(self.t("backend"), "Remote")
+        dpg.set_value(self.t("backend"), REMOTE)
         self.update_remote_enabled()
         dpg.set_value(self.t("ssh_host_info"), f"{alias} -> {host.describe()}  ({host.source})")
 
@@ -222,7 +231,7 @@ class ControlPanelView:
         user, _, host = value.rpartition("@")
         dpg.set_value(self.t("remote_ip"), host)
         dpg.set_value(self.t("remote_user"), user)
-        dpg.set_value(self.t("backend"), "Remote")
+        dpg.set_value(self.t("backend"), REMOTE)
         self.update_remote_enabled()
 
     def _on_test_ssh(self, *_):
@@ -251,8 +260,8 @@ class ControlPanelView:
                 f.write(self.terminal_text())
             log.info("Terminal output saved to %s", path)
 
-        with dpg.file_dialog(label="Save terminal output", callback=write, width=700,
-                             height=400, default_filename="specula_run.log"):
+        with dpg.file_dialog(label="Save terminal output", callback=write, width=px(700),
+                             height=px(400), default_filename="specula_run.log"):
             dpg.add_file_extension(".log")
             dpg.add_file_extension(".*")
 
@@ -277,7 +286,13 @@ class ControlPanelView:
     def _show_terminal(self) -> None:
         tag = self.t("terminal")
         if dpg.does_item_exist(tag):
-            dpg.set_value(tag, self.terminal_text())
+            text = self.terminal_text()
+            dpg.set_value(tag, text)
+            # a multiline field scrolls only inside itself, and that cannot be
+            # set: grown to its text, it lets its child window scroll instead
+            needed = (text.count("\n") + 2) * render_scale.font_size() + px(8)
+            visible = dpg.get_item_rect_size(self.t("terminal_child"))[1]
+            dpg.configure_item(tag, height=needed if needed > visible > 0 else -1)
             try:
                 dpg.set_y_scroll(self.t("terminal_child"), -1.0)
             except Exception:
