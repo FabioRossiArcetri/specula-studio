@@ -38,6 +38,8 @@ specula_studio/
   socketio_client.py    editor connection to a DisplayServer: maps nodes to
                         the running objects (monitor subprocesses connect
                         on their own)
+  theme_manager.py      the four colour themes: a palette per theme, every
+                        logical colour derived from it, bound to all widgets
   settings.py, logs.py  user settings file, logging + in-app log buffer
 ```
 

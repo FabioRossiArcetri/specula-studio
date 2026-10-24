@@ -11,6 +11,7 @@ import pathlib
 import dearpygui.dearpygui as dpg
 
 from .. import render_scale
+from ..theme_manager import THEMES, theme_id, theme_label
 
 
 from ..fonts import FONT_PATH, MATPLOTLIB_FONTS_PATH
@@ -20,8 +21,9 @@ log = logging.getLogger(__name__)
 
 class PreferencesMixin:
     def on_theme_changed(self, sender, app_data):
-        theme_name = app_data
-        self.theme_manager.save_preference(theme_name)
+        """*app_data*: a theme label (from the combo) or id."""
+        self.theme_manager.save_preference(theme_id(app_data))
+        self.preferences["theme"] = self.theme_manager.current_theme.name
 
         # Node themes capture colours at creation time: recreate them for the
         # new palette, then rebuild all nodes so they pick up the new themes.
@@ -91,12 +93,13 @@ class PreferencesMixin:
 
             dpg.add_text("Appearance")
             current = self.theme_manager.current_theme.name
-            dpg.add_radio_button(
+            dpg.add_combo(
+                [label for label, _ in THEMES.values()],
                 label="Theme",
-                items=["dark", "light"],
-                default_value=current,
+                default_value=theme_label(current),
                 tag="theme_radio",
-                callback=self.on_theme_changed
+                width=220,
+                callback=self.on_theme_changed,
             )
 
             dpg.add_separator()
@@ -255,8 +258,11 @@ class PreferencesMixin:
             default_path=str(MATPLOTLIB_FONTS_PATH),
             modal=True,
         ):
-            dpg.add_file_extension(".ttf", color=(150, 150, 150), custom_text="TrueType Font")
-            dpg.add_file_extension(".*", color=(100, 100, 100), custom_text="All files")
+            tm = self.theme_manager
+            dpg.add_file_extension(".ttf", color=tm.get_color("file_ext_data"),
+                                   custom_text="TrueType Font")
+            dpg.add_file_extension(".*", color=tm.get_color("file_ext_other"),
+                                   custom_text="All files")
 
     def _on_font_selected(self, sender, app_data):
         """Callback when a font file is selected."""

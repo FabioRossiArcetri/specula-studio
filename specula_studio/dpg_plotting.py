@@ -4,6 +4,7 @@ import dearpygui.dearpygui as dpg
 from matplotlib import colormaps
 import traceback
 from .constants import MAX_PLOT_HISTORY, DEFAULT_PLOT_WIDTH, DEFAULT_PLOT_HEIGHT
+from .theme_manager import ThemeManager
 import logging
 
 log = logging.getLogger(__name__)
@@ -111,7 +112,7 @@ class InteractiveImageViewer:
         # One-line info bar
         self.info_text_tag = dpg.add_text(
             "Scroll to zoom  │  Drag to pan  │  Double-click to reset",
-            color=[150, 150, 150],
+            color=ThemeManager().get_color("text_hint"),
             parent=self.container_tag,
         )
 

@@ -46,6 +46,12 @@
   always copied before being drawn.
 - Monitor options: *Image filtering* (off by default: image pixels stay
   sharp when enlarged) and snapshot vectors drawn as a line or a histogram.
+- Four colour themes, chosen in *Preferences*: *Dark - Graphite*, *Dark -
+  Midnight*, *Light - Daylight* and *Light - Paper*.  Each theme is a small
+  palette from which every colour of the GUI is derived, and it now covers
+  all widgets, plots and the node editor (title bars, pins, selection);
+  text meets WCAG contrast minimums in all four (tested).  The separate
+  monitor windows use the same theme (parts of them were drawn white).
 - HPC: the *Batch Jobs* window shows the SLURM output (`slurm-<id>.out` /
   `.err`) of the selected job, read from the cluster while the job runs and
   when it ends; the window opens on a job as soon as it is submitted.

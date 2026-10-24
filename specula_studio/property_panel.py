@@ -1019,11 +1019,12 @@ class PropertyPanel:
             dialog_kwargs["default_path"] = initial_dir
 
         with dpg.file_dialog(**dialog_kwargs):
-            dpg.add_file_extension(".fits", color=(150, 255, 150), custom_text="FITS")
-            dpg.add_file_extension(".fit",  color=(150, 200, 150), custom_text="FIT")
-            dpg.add_file_extension(".npy",  color=(150, 150, 255), custom_text="NumPy")
-            dpg.add_file_extension(".npz",  color=(100, 100, 255), custom_text="NumPy-Z")
-            dpg.add_file_extension(".*",    color=(150, 150, 150), custom_text="All files")
+            tm = self.theme_manager
+            dpg.add_file_extension(".fits", color=tm.get_color("file_ext_data"), custom_text="FITS")
+            dpg.add_file_extension(".fit",  color=tm.get_color("file_ext_data"), custom_text="FIT")
+            dpg.add_file_extension(".npy",  color=tm.get_color("file_ext_numpy"), custom_text="NumPy")
+            dpg.add_file_extension(".npz",  color=tm.get_color("file_ext_numpy"), custom_text="NumPy-Z")
+            dpg.add_file_extension(".*",    color=tm.get_color("file_ext_other"), custom_text="All files")
 
     def _disconnect_reference(self, sender, app_data, user_data):
         node_uuid, param_name, connected_node_name = user_data

@@ -139,6 +139,7 @@ class NodeManager:
     # ==========================================================================
 
     def init_themes(self):
+        self._flash_theme = None
         self._flash_theme          = None
         self.data_theme            = create_data_node_theme()
         self.proc_theme            = create_proc_node_theme()
@@ -165,7 +166,8 @@ class NodeManager:
         if getattr(self, "_flash_theme", None) is None:
             with dpg.theme() as self._flash_theme:
                 with dpg.theme_component(dpg.mvNode):
-                    dpg.add_theme_color(dpg.mvNodeCol_NodeOutline, (255, 210, 0, 255),
+                    dpg.add_theme_color(dpg.mvNodeCol_NodeOutline,
+                                        self.theme_manager.get_color("node_highlight"),
                                         category=dpg.mvThemeCat_Nodes)
                     dpg.add_theme_style(dpg.mvNodeStyleVar_NodeBorderThickness, 4.0,
                                         category=dpg.mvThemeCat_Nodes)

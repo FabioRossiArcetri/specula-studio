@@ -82,6 +82,16 @@ def _check_monitor_plot_options():
     dpg.delete_item("smoke_plot_win")
 
 
+def _check_monitor_window_theme():
+    """The standalone monitor window builds with the shared theme (no own colour keys)."""
+    import inspect
+
+    from specula_studio import monitor_window
+    src = inspect.getsource(monitor_window.StandaloneMonitor._build_ui)
+    if "apply_theme()" not in src or "mvThemeCol_" in src:
+        raise RuntimeError("the monitor window does not use the shared theme")
+
+
 def _check_hpc_load_script(view):
     """Load a job script: SBATCH options, modules, setup and the YAML file rows."""
     folder = tempfile.mkdtemp(prefix="specula_studio_job_")
@@ -230,8 +240,13 @@ def main(path):
         raise RuntimeError("selected job's output not shown")
     step("create_node", editor._on_menu_create, None, None, "Integrator")
     step("rebuild", nm.rebuild_all_nodes_ui)
-    step("theme_light", editor.on_theme_changed, None, "light")
-    step("theme_dark", editor.on_theme_changed, None, "dark")
+    from specula_studio.theme_manager import THEMES
+    for tid, (label, _) in THEMES.items():
+        step(f"theme_{tid}", editor.on_theme_changed, None, label)      # as the combo sends it
+        if editor.theme_manager.current_theme.name != tid:
+            raise RuntimeError(f"theme {label} not applied")
+    step("theme_back_to_dark", editor.on_theme_changed, None, "dark")   # an id works too
+    step("monitor_window_theme", _check_monitor_window_theme)
     for size in ("SMALL", "MEDIUM"):
         step(f"render_{size}", editor._on_render_size_changed, None, size)
     from specula_studio.core import clipboard

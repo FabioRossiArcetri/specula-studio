@@ -68,21 +68,31 @@ def create_node_theme(
 
 
 def create_data_node_theme():
-    """Data node theme – complete (green/grey)."""
+    """Data node theme (complete)."""
     return create_node_theme(
         node_background_key          = "node_data_bg",
         node_background_selected_key = "node_data_selected",
         node_outline_key             = "node_data_outline",
+        title_bar_key                = "node_data_title",
+        title_bar_hovered_key        = "node_data_title_hover",
+        title_bar_selected_key       = "node_data_title_selected",
+        pin_key                      = "node_pin",
+        pin_hovered_key              = "node_pin_hover",
         use_category                 = True,
     )
 
 
 def create_proc_node_theme():
-    """Processing node theme – complete (blue/green)."""
+    """Processing node theme (complete)."""
     return create_node_theme(
         node_background_key          = "node_proc_bg",
         node_background_selected_key = "node_proc_selected",
         node_outline_key             = "node_proc_outline",
+        title_bar_key                = "node_proc_title",
+        title_bar_hovered_key        = "node_proc_title_hover",
+        title_bar_selected_key       = "node_proc_title_selected",
+        pin_key                      = "node_pin",
+        pin_hovered_key              = "node_pin_hover",
         use_category                 = True,
     )
 
@@ -95,6 +105,11 @@ def create_data_node_theme_incomplete():
         node_background_key          = "node_data_bg",
         node_background_selected_key = "node_data_selected",
         node_outline_key             = "node_incomplete_outline",
+        title_bar_key                = "node_data_title",
+        title_bar_hovered_key        = "node_data_title_hover",
+        title_bar_selected_key       = "node_data_title_selected",
+        pin_key                      = "node_pin",
+        pin_hovered_key              = "node_pin_hover",
         border_thickness             = 2.0,
         use_category                 = True,
     )
@@ -108,6 +123,11 @@ def create_proc_node_theme_incomplete():
         node_background_key          = "node_proc_bg",
         node_background_selected_key = "node_proc_selected",
         node_outline_key             = "node_incomplete_outline",
+        title_bar_key                = "node_proc_title",
+        title_bar_hovered_key        = "node_proc_title_hover",
+        title_bar_selected_key       = "node_proc_title_selected",
+        pin_key                      = "node_pin",
+        pin_hovered_key              = "node_pin_hover",
         border_thickness             = 2.0,
         use_category                 = True,
     )
