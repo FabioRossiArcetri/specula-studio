@@ -1,6 +1,6 @@
-dearpygui==2.1.1
+dearpygui>=2.1.1
 matplotlib>=3.8
 numpy>=1.26
+platformdirs>=2.5
 PyYAML>=6.0
-deepdiff>=6.7
 python-socketio>=5.0.0

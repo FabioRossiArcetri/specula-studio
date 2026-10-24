@@ -1,0 +1,26 @@
+main:
+  class: SimulParams
+  pixel_pupil: 80
+  root_dir: .
+  total_time: 1.0
+  time_step: 0.1
+  zenithAngleInDeg: 0
+  display_server: false
+  stepping: false
+  add_modules: []
+mytimehist: {class: TimeHistory, tag: timehistory_test}
+generator:
+  class: TimeHistoryGenerator
+  outputs: [output]
+  time_hist_ref: mytimehist
+data_store:
+  class: DataStore
+  store_dir: ./output_timehistory
+  split_size: 0
+  first_suffix: 0
+  data_format: fits
+  start_time: 0
+  create_tn: true
+  downsample_factor: 1
+  inputs:
+    input_list: [timehist-generator.output]

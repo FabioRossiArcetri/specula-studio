@@ -1,0 +1,85 @@
+main:
+  class: SimulParams
+  pixel_pupil: 160
+  pixel_pitch: 0.05
+  root_dir: ./calib
+  total_time: 1.0
+  time_step: 0.001
+  zenithAngleInDeg: 0
+  display_server: false
+  stepping: false
+  add_modules: []
+disturbance:
+  class: WaveGenerator
+  wave_type: SIN
+  amp: [5.0]
+  freq: [5.0]
+  offset: [0.0]
+  constant: [0.0]
+  slope: [0.0]
+  output_size: 1
+diff:
+  class: BaseOperation
+  outputs: [out_value]
+  mul: false
+  div: false
+  sum: false
+  sub: true
+  concat: false
+  inputs: {in_value1: disturbance.output, in_value2: 'control.out_comm:-1'}
+noise:
+  class: RandomGenerator
+  outputs: [output]
+  distribution: NORMAL
+  amp: [0.2]
+  seed: 42
+  output_size: 0
+  forced_zero_modes: 0
+  scaling_law: INVERSE
+sum_operation_noise:
+  class: BaseOperation
+  outputs: [out_value]
+  mul: false
+  div: false
+  sum: true
+  sub: false
+  concat: false
+  inputs: {in_value1: diff.out_value, in_value2: noise.output}
+control:
+  class: Integrator
+  int_gain: [1.0]
+  n_modes: [1]
+  delay: 1.0
+  integration: true
+  inputs: {delta_comm: scaled_cmd.out_value}
+omgi:
+  class: CloseGainOptimizer
+  outputs: [out_gains]
+  nmodes: 1
+  p: 0.2
+  r: -0.1
+  dt: 3
+  q_plus: 0.01
+  q_minus_ratio: 5.0
+  initial_gain: 0.4
+  inputs: {in_modes: sum_operation_noise.out_value}
+scaled_cmd:
+  class: BaseOperation
+  outputs: [out_value]
+  mul: true
+  div: false
+  sum: false
+  sub: false
+  concat: false
+  inputs: {in_value1: sum_operation_noise.out_value, in_value2: omgi.out_gains}
+data_store:
+  class: DataStore
+  store_dir: ./data
+  split_size: 0
+  first_suffix: 0
+  data_format: fits
+  start_time: 0
+  create_tn: true
+  downsample_factor: 1
+  inputs:
+    input_list: [res_close-diff.out_value, close_optimized_gain-omgi.out_gains]

@@ -1,0 +1,141 @@
+main:
+  class: SimulParams
+  pixel_pupil: 80
+  pixel_pitch: 0.1
+  root_dir: ./calib
+  total_time: 30.0
+  time_step: 0.01
+  zenithAngleInDeg: 0
+  display_server: false
+  stepping: false
+  add_modules: []
+seeing:
+  class: WaveGenerator
+  wave_type: SIN
+  amp: [0.0]
+  freq: [0.0]
+  offset: [0.0]
+  constant: 0.8
+  slope: [0.0]
+  output_size: 1
+wind_speed:
+  class: WaveGenerator
+  outputs: [output]
+  wave_type: SIN
+  amp: [0.0]
+  freq: [0.0]
+  offset: [0.0]
+  constant: [25.0]
+  slope: [0.0]
+  output_size: 1
+wind_direction:
+  class: WaveGenerator
+  outputs: [output]
+  wave_type: SIN
+  amp: [0.0]
+  freq: [0.0]
+  offset: [0.0]
+  constant: [91.5]
+  slope: [0.0]
+  output_size: 1
+on_axis_source:
+  class: Source
+  polar_coordinates: [0.0, 0.0]
+  magnitude: 8
+  wavelengthInNm: 750
+  height: .inf
+  zero_point: 0
+  error_coord: [0.0, 0.0]
+pupilstop:
+  class: Pupilstop
+  mask_diam: 1.0
+  shiftXYinPixel: [0.0, 0.0]
+  rotInDeg: 0.0
+  magnification: 1.0
+  simul_params_ref: main
+atmo1:
+  class: AtmoEvolution
+  outputs: [layer_list]
+  L0: 10
+  heights: [0.0]
+  Cn2: [1.0]
+  fov: 0.0
+  pixel_phasescreens: 8192
+  seed: 1
+  extra_delta_time: 0
+  pupil_position: [0, 0]
+  inputs: {seeing: seeing.output, wind_speed: wind_speed.output, wind_direction: wind_direction.output}
+  simul_params_ref: main
+prop1:
+  class: AtmoPropagation
+  outputs: [out_on_axis_source_ef]
+  doFresnel: false
+  wavelengthInNm: 500.0
+  enable_chromatic_effect: false
+  mergeLayersContrib: true
+  upwards: false
+  padding_factor: 1
+  inputs:
+    atmo_layer_list: [atmo1.layer_list]
+    common_layer_list: [pupilstop]
+  simul_params_ref: main
+  source_dict_ref: [on_axis_source]
+modal_analysis1:
+  class: ModalAnalysis
+  outputs: [out_modes]
+  type_str: zernike
+  npixels: 80
+  nmodes: 100
+  wavelengthInNm: 0.0
+  dorms: false
+  n_inputs: 1
+  remove_piston: true
+  inputs: {in_ef: prop1.out_on_axis_source_ef}
+atmo2:
+  class: AtmoInfiniteEvolution
+  outputs: [layer_list]
+  L0: [10]
+  heights: [0.0]
+  Cn2: [1.0]
+  fov: 0.0
+  seed: 12345
+  extra_delta_time: 0
+  pupil_position: [0, 0]
+  inputs: {seeing: seeing.output, wind_speed: wind_speed.output, wind_direction: wind_direction.output}
+  simul_params_ref: main
+prop2:
+  class: AtmoPropagation
+  outputs: [out_on_axis_source_ef]
+  doFresnel: false
+  wavelengthInNm: 500.0
+  enable_chromatic_effect: false
+  mergeLayersContrib: true
+  upwards: false
+  padding_factor: 1
+  inputs:
+    atmo_layer_list: [atmo2.layer_list]
+    common_layer_list: [pupilstop]
+  simul_params_ref: main
+  source_dict_ref: [on_axis_source]
+modal_analysis2:
+  class: ModalAnalysis
+  outputs: [out_modes]
+  type_str: zernike
+  npixels: 80
+  nmodes: 100
+  wavelengthInNm: 0.0
+  dorms: false
+  n_inputs: 1
+  remove_piston: true
+  inputs: {in_ef: prop2.out_on_axis_source_ef}
+data_store:
+  class: DataStore
+  store_dir: ./data
+  split_size: 0
+  first_suffix: 0
+  data_format: fits
+  start_time: 0
+  create_tn: true
+  downsample_factor: 1
+  inputs:
+    input_list: [modes1-modal_analysis1.out_modes, modes2-modal_analysis2.out_modes]

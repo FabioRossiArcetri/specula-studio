@@ -1,0 +1,85 @@
+ModalAnalysis:
+  class_name: ModalAnalysis
+  bases:
+  - BaseProcessingObj
+  parameters:
+    ifunc:
+      type: IFunc
+      default: null
+      kind: reference
+    ifunc_inv:
+      type: IFuncInv
+      default: null
+      kind: reference
+    type_str:
+      type: str
+      default: null
+      kind: value
+    npixels:
+      type: int
+      default: null
+      kind: value
+    obsratio:
+      type: float
+      default: null
+      kind: value
+    diaratio:
+      type: float
+      default: null
+      kind: value
+    pupilstop:
+      type: Pupilstop
+      default: null
+      kind: reference
+    nmodes:
+      type: int
+      default: null
+      kind: value
+    wavelengthInNm:
+      type: float
+      default: 0.0
+      kind: value
+    dorms:
+      type: bool
+      default: false
+      kind: value
+    n_inputs:
+      type: int
+      default: 1
+      kind: value
+    remove_piston:
+      type: bool
+      default: true
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_ef:
+      type: ElectricField
+      kind: single
+      desc: Input electric field for modal analysis (optional, use with in_ef_list)
+    in_ef_list:
+      type: ElectricField
+      kind: single
+      desc: List of input electric fields for multi-source modal analysis (optional)
+  outputs:
+  - name: out_modes
+    type: BaseValue
+    desc: Modal coefficients from the combined/single input electric field
+  - name: rms
+    type: BaseValue
+    desc: RMS of the wavefront
+  - name: out_modes_list
+    type: list
+    desc: Per-input modal coefficient vectors (list, one per connected input)
+  output_names:
+  - out_modes
+  - rms
+  - out_modes_list
+  is_data_obj: false

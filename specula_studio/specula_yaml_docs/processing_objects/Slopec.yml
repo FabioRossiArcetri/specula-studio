@@ -1,0 +1,65 @@
+Slopec:
+  class_name: Slopec
+  bases:
+  - BaseProcessingObj
+  parameters:
+    sn:
+      type: Slopes
+      default: null
+      kind: reference
+    recmat:
+      type: Recmat
+      default: null
+      kind: reference
+    filt_intmat:
+      type: Intmat
+      default: null
+      kind: reference
+    filt_recmat:
+      type: Recmat
+      default: null
+      kind: reference
+    filtmat:
+      type: Any
+      default: null
+      kind: value
+    weight_int_pixel_dt:
+      type: float
+      default: 0
+      kind: value
+    interleave:
+      type: bool
+      default: false
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_pixels:
+      type: Pixels
+      kind: single
+      desc: Input pixel data from detector
+  outputs:
+  - name: out_slopes
+    type: Slopes
+    desc: Computed wavefront slopes
+  - name: out_flux_per_subaperture
+    type: BaseValue
+    desc: Flux per subaperture
+  - name: out_total_counts
+    type: BaseValue
+    desc: Total photon counts
+  - name: out_subap_counts
+    type: BaseValue
+    desc: Counts per subaperture
+  output_names:
+  - out_slopes
+  - out_flux_per_subaperture
+  - out_total_counts
+  - out_subap_counts
+  is_data_obj: false

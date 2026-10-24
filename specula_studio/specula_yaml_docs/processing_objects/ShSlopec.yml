@@ -1,0 +1,89 @@
+ShSlopec:
+  class_name: ShSlopec
+  bases:
+  - Slopec
+  parameters:
+    subapdata:
+      type: SubapData
+      default: REQUIRED
+      kind: reference
+    sn:
+      type: Slopes
+      default: null
+      kind: reference
+    thr_value:
+      type: float
+      default: -1
+      kind: value
+    exp_weight:
+      type: float
+      default: 1.0
+      kind: value
+    filtmat:
+      type: Any
+      default: null
+      kind: value
+    weightedPixRad:
+      type: float
+      default: 0.0
+      kind: value
+    windowing:
+      type: bool
+      default: false
+      kind: value
+    weight_int_pixel_dt:
+      type: float
+      default: 0
+      kind: value
+    window_int_pixel:
+      type: bool
+      default: false
+      kind: value
+    window_int_threshold:
+      type: float
+      default: 1.0
+      kind: value
+    vecWeiPixRadT:
+      type: list
+      default: null
+      kind: data
+    interleave:
+      type: bool
+      default: false
+      kind: value
+    target_device_idx:
+      type: int
+      default: null
+      kind: value
+    precision:
+      type: int
+      default: null
+      kind: value
+  inputs:
+    in_pixels:
+      type: Pixels
+      kind: single
+      desc: Input pixel data from detector
+  outputs:
+  - name: out_slopes
+    type: Slopes
+    desc: Computed wavefront slopes
+  - name: out_flux_per_subaperture
+    type: BaseValue
+    desc: Flux per subaperture
+  - name: out_total_counts
+    type: BaseValue
+    desc: Total photon counts
+  - name: out_subap_counts
+    type: BaseValue
+    desc: Counts per subaperture
+  - name: out_subapdata
+    type: SubapData
+    desc: Subaperture data with geometry information
+  output_names:
+  - out_slopes
+  - out_flux_per_subaperture
+  - out_total_counts
+  - out_subap_counts
+  - out_subapdata
+  is_data_obj: false
