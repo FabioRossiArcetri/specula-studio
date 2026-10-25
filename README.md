@@ -16,7 +16,7 @@ simulations, built on [Dear PyGui](https://github.com/hoffstadt/DearPyGui).
   can be picked from the `Host` entries of your OpenSSH client configuration
   (`~/.ssh/config`, i.e. `%USERPROFILE%\.ssh\config` on Windows); the alias is
   passed to `ssh`/`scp` as is, so `User`, `Port`, `IdentityFile`, `ProxyJump`…
-  all apply.
+  all apply.  See [Remote runs: setting up SSH](#remote-runs-setting-up-ssh).
 * *HPC → Submit Batch Job* runs a simulation as a SLURM job on a cluster
   (written for CINECA Leonardo): check the connection, log in with the 2FA
   `step` client, optionally upload the calibration data, generate and edit
@@ -87,3 +87,129 @@ specula-studio-parse [path/to/SPECULA/specula] specula_studio/specula_yaml_docs
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+## Remote runs: setting up SSH
+
+A *Remote* run copies the simulation to a server and runs the `specula`
+command there.  SPECULA Studio uses the `ssh` and `scp` commands of your
+computer, without a terminal to type into: **the login must work without any
+prompt**, with an SSH key.  Set this up once, as below; then pick the server
+in the control panel.
+
+### 1. Create a key and give its public half to the server
+
+Open a terminal (on Windows: PowerShell) and create a key pair.  A
+passphrase is recommended: the agent (step 2) will remember it for you.
+
+```bash
+ssh-keygen -t ed25519 -C "you@your-lab"     # accept the default file
+```
+
+This writes a private key, `~/.ssh/id_ed25519` (on Windows
+`%USERPROFILE%\.ssh\id_ed25519`), which never leaves your computer, and a
+public key, `id_ed25519.pub`, which goes to the server:
+
+* **Linux, macOS:** `ssh-copy-id -i ~/.ssh/id_ed25519.pub you@server.example.org`
+* **Windows** (no `ssh-copy-id`), in PowerShell:
+
+  ```powershell
+  type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh you@server.example.org "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+  ```
+
+  (this also works on macOS and Linux, with `cat ~/.ssh/id_ed25519.pub` in
+  place of `type ...`).
+
+You type your server password one last time; after that the key logs you in.
+
+### 2. Let the agent hold the key
+
+With a passphrase, the key must be loaded in the *ssh-agent*, which unlocks
+it once for all the logins that follow.
+
+* **Windows 10/11.**  The OpenSSH client is built in (check with `ssh -V`;
+  if it is missing, add *OpenSSH Client* in *Settings > System > Optional
+  features*).  Its agent is a Windows service, off by default: start it once,
+  in a PowerShell *run as administrator*, then add the key in a normal one.
+  The key stays in the agent across reboots.
+
+  ```powershell
+  Get-Service ssh-agent | Set-Service -StartupType Automatic   # as administrator
+  Start-Service ssh-agent                                      # as administrator
+  ssh-add $env:USERPROFILE\.ssh\id_ed25519
+  ```
+
+  Start SPECULA Studio from PowerShell, cmd or the Start menu.  Git Bash puts
+  its own `ssh` first on the `PATH`, and that one does not use the Windows
+  agent.
+
+* **macOS.**  The agent runs already; let it keep the passphrase in the
+  Keychain:
+
+  ```bash
+  ssh-add --apple-use-keychain ~/.ssh/id_ed25519
+  ```
+
+  and add these lines at the end of `~/.ssh/config`, so the key is loaded
+  again after a restart (`UseKeychain` exists only on macOS):
+
+  ```
+  Host *
+      AddKeysToAgent yes
+      UseKeychain yes
+      IdentityFile ~/.ssh/id_ed25519
+  ```
+
+* **Linux.**  Most desktops start an agent with the session (GNOME Keyring,
+  KDE Wallet): `ssh-add -l` answers without an error.  Add the key with
+  `ssh-add ~/.ssh/id_ed25519`, or put `AddKeysToAgent yes` in
+  `~/.ssh/config` to add it at its first use.  Without a desktop agent, start
+  one in the shell you launch SPECULA Studio from:
+  `eval "$(ssh-agent -s)" && ssh-add ~/.ssh/id_ed25519`.
+
+### 3. Give the server a short name
+
+Describe the server in your SSH configuration file: `~/.ssh/config` on Linux
+and macOS, `%USERPROFILE%\.ssh\config` on Windows (a plain text file with no
+extension: Notepad may add `.txt`, check the name).  Every `Host` entry
+appears in SPECULA Studio's *SSH config hosts* list.
+
+```
+Host gpu-server                       # the name you will use: any word
+    HostName gpu.example.org          # the server's address (or its IP)
+    User you                          # your login on the server
+    IdentityFile ~/.ssh/id_ed25519
+    # Port 2222                       # if the server does not use port 22
+    # ProxyJump you@gateway.example.org   # if it is reached through a gateway
+```
+
+Entries with wildcards (`Host *`) set options but are not listed; `Include`
+files are read too.
+
+### 4. Check, then run
+
+Connect once from a terminal: the first time, ssh asks you to confirm the
+server's identity (answer `yes`), which SPECULA Studio cannot do for you.
+Then check that nothing is asked any more, and that `specula` is found the
+way SPECULA Studio starts it (through an interactive `bash`):
+
+```bash
+ssh gpu-server hostname                          # prints the name, asks nothing
+ssh gpu-server "bash -ic 'which specula'"        # prints the path of specula
+```
+
+(The second command may also print two harmless lines about job control.)
+If `specula` is not found, activate its environment at the end of your
+`~/.bashrc` **on the server** (e.g. `conda activate specula`).
+
+On the server, the simulation reads its calibration data from
+`main.root_dir`: the files must be there, at that path (change `root_dir` in
+the editor if the server keeps them elsewhere).  Live monitors connect to
+SPECULA's display server on the *Display server port* (5000 by default): the
+server's firewall must let your computer reach it.  Use another port if 5000
+is taken, or `0` to let a recent SPECULA choose a free one.
+
+In SPECULA Studio: *Simulation > Control Panel*, *Execution Mode*: **Remote**,
+choose the server in *SSH config hosts*, and press **Test SSH**: it must say
+*Logged in to ... without prompts*.  Then **START SIMULATION**.  The files are
+copied to a temporary directory on the server, which is removed at the end;
+*Abort Simulation* stops the remote process too.
