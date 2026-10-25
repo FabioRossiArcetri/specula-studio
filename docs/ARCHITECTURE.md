@@ -139,7 +139,7 @@ CRLF scripts).
 ## Tool windows (simulation control, HPC)
 
 DearPyGui has one OS window per process, so the simulation control panel and
-the two HPC windows (*Submit Batch Job*, *Batch Jobs*) "in their own window"
+the two HPC windows (*Run → HPC → Submit*, *Track*) "in their own window"
 are separate processes (`control_window.py --kind control|hpc_submit|
 hpc_jobs`, one per window).  They are only remote controls: runs stay in the
 editor, where the in-process backend, its probes and the monitors live, and

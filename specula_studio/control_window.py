@@ -5,8 +5,8 @@ Started by the editor (``python -m specula_studio.control_window --address
 host:port --kind KIND``, key in the environment), one process per window:
 
 * ``control``    — the simulation control panel;
-* ``hpc_submit`` — HPC → Submit Batch Job;
-* ``hpc_jobs``   — HPC → Batch Jobs.
+* ``hpc_submit`` — Run → HPC → Submit;
+* ``hpc_jobs``   — Run → HPC → Track.
 
 Everything a window does is sent to the editor over
 :mod:`specula_studio.control_link`; the editor runs the simulations and the

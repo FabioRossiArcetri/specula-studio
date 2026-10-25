@@ -18,10 +18,10 @@ simulations, built on [Dear PyGui](https://github.com/hoffstadt/DearPyGui).
   (`~/.ssh/config`, i.e. `%USERPROFILE%\.ssh\config` on Windows); the alias is
   passed to `ssh`/`scp` as is, so `User`, `Port`, `IdentityFile`, `ProxyJump`…
   all apply.  See [Remote runs: setting up SSH](#remote-runs-setting-up-ssh).
-* *HPC → Submit Batch Job* runs a simulation as a SLURM job on a cluster
+* *Run → HPC → Submit* runs a simulation as a SLURM job on a cluster
   (written for CINECA Leonardo): check the connection, log in with the 2FA
   `step` client, optionally upload the calibration data, generate and edit
-  the job script, submit, follow the job in *HPC → Batch Jobs* (state,
+  the job script, submit, follow the job in *Run → HPC → Track* (state,
   output, cancel) and download the results when it ends.  Batch jobs run
   without a display server, so live monitors are not available for them.
   The job's simulation files default to the editor's simulation and
@@ -209,7 +209,7 @@ SPECULA's display server on the *Display server port* (5000 by default): the
 server's firewall must let your computer reach it.  Use another port if 5000
 is taken, or `0` to let a recent SPECULA choose a free one.
 
-In SPECULA Studio: *Simulation > Control Panel*, *Execution Mode*: **Remote**,
+In SPECULA Studio: *Run > Control Panel*, *Execution Mode*: **Remote**,
 choose the server in *SSH config hosts*, and press **Test SSH**: it must say
 *Logged in to ... without prompts*.  Then **START SIMULATION**.  The files are
 copied to a temporary directory on the server, which is removed at the end;

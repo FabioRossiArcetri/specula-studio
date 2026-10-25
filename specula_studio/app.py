@@ -222,6 +222,9 @@ class SpeculaEditor(
                     dpg.add_separator()
                     dpg.add_menu_item(label="Find Object...", shortcut="Ctrl+F",
                                       callback=self._show_find_object)
+                    dpg.add_separator()
+                    dpg.add_menu_item(label="Display YAML",
+                                      callback=lambda: self.sim_control.show_yaml_window())
 
                 with dpg.menu(label="Add Objects"):
                     dpg.add_menu_item(label="Search...", shortcut="Ctrl+Space",
@@ -244,14 +247,11 @@ class SpeculaEditor(
                                       callback=self._show_remove_override_menu,
                                       tag="remove_override_menu")
 
-                with dpg.menu(label="Simulation"):
+                with dpg.menu(label="Run"):
                     dpg.add_menu_item(label="Control Panel", callback=lambda: self.sim_control.show_control_window())
-                    dpg.add_menu_item(label="Display Yaml", callback=lambda: self.sim_control.show_yaml_window())
-
-                with dpg.menu(label="HPC"):
-                    dpg.add_menu_item(label="Submit Batch Job (SLURM)...",
-                                      callback=self.hpc.show_submit_window)
-                    dpg.add_menu_item(label="Batch Jobs...", callback=self.hpc.show_jobs_window)
+                    with dpg.menu(label="HPC"):
+                        dpg.add_menu_item(label="Submit...", callback=self.hpc.show_submit_window)
+                        dpg.add_menu_item(label="Track...", callback=self.hpc.show_jobs_window)
 
                 with dpg.menu(label="Layout"):
                     with dpg.menu(label="Auto Layout"):
