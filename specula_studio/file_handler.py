@@ -11,7 +11,7 @@ import os
 import dearpygui.dearpygui as dpg
 
 from .core import overrides, yaml_io
-from .dpg_utils import auto_layout_nodes
+from .dpg_utils import auto_layout_nodes, place_new_nodes
 
 log = logging.getLogger(__name__)
 
@@ -54,10 +54,10 @@ class FileHandler:
         graph = self.nm.graph
         graph.clear()
         yaml_io.load_into(graph, yaml_data)
-        has_positions = any("gui_pos" in nd for nd in graph.nodes.values())
+        unplaced = [u for u, nd in graph.nodes.items() if "gui_pos" not in nd]
         self.nm.sync_ui_from_graph()
 
-        if not has_positions and graph.nodes:
+        if graph.nodes and len(unplaced) == len(graph.nodes):
             # Plain SPECULA files carry no gui_pos: lay the graph out once the
             # nodes have been drawn (their sizes are only known after a frame).
             dpg.set_frame_callback(
@@ -65,6 +65,15 @@ class FileHandler:
                 (lambda: self.editor.auto_layout()) if self.editor is not None
                 else (lambda: auto_layout_nodes(graph, self.nm.uuid_to_dpg)),
             )
+        elif unplaced and operation_name == "LOAD":
+            # Some objects without a place, e.g. the DataSource of SPECULA's
+            # replay_params.yml (the other objects keep their gui_pos): next
+            # to the objects they are linked to.  (Overrides place their own.)
+            spacing = (int(self.editor.preferences["layout_spacing"])
+                       if self.editor is not None else 60)
+            dpg.set_frame_callback(
+                dpg.get_frame_count() + 3,
+                lambda: place_new_nodes(graph, self.nm.uuid_to_dpg, unplaced, spacing))
         log.info("[%s] %d objects, %d connections",
                  operation_name, len(graph.nodes), len(graph.connections))
 
