@@ -35,6 +35,7 @@ simulations, built on [Dear PyGui](https://github.com/hoffstadt/DearPyGui).
 * *File → Compare with Saved File* shows what changed; *File → Export
   Diagram* writes a Graphviz `.dot` (and `.svg` when Graphviz is installed).
 
+```markdown
 ## Installation
 
 ### Option 1: Install from TestPyPI
@@ -44,6 +45,33 @@ During the testing phase, you can install `specula-studio` directly from TestPyP
 ```bash
 pip install --index-url [https://test.pypi.org/simple/](https://test.pypi.org/simple/) --extra-index-url [https://pypi.org/simple/](https://pypi.org/simple/) specula-studio
 
+```
+
+*(Once officially released on PyPI, installation will simplify to standard `pip install specula-studio`.)*
+
+---
+
+### Option 2: Install from Source (Repository Checkout)
+
+If you have cloned the repository, you can install it locally:
+
+```bash
+# Basic editable install
+pip install -e .
+
+# Developer install (includes pytest, ruff, mypy, and deepdiff)
+pip install -e ".[dev]"
+
+```
+
+---
+
+> **Note on SPECULA:**
+> `specula` is listed as an automatic dependency and will be installed during setup. Ensure `specula` is correctly configured in your active Python environment for *Local Run*, tooltips, and online help functionality.
+
+```
+
+```
 ## Running
 
 ```bash
