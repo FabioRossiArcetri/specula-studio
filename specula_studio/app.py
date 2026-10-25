@@ -55,10 +55,9 @@ class SpeculaEditor(
             if pending is not None:
                 self._catalog_build = catalog.start_build(pending)
         else:   # explicit template folder (tests, tools)
-            data = catalog.annotate_optional_inputs(
-                load_template_dir(os.path.join(yaml_folder, 'data_objects')))
-            proc = catalog.annotate_optional_inputs(
-                load_template_dir(os.path.join(yaml_folder, 'processing_objects')))
+            data, proc = (catalog.apply_simul_supplied(catalog.annotate_optional_inputs(
+                load_template_dir(os.path.join(yaml_folder, sub))))
+                for sub in ('data_objects', 'processing_objects'))
             self.catalog_info = catalog.CatalogInfo("bundled", str(yaml_folder))
         self.data_obj_templates = data
         self.proc_obj_templates = proc
@@ -114,8 +113,13 @@ class SpeculaEditor(
     def _update_status_bar(self):
         name = self.current_simulation_name or "(Unsaved)"
         marker = " *" if getattr(self, "_dirty", False) else ""
+        text = f"Simulation: {name}{marker}"
+        om = getattr(self, "override_manager", None)
+        active = [pathlib.Path(p).name for p in om.get_enabled_overrides()] if om else []
+        if active:
+            text += "      Overrides: " + ", ".join(active)
         if dpg.does_item_exist("status_bar_text"):
-            dpg.set_value("status_bar_text", f"Simulation: {name}{marker}")
+            dpg.set_value("status_bar_text", text)
         try:
             dpg.set_viewport_title(f"SPECULA Studio - {name}{marker}")
         except Exception:
@@ -436,7 +440,7 @@ class SpeculaEditor(
         """
         if self.override_manager.has_base_snapshot():
             base = self.override_manager.commit_edits(self._current_export())
-            self.fh.export_simulation(path, yaml_data=self.fh._add_overrides_metadata(base))
+            self.fh.export_simulation(path, yaml_data=base)
             log.info("Saved base simulation (overrides kept separate) to %s", path)
         else:
             self.fh.save_simulation(path, self.preferences['include_defaults'])

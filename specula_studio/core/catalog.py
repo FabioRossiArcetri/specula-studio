@@ -40,6 +40,7 @@ from collections import OrderedDict
 
 from platformdirs import user_cache_dir
 
+from .syntax import REQUIRED
 from .templates import TEMPLATES_DIR, load_bundled_templates
 
 log = logging.getLogger(__name__)
@@ -101,6 +102,27 @@ def annotate_optional_inputs(templates: dict) -> dict:
         for meta in (tpl.get("inputs") or {}).values():
             if isinstance(meta, dict) and "optional" not in meta:
                 meta["optional"] = _input_optional(meta)
+    return templates
+
+
+# Constructor arguments that SPECULA's Simul supplies itself (simul.py, "Add
+# global and class-specific params"): data_dir is the class's folder under
+# root_dir (a value in the YAML still wins), so it is never required; the
+# others never come from a parameter file.
+SIMUL_SUPPLIED_DEFAULTS = {"data_dir": None}
+SIMUL_INTERNAL_ARGS = ("params_dict", "input_ref_getter", "output_ref_getter", "info_getter")
+
+
+def apply_simul_supplied(templates: dict) -> dict:
+    """Constructor arguments filled by Simul: not required, or not shown (in place)."""
+    for tpl in templates.values():
+        params = tpl.get("parameters") or {}
+        for name in SIMUL_INTERNAL_ARGS:
+            params.pop(name, None)
+        for name, default in SIMUL_SUPPLIED_DEFAULTS.items():
+            meta = params.get(name)
+            if isinstance(meta, dict) and meta.get("default") == REQUIRED:
+                meta["default"] = default
     return templates
 
 
@@ -222,10 +244,13 @@ def load_catalog(prefer_installed: bool = True):
         cached = read_cache(cache_path(root))
         if cached is not None:
             data, proc = cached
+            apply_simul_supplied(data)
+            apply_simul_supplied(proc)
             return data, proc, CatalogInfo("installed", str(root)), None
     data, proc = load_bundled_templates(TEMPLATES_DIR)
-    annotate_optional_inputs(data)
-    annotate_optional_inputs(proc)
+    for templates in (data, proc):
+        annotate_optional_inputs(templates)
+        apply_simul_supplied(templates)
     return data, proc, CatalogInfo("bundled", str(TEMPLATES_DIR)), root
 
 

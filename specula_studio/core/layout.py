@@ -25,7 +25,9 @@ Analysis
   level with the mean of its neighbours, without overlaps, so links run as
   straight as possible.
 
-:func:`grid` places a group of new objects (Add Multiple Objects).
+:func:`grid` places a group of new objects (Add Multiple Objects);
+:func:`place_new` fits new objects into a laid-out graph, next to the
+objects they are linked to (the objects an override adds).
 
 Positions are top-left corners in canvas pixels (a node's ``gui_pos``).
 """
@@ -355,6 +357,47 @@ def grid(nodes: list, sizes: dict, gap_x: float = 40, gap_y: float = 40,
             x += col_w[c] + gap_x
         y += row_h[r] + gap_y
     return positions
+
+
+def place_new(new: list, positions: dict, sizes: dict, edges: list[Edge],
+              gap: float = 60) -> dict:
+    """Positions for the *new* nodes of a graph whose other nodes stay at
+    *positions*: each one right of the nodes that feed it (else left of those
+    it feeds, else right of everything), level with the highest of them, and
+    moved down until it overlaps nothing.  Nodes linked to placed ones come
+    first, so that a chain of new nodes follows its first link."""
+    placed = dict(positions)
+    boxes = [(x, y, *sizes[n]) for n, (x, y) in positions.items()]
+    out: dict = {}
+    todo = list(new)
+    while todo:
+        def linked(n):
+            return sum(1 for a, b in edges if (a == n and b in placed) or (b == n and a in placed))
+        n = max(todo, key=linked)
+        todo.remove(n)
+        w, h = sizes[n]
+        sources = [a for a, b in edges if b == n and a in placed]
+        targets = [b for a, b in edges if a == n and b in placed]
+        if sources:
+            x = max(placed[s][0] + sizes[s][0] for s in sources) + gap
+            y = min(placed[s][1] for s in sources)
+        elif targets:
+            x = min(placed[t][0] for t in targets) - gap - w
+            y = min(placed[t][1] for t in targets)
+        elif placed:
+            x = max(px + sizes[p][0] for p, (px, _) in placed.items()) + gap
+            y = min(py for _, py in placed.values())
+        else:
+            x = y = 0.0
+        while True:                     # down past whatever is in the way
+            hit = [b for b in boxes if x < b[0] + b[2] + gap and b[0] < x + w + gap
+                   and y < b[1] + b[3] + gap and b[1] < y + h + gap]
+            if not hit:
+                break
+            y = max(b[1] + b[3] for b in hit) + gap
+        placed[n] = out[n] = (x, y)
+        boxes.append((x, y, w, h))
+    return out
 
 
 STRATEGIES = {

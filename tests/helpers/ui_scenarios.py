@@ -103,6 +103,7 @@ def scenario_override_preview():
     import yaml
 
     from specula_studio.app import SpeculaEditor as Editor
+    from specula_studio.core.overrides import parse_overrides_comment
 
     tmp = tempfile.mkdtemp()
     sim = shutil.copy(f"{FIXTURES}/params_scao_sh_test.yml", tmp)
@@ -124,7 +125,8 @@ def scenario_override_preview():
     res.update(saved_total_time=saved["main"]["total_time"],
                saved_psf_wl=saved["psf"]["wavelengthInNm"],
                saved_has_im_calibrator="im_calibrator" in saved,
-               saved_meta=saved.get("_overrides_metadata"))
+               saved_meta={"overrides": parse_overrides_comment(open(sim).read())},
+               saved_specula_keys=sorted(k for k in saved if str(k).startswith("_")))
     ed._on_override_toggled(ov)        # disable
     res.update(off_total_time=val("main", "total_time"), off_psf_wl=val("psf", "wavelengthInNm"),
                off_has_im_calibrator=g.find_by_name("im_calibrator") is not None)
