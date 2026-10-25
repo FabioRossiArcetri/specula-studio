@@ -1,5 +1,7 @@
 """Pure-core load/export tests (no DearPyGui involved)."""
 
+import copy
+
 import pytest
 import yaml
 
@@ -67,3 +69,18 @@ def test_parse_and_format_source(text, expected):
 def test_unique_name():
     assert syntax.unique_name("dm", set()) == "dm"
     assert syntax.unique_name("dm", {"dm", "dm_1"}) == "dm_2"
+
+
+def test_datasource_outputs_are_its_parameter_too():
+    # DataSource takes the names of the saved outputs as its "outputs"
+    # parameter: loaded, it is set (not a missing required value), and the
+    # file is written back unchanged
+    from specula_studio.core.validation import node_issues
+    data, proc = load_bundled_templates()
+    raw = {"main": {"class": "SimulParams", "root_dir": "."},
+           "data_source": {"class": "DataSource", "outputs": ["wfsPhi"],
+                           "store_dir": "./output/20261025_141005"}}
+    g = yaml_io.load_graph(copy.deepcopy(raw), {**data, **proc})
+    u = g.find_by_name("data_source")
+    assert not [i for i in node_issues(g, u) if i.field == "outputs"]
+    assert dict(yaml_io.export_graph(g)["data_source"]) == raw["data_source"]

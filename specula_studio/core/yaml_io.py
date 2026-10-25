@@ -152,6 +152,11 @@ def _populate_nodes(graph: Graph, yaml_data: dict) -> dict:
             node_data["file_outputs"] = list(content["outputs"])
 
         values = node_data["values"]
+        # a class whose constructor takes "outputs" (DataSource: the names of
+        # the saved outputs it reads back) gets the list as that parameter too
+        if ("file_outputs" in node_data
+                and "outputs" in (graph.templates.get(node_type, {}).get("parameters") or {})):
+            values["outputs"] = list(node_data["file_outputs"])
 
         for key, value in content.items():
             if key in ("class", "inputs", "outputs", "gui_pos"):
