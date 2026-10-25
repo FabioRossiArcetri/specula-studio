@@ -127,13 +127,18 @@ def connect(address, authkey: bytes):
 class WindowProcess:
     """Launches (once) the tool window process of *kind* for a :class:`ControlServer`.
 
-    *kind* selects the view (see ``control_window.KINDS``).
+    *kind* selects the view (see ``control_window.KINDS``).  With *argv*,
+    the process is ``python -m <module> --link host:port *argv`` instead
+    (the monitor windows of Local Runs: :mod:`specula_studio.monitor_window`).
     """
 
-    def __init__(self, server: ControlServer, kind: str, title: str):
+    def __init__(self, server: ControlServer, kind: str, title: str,
+                 module: str = "", argv=()):
         self.server = server
         self.kind = kind
         self.title = title
+        self.module = module
+        self.argv = list(argv)
         self.process: subprocess.Popen | None = None
 
     @property
@@ -149,11 +154,12 @@ class WindowProcess:
         env = _subprocess_env()
         env[KEY_ENV] = self.server.authkey.hex()
         host, port = self.server.address
-        self.process = subprocess.Popen(
-            [sys.executable, "-m", "specula_studio.control_window",
-             "--address", f"{host}:{port}", "--kind", self.kind, "--title", self.title],
-            env=env, cwd=os.getcwd(),
-        )
+        if self.module:
+            cmd = [sys.executable, "-m", self.module, "--link", f"{host}:{port}", *self.argv]
+        else:
+            cmd = [sys.executable, "-m", "specula_studio.control_window",
+                   "--address", f"{host}:{port}", "--kind", self.kind, "--title", self.title]
+        self.process = subprocess.Popen(cmd, env=env, cwd=os.getcwd())
         log.info("%s window started (pid %s)", self.title, self.process.pid)
 
     def stop(self, timeout: float = 3.0) -> None:

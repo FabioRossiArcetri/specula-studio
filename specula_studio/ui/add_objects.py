@@ -45,6 +45,9 @@ class AddObjectsMixin:
             )
             dpg.add_separator()
             dpg.add_spacer(height=4)
+            dpg.add_input_text(tag="_mo_filter", hint="type to filter the classes",
+                               width=2 * COL_W + 8, callback=self._mo_apply_filter)
+            dpg.add_spacer(height=4)
             with dpg.group(horizontal=True):
                 with dpg.group(width=COL_W):
                     dpg.add_text("Processing Objects")
@@ -83,8 +86,20 @@ class AddObjectsMixin:
     def _show_add_multiple_dialog(self):
         self._multi_add_queue.clear()
         self._mo_refresh_staged()
+        dpg.set_value("_mo_filter", "")
+        self._mo_apply_filter()
         self._center_dialog("add_multiple_dialog")
         dpg.show_item("add_multiple_dialog")
+
+    def _mo_apply_filter(self, *_):
+        """Show only the classes whose name contains the filter text."""
+        text = dpg.get_value("_mo_filter").strip().lower()
+        for tag, templates in (("_mo_proc_listbox", self.proc_obj_templates),
+                               ("_mo_data_listbox", self.data_obj_templates)):
+            items = [n for n in sorted(templates) if text in n.lower()]
+            dpg.configure_item(tag, items=items)
+            if items and dpg.get_value(tag) not in items:
+                dpg.set_value(tag, items[0])
 
     def _on_add_multiple_close(self):
         self._multi_add_queue.clear()
@@ -127,6 +142,9 @@ class AddObjectsMixin:
             created_uuids.append((node_uuid, node_type))
         dpg.split_frame()
         dpg.split_frame()
+        # drawn: their sizes are known, arrange them in a grid
+        self.nm.arrange_in_grid([u for u, _ in created_uuids],
+                                int(self.preferences["layout_spacing"]))
         if self.preferences['auto_simul_params']:
             self._apply_auto_simul_params(created_uuids)
         log.info(f"[ADD_MULTIPLE] Created {len(self._multi_add_queue)} node(s): {self._multi_add_queue}")

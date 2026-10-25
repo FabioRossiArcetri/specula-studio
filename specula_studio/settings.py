@@ -33,6 +33,7 @@ DEFAULTS: dict = {
     "auto_simul_params": True,
     "include_defaults": False,
     "render_size": "MEDIUM",
+    "layout_spacing": 60,       # pixels between nodes in the automatic layouts
     "font_path": None,          # None → matplotlib's DejaVuSerif
     "recent_files": [],
     "theme": "dark",

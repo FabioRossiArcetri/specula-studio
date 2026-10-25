@@ -31,6 +31,7 @@ import dearpygui.dearpygui as dpg
 
 from .. import hpc
 from ..core import slurm, ssh_config, yaml_io
+from ..render_scale import px
 
 
 # Options that belong to the user's site rather than to a job: kept when a
@@ -79,12 +80,12 @@ class HpcSubmitView:
         hint = tm.get_color("text_hint")
         head = tm.get_color("control_subsection_header")
         hosts = [h.alias for h in ssh_config.list_ssh_hosts()]
-        w = -220
+        w = px(-220)
 
         with dpg.group(parent=parent):
             dpg.add_text("Batch jobs run without a display server: live monitors are "
                          "not available; results are downloaded when the job ends.",
-                         color=hint, wrap=820)
+                         color=hint, wrap=px(820))
 
             # ── cluster ──────────────────────────────────────────────────────
             dpg.add_separator()
@@ -102,13 +103,13 @@ class HpcSubmitView:
                 dpg.add_button(label="Check connection", callback=self._on_check_connection)
                 dpg.add_text("not checked", tag=t("conn_status"), color=hint)
             with dpg.group(horizontal=True):
-                dpg.add_input_text(tag=t("step_email"), width=260,
+                dpg.add_input_text(tag=t("step_email"), width=px(260),
                                    default_value=prof["step_email"],
                                    hint="CINECA account e-mail")
                 dpg.add_button(label="Log in (2FA, step)", callback=self._on_step_login)
             dpg.add_text(f"Leonardo needs a 12-hour certificate: step ssh login <email> "
                          f"--provisioner {hpc.STEP_PROVISIONER} (opens the browser).",
-                         color=hint, wrap=820)
+                         color=hint, wrap=px(820))
             dpg.add_input_text(label="Remote working directory", tag=t("remote_base"),
                                width=w, default_value=prof["remote_base"])
 
@@ -116,18 +117,18 @@ class HpcSubmitView:
             dpg.add_separator()
             dpg.add_text("Data", color=head)
             dpg.add_input_text(label="Path mapping", tag=t("path_map"), multiline=True,
-                               width=w, height=60, default_value=prof["path_map"],
+                               width=w, height=px(60), default_value=prof["path_map"],
                                callback=self._show_root_dir)
             dpg.add_text("Data mirrored on the cluster: one 'local prefix -> cluster prefix' "
                          "per line, applied to root_dir and every other path of the "
                          "simulation ($WORK is expanded on the cluster).",
-                         color=hint, wrap=820)
-            dpg.add_text("", tag=t("root_preview"), color=hint, wrap=820)
+                         color=hint, wrap=px(820))
+            dpg.add_text("", tag=t("root_preview"), color=hint, wrap=px(820))
             dpg.add_checkbox(label="Upload calibration data before submitting",
                              tag=t("calib_upload"), default_value=prof["calib_upload"],
                              callback=self.update_root_dir)
             with dpg.group(horizontal=True):
-                dpg.add_input_text(label="", tag=t("calib_local"), width=w + 120,
+                dpg.add_input_text(label="", tag=t("calib_local"), width=w + px(120),
                                    default_value=(prof["calib_local"]
                                                   or self.sim_info.get("local_calib", "")),
                                    callback=self.update_root_dir)
@@ -162,25 +163,25 @@ class HpcSubmitView:
                 for name, label in (("nodes", "Nodes"), ("ntasks_per_node", "Tasks/node"),
                                     ("cpus_per_task", "CPUs/task"),
                                     ("gpus_per_node", "GPUs/node")):
-                    dpg.add_input_int(label=label, tag=t(name), width=90,
+                    dpg.add_input_int(label=label, tag=t(name), width=px(90),
                                       default_value=int(getattr(opts, name)), min_value=0,
                                       min_clamped=True)
             dpg.add_text("More than one task in total runs SPECULA with --mpi "
                          "(objects distributed with target_rank).", color=hint)
             dpg.add_input_text(label="Modules", tag=t("modules"), multiline=True,
-                               width=w, height=60, default_value="\n".join(opts.modules))
+                               width=w, height=px(60), default_value="\n".join(opts.modules))
             dpg.add_input_text(label="Environment setup", tag=t("setup"), multiline=True,
-                               width=w, height=50, default_value=opts.setup,
+                               width=w, height=px(50), default_value=opts.setup,
                                hint="e.g. source $WORK/venv/bin/activate")
             dpg.add_input_text(label="Extra #SBATCH options", tag=t("extra_sbatch"),
-                               multiline=True, width=w, height=36,
+                               multiline=True, width=w, height=px(36),
                                default_value=opts.extra_sbatch, hint="--mem=100G")
             with dpg.group(horizontal=True):
                 dpg.add_checkbox(label="CPU only (--cpu)", tag=t("cpu"),
                                  default_value=opts.cpu)
-                dpg.add_combo(["0", "1"], label="Precision", tag=t("precision"), width=50,
+                dpg.add_combo(["0", "1"], label="Precision", tag=t("precision"), width=px(50),
                               default_value=str(opts.precision))
-                dpg.add_input_int(label="N-simul", tag=t("nsimul"), width=90,
+                dpg.add_input_int(label="N-simul", tag=t("nsimul"), width=px(90),
                                   default_value=int(opts.nsimul), min_value=1,
                                   min_clamped=True)
                 dpg.add_checkbox(label="Diagram", tag=t("diagram"),
@@ -193,14 +194,14 @@ class HpcSubmitView:
             dpg.add_text("Simulation files (passed to specula in this order)", color=head)
             dpg.add_text("Loading a script fills this list; generating the script uses it. "
                          "Each file is uploaded with the name shown after the arrow.",
-                         color=hint, wrap=820)
+                         color=hint, wrap=px(820))
             dpg.add_group(tag=t("files"))
             with dpg.group(horizontal=True):
                 dpg.add_button(label="Add override...", callback=self._add_override)
                 dpg.add_button(label="Use the editor's files", callback=self.use_editor_files)
             dpg.add_text(f"+ {slurm.HPC_OVERRIDE_NAME} (added by Studio, applied last: "
                          "path mapping, no display server, results in the job directory)",
-                         color=hint, wrap=820)
+                         color=hint, wrap=px(820))
 
             # ── job script ───────────────────────────────────────────────────
             dpg.add_separator()
@@ -211,7 +212,7 @@ class HpcSubmitView:
                 dpg.add_text("The script can be edited before submitting.", color=hint)
             dpg.add_checkbox(label="When loading a script, keep my account, modules and "
                              "environment setup", tag=t("keep_site"), default_value=True)
-            dpg.add_input_text(tag=t("script"), multiline=True, width=-1, height=220,
+            dpg.add_input_text(tag=t("script"), multiline=True, width=-1, height=px(220),
                                tab_input=True)
 
             # ── results / submit ─────────────────────────────────────────────
@@ -223,13 +224,13 @@ class HpcSubmitView:
                                width=w, default_value=prof["download_dir"])
             dpg.add_separator()
             with dpg.group(horizontal=True):
-                dpg.add_button(label="SUBMIT JOB", width=160, height=32,
+                dpg.add_button(label="SUBMIT JOB", width=px(160), height=px(32),
                                callback=self._on_submit)
                 dpg.add_button(label="Save settings", callback=self._on_save_profile)
                 dpg.add_button(label="Jobs...",
                                callback=lambda: self.command({"type": "show_jobs"}))
             dpg.add_input_text(tag=t("log"), multiline=True, readonly=True, width=-1,
-                               height=140)
+                               height=px(140))
         self.draw_files()
         self.update_root_dir()
         self.generate_script()
@@ -274,7 +275,7 @@ class HpcSubmitView:
         with dpg.group(horizontal=True, parent=parent):
             dpg.add_text(f"{label:<11}")
             dpg.add_input_text(tag=self._row_tag(index, "path"), default_value=path,
-                               width=420, hint=hint, user_data=index,
+                               width=px(420), hint=hint, user_data=index,
                                callback=self._on_file_edited)
             dpg.add_button(label="...", user_data=index,
                            callback=lambda s, a, u: self._browse_yaml(u))
@@ -334,7 +335,7 @@ class HpcSubmitView:
 
         start = os.path.dirname(current) if current else (
             os.path.dirname(self.override_files[-1]) if self.override_files else os.getcwd())
-        with dpg.file_dialog(show=True, tag=tag, width=760, height=420, callback=chosen,
+        with dpg.file_dialog(show=True, tag=tag, width=px(760), height=px(420), callback=chosen,
                              default_path=start if os.path.isdir(start) else os.getcwd()):
             dpg.add_file_extension(".yml")
             dpg.add_file_extension(".yaml")
@@ -383,7 +384,7 @@ class HpcSubmitView:
             if path:
                 self.load_script(path)
 
-        with dpg.file_dialog(show=True, tag=tag, width=760, height=420, callback=chosen,
+        with dpg.file_dialog(show=True, tag=tag, width=px(760), height=px(420), callback=chosen,
                              default_path=os.getcwd()):
             for ext in (".slurm", ".sh", ".sbatch", ".job", ".*"):
                 dpg.add_file_extension(ext)
@@ -457,7 +458,7 @@ class HpcSubmitView:
             except OSError as exc:
                 self.append_log(f"Cannot save {path}: {exc}")
 
-        with dpg.file_dialog(show=True, tag=tag, width=760, height=420, callback=chosen,
+        with dpg.file_dialog(show=True, tag=tag, width=px(760), height=px(420), callback=chosen,
                              default_path=os.getcwd(),
                              default_filename=f"{self.options().job_name or 'job'}"):
             dpg.add_file_extension(".slurm")
@@ -574,8 +575,8 @@ class HpcSubmitView:
                 dpg.set_value(self.t("calib_local"), path)
                 self.update_root_dir()
 
-        dpg.add_file_dialog(directory_selector=True, show=True, tag=tag, width=700,
-                            height=400, callback=chosen,
+        dpg.add_file_dialog(directory_selector=True, show=True, tag=tag, width=px(700),
+                            height=px(400), callback=chosen,
                             default_path=dpg.get_value(self.t("calib_local")) or os.getcwd())
 
     def apply_preset(self, sender, name) -> None:
@@ -710,7 +711,7 @@ class HpcJobsView:
                                callback=lambda: self.command({"type": "refresh_jobs"}))
                 dpg.add_text("States and the output of running jobs are refreshed every "
                              "minute.", color=hint)
-            dpg.add_child_window(tag=self.t("jobs_list"), border=False, height=200)
+            dpg.add_child_window(tag=self.t("jobs_list"), border=False, height=px(200))
             dpg.add_separator()
             with dpg.group(horizontal=True):
                 dpg.add_text("", tag=self.t("output_title"),

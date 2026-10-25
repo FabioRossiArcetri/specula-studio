@@ -53,3 +53,56 @@ def test_render_scale_sizes():
     render_scale.set_size("NOPE")
     assert render_scale.get_size() == render_scale.RENDER_SIZES[-1]
     render_scale.set_size(render_scale.DEFAULT_RENDER_SIZE)
+
+
+def test_tool_window_sizes_follow_the_font():
+    # laid out for DearPyGui's 13 px font: same pixels at 13 px, more at MEDIUM
+    for size in render_scale.RENDER_SIZES:
+        render_scale.set_size(size)
+        factor = render_scale.font_size() / render_scale.LAYOUT_FONT_SIZE
+        assert render_scale.px(520) == round(520 * factor)
+        assert render_scale.px(-140) == -render_scale.px(140)
+    render_scale.set_size(render_scale.DEFAULT_RENDER_SIZE)
+    assert render_scale.px(130) > 130
+
+
+def test_local_run_log_goes_to_the_terminal_in_batches():
+    import logging
+    import threading
+    import time
+
+    from specula_studio.simulation_backend import _RunLog
+
+    shown = []
+    root = logging.getLogger()
+    level = root.level
+    root.setLevel(logging.INFO)
+
+    def run():
+        handler = _RunLog(threading.get_ident(), shown.append)
+        root.addHandler(handler)
+        try:
+            for i in range(50):
+                logging.getLogger("psf").info("SR %d", i)
+            logging.getLogger("specula_studio.x").info("editor log")   # not SPECULA's
+            other = threading.Thread(target=lambda: logging.getLogger("psf").info("other thread"))
+            other.start()
+            other.join()
+            time.sleep(3 * _RunLog.FLUSH_SECONDS)       # a batch is sent meanwhile
+            logging.getLogger("psf").info("last")
+        finally:
+            root.removeHandler(handler)
+            handler.flush()
+
+    try:
+        thread = threading.Thread(target=run)
+        thread.start()
+        thread.join()
+    finally:
+        root.setLevel(level)
+    text = "".join(shown)
+    assert len(shown) == 2                                  # two batches, not 51 lines
+    assert [f"SR {i}" in text for i in range(50)] == [True] * 50
+    assert text.index("SR 49") < text.index("last")
+    assert "[psf]: SR 0" in text
+    assert "editor log" not in text and "other thread" not in text

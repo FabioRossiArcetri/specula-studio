@@ -17,6 +17,9 @@ specula_studio/
     slurm.py            sbatch script + HPC override (see below)
     ssh_config.py       Host entries of ~/.ssh/config
     diagram.py          Graphviz export
+    layout.py           automatic layouts (Layout menu): left to right,
+                        compact (wrapped to the window width), data objects on top;
+                        node spacing: preference layout_spacing
   ui/                   DearPyGui mixins of the main window (SpeculaEditor)
     dialogs.py, add_objects.py, preferences.py, overrides_menu.py,
     log_window.py, edit_actions.py, tools.py;
@@ -90,18 +93,24 @@ including `_<N>` keys for `--nsimul` runs) and `server.json` for monitor
 subprocesses.  `main.root_dir / total_time / time_step` are filled with
 SimulParams' defaults when missing, because `Simul` reads them from the YAML.
 
-* **In-process** (`InProcessBackend`): `Simul(*files).run()` in a thread.
+* **Local Run** (`InProcessBackend`): `Simul(*files).run()` in a thread.
   Before each run every `specula.*` submodule imported earlier is dropped and
   `specula.init(device, precision)` is called first — SPECULA modules copy
   `xp` / `global_precision` at import time.  `LoopControl.run/iter` are
   wrapped only during the run: probes for open monitors are added before the
   first step, later ones between steps, and abort stops the loop.  Probes read
   `array_for_display()` (as SPECULA's DisplayServer does) into a CPU copy.
-* **Local / SSH** (`RemoteBackend`): the `specula` command, with a
-  DisplayServer (data mode, session id) injected.  Port `0` lets SPECULA pick a
-  free port, read back from its `[SPECULA_PORT:n]` output line.  Remote runs
-  use a private `/tmp/specula_studio_*` directory and `ssh -tt`, so aborting
-  also stops the remote process; the directory is removed afterwards.
+  Their monitors are separate windows too: `InProcessMonitor` keeps the
+  newest frame from the `MonitorBus` and a sender thread passes it over a
+  `control_link` to a `monitor_window --link` process, the same window the
+  Remote monitors use; old frames are dropped, so neither the simulation nor
+  the editor waits for a window.
+* **Remote** (`RemoteBackend`), on localhost or over SSH: the `specula`
+  command, with a DisplayServer (data mode, session id) injected.  Port `0`
+  lets SPECULA pick a free port, read back from its `[SPECULA_PORT:n]` output
+  line.  SSH runs use a private `/tmp/specula_studio_*` directory and
+  `ssh -tt`, so aborting also stops the remote process; the directory is
+  removed afterwards.
 
 ### Possible SPECULA-side hooks
 
@@ -130,7 +139,7 @@ CRLF scripts).
 ## Tool windows (simulation control, HPC)
 
 DearPyGui has one OS window per process, so the simulation control panel and
-the two HPC windows (*Submit Batch Job*, *Batch Jobs*) "in their own window"
+the two HPC windows (*Run → HPC → Submit*, *Track*) "in their own window"
 are separate processes (`control_window.py --kind control|hpc_submit|
 hpc_jobs`, one per window).  They are only remote controls: runs stay in the
 editor, where the in-process backend, its probes and the monitors live, and

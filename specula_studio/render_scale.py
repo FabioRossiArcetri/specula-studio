@@ -94,6 +94,16 @@ def font_size() -> int:
     return SCALE_DEFS[_current_size]["font_size"]
 
 
+# The tool windows (control panel, HPC) were laid out with DearPyGui's
+# built-in font, 13 px high: their fixed sizes follow the UI font.
+LAYOUT_FONT_SIZE = 13
+
+
+def px(n: float) -> int:
+    """*n* pixels of a tool window's layout, at the current font size."""
+    return round(n * font_size() / LAYOUT_FONT_SIZE)
+
+
 def node_header_spacer_width() -> int:
     return SCALE_DEFS[_current_size]["node_header_spacer_width"]
 

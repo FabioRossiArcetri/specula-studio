@@ -115,5 +115,9 @@ def test_kinds_of_nodes_and_states_are_distinguishable(tid):
     assert contrast(t.get("node_incomplete_outline"), t.get("node_editor_bg")) >= 3.0
     assert contrast(t.get("node_highlight"), t.get("node_editor_bg")) >= 1.8
     assert contrast(t.get("link_default"), t.get("node_editor_bg")) >= 3.0
+    for pin in ("node_pin", "node_ref_pin"):                 # orange / yellow pins
+        for body in ("node_data_bg", "node_proc_bg"):
+            assert contrast(t.get(pin), t.get(body)) >= 3.0, (pin, body)
+    assert t.get("node_pin") != t.get("node_ref_pin")
     assert len({t.get(k)[:3] for k in ("text_success", "text_error",
                                        "monitor_status_waiting")}) == 3

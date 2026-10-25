@@ -1,6 +1,6 @@
 import dearpygui.dearpygui as dpg
-from collections import deque
 from . import render_scale
+from .core import layout
 from .theme_manager import ThemeManager
 import logging
 
@@ -133,6 +133,18 @@ def create_proc_node_theme_incomplete():
     )
 
 
+def create_ref_pin_theme():
+    """Reference pins (bound to their node attributes): yellow, not orange."""
+    tm = ThemeManager()
+    with dpg.theme() as theme:
+        with dpg.theme_component(dpg.mvNodeAttribute):
+            dpg.add_theme_color(dpg.mvNodeCol_Pin, tm.get_color("node_ref_pin"),
+                                category=dpg.mvThemeCat_Nodes)
+            dpg.add_theme_color(dpg.mvNodeCol_PinHovered, tm.get_color("node_ref_pin_hover"),
+                                category=dpg.mvThemeCat_Nodes)
+    return theme
+
+
 def apply_link_style(link_id: int, color: list, thickness: float = 1.0) -> None:
     """Apply a colour/thickness theme to a node link."""
     with dpg.theme() as link_theme:
@@ -143,129 +155,30 @@ def apply_link_style(link_id: int, color: list, thickness: float = 1.0) -> None:
     dpg.bind_item_theme(link_id, link_theme)
 
 
-def auto_layout_nodes(graph, uuid_to_dpg):
-    """Organize nodes into a grid layout using actual node sizes to prevent overlap."""
-    log.debug(f"[AUTO_LAYOUT] Starting auto layout with {len(graph.nodes)} nodes")
-
+def auto_layout_nodes(graph, uuid_to_dpg, strategy: str = "left_to_right",
+                      spacing: int = 60, data_types=()):
+    """Lay the graph out with one of :data:`core.layout.STRATEGIES`, using the
+    actual node sizes (nodes must have been drawn once): *spacing* pixels
+    between nodes, *data_types* the classes of data objects."""
     if not graph.nodes:
-        log.debug("[AUTO_LAYOUT] No nodes to layout")
         return
-
-    nodes = list(graph.nodes.keys())
-
-    # --- Build clean connection list (skip feedback / reference edges) ---
-    clean_connections = []
-    for conn in graph.connections:
-        src, src_attr, dst, dst_attr = conn
-
-        if dst_attr.endswith("_ref") or dst_attr == "layer_list" or "params" in dst_attr.lower():
-            log.debug(f"[AUTO_LAYOUT] Skipping reference: {src}.{src_attr} -> {dst}.{dst_attr}")
-            continue
-
-        conn_props = graph.connection_properties.get(conn, {})
-        if conn_props.get('delay', 0) == -1:
-            log.debug(f"[AUTO_LAYOUT] Skipping feedback: {src}.{src_attr} -> {dst}.{dst_attr}")
-            continue
-
-        if ":-" in str(src_attr):
-            log.debug(f"[AUTO_LAYOUT] Skipping feedback pattern: {src}.{src_attr} -> {dst}.{dst_attr}")
-            continue
-
-        clean_connections.append((src, dst))
-
-    log.debug(f"[AUTO_LAYOUT] Using {len(clean_connections)} connections for layout")
-
-    # --- Topological sort → assign depth levels ---
-    adj       = {n: [] for n in nodes}
-    in_degree = {n: 0  for n in nodes}
-
-    for src, dst in clean_connections:
-        if src in adj and dst in adj:
-            adj[src].append(dst)
-            in_degree[dst] += 1
-
-    queue = deque([n for n in nodes if in_degree[n] == 0])
-    if not queue and nodes:
-        queue.append(nodes[0])
-
-    levels = {}
-    level  = 0
-    while queue:
-        next_queue = deque()
-        for _ in range(len(queue)):
-            node = queue.popleft()
-            if node not in levels:
-                levels[node] = level
-            for neighbor in adj[node]:
-                in_degree[neighbor] -= 1
-                if in_degree[neighbor] == 0:
-                    next_queue.append(neighbor)
-        queue  = next_queue
-        level += 1
-
-    for node in nodes:
-        if node not in levels:
-            levels[node] = 0
-            log.debug(f"[AUTO_LAYOUT] Node {node} unleveled (cycle/disconnected), assigning level 0")
-
-    # --- Group by level ---
-    level_groups: dict = {}
-    for node, lvl in levels.items():
-        level_groups.setdefault(lvl, []).append(node)
-
-    # --- Collect actual node sizes from DPG ---
-    node_sizes: dict = {}
-    fallback_w = render_scale.layout_horizontal_spacing()
-    fallback_h = render_scale.layout_vertical_spacing()
-
-    for node_id in nodes:
-        dpg_id = uuid_to_dpg.get(node_id)
-        if dpg_id and dpg.does_item_exist(dpg_id):
-            try:
-                w, h = dpg.get_item_rect_size(dpg_id)
-                node_sizes[node_id] = (w if w > 0 else fallback_w,
-                                       h if h > 0 else fallback_h)
-            except Exception:
-                node_sizes[node_id] = (fallback_w, fallback_h)
-        else:
-            node_sizes[node_id] = (fallback_w, fallback_h)
-
-    # --- Spacing constants ---
-    pad_x  = render_scale.layout_horizontal_spacing()
-    pad_y  = render_scale.layout_vertical_spacing()
-    base_x = render_scale.auto_layout_base_x()
-    base_y = render_scale.auto_layout_base_y()
-
-    # --- Compute column x-positions ---
-    sorted_levels = sorted(level_groups.keys())
-
-    col_x: dict = {}
-    cursor_x = base_x
-    for lvl in sorted_levels:
-        col_x[lvl] = cursor_x
-        max_w = max(node_sizes[n][0] for n in level_groups[lvl])
-        cursor_x += max_w + pad_x
-
-    # --- Position each node ---
-    positioned = 0
-    for lvl in sorted_levels:
-        nodes_in_level = level_groups[lvl]
-        x        = col_x[lvl]
-        cursor_y = base_y
-
-        for node_id in nodes_in_level:
-            dpg_id = uuid_to_dpg.get(node_id)
-            if not dpg_id or not dpg.does_item_exist(dpg_id):
-                log.debug(f"[AUTO_LAYOUT] Skipping {node_id}: no valid DPG ID")
-                continue
-
-            w, h = node_sizes[node_id]
-            node_name = graph.nodes[node_id].get('name', node_id[:4])
-
-            log.debug(f"[AUTO_LAYOUT] [{lvl}] {node_name} → ({x:.0f}, {cursor_y:.0f})  size=({w:.0f}x{h:.0f})")
-
-            dpg.set_item_pos(dpg_id, [x, cursor_y])
-            cursor_y += h + pad_y
-            positioned += 1
-
-    log.debug(f"[AUTO_LAYOUT] Done. Positioned {positioned}/{len(nodes)} nodes across {len(sorted_levels)} columns")
+    nodes = [u for u in graph.nodes if uuid_to_dpg.get(u) and dpg.does_item_exist(uuid_to_dpg[u])]
+    fallback = (render_scale.node_header_spacer_width(), 4 * render_scale.font_size())
+    sizes = {}
+    for u in nodes:
+        w, h = dpg.get_item_rect_size(uuid_to_dpg[u])
+        sizes[u] = (w if w > 0 else fallback[0], h if h > 0 else fallback[1])
+    edges, refs = layout.graph_edges(graph)
+    options = dict(gap_x=spacing, gap_y=spacing,
+                   origin=(render_scale.auto_layout_base_x(), render_scale.auto_layout_base_y()))
+    if strategy == "compact":
+        try:
+            options["max_width"] = dpg.get_item_rect_size("specula_editor_parent")[0] - 40
+        except Exception:
+            pass
+    elif strategy == "data_objects_on_top":
+        options["data_objects"] = {u for u in nodes if graph.nodes[u].get("type") in data_types}
+    positions = layout.STRATEGIES[strategy](nodes, sizes, edges, refs, **options)
+    for u, (x, y) in positions.items():
+        dpg.set_item_pos(uuid_to_dpg[u], [round(x), round(y)])
+    log.debug("[AUTO_LAYOUT] %s: %d nodes", strategy, len(positions))

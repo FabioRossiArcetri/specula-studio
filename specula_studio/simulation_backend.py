@@ -37,6 +37,7 @@ import io
 import locale
 import logging
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -45,7 +46,7 @@ import traceback
 import uuid
 from abc import ABC, abstractmethod
 
-from .core.run_prep import extract_port, remote_shell_command, specula_cli_args
+from .core.run_prep import extract_port, remote_kill_command, remote_shell_command, specula_cli_args
 from .monitor_data import extract_display_array, make_payload
 from .sshutil import SSH_OPTIONS, explain_ssh_failure, run_command
 
@@ -53,6 +54,9 @@ log = logging.getLogger(__name__)
 
 # Encoding of the specula process's output and input (as text pipes would use)
 _OUTPUT_ENCODING = locale.getpreferredencoding(False)
+# terminal colour / cursor codes in the output (Flask colours its warnings):
+# the terminal widget cannot show them
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
 
 # ---------------------------------------------------------------------------
@@ -174,11 +178,11 @@ class RemoteBackend(SimulationBackend):
 
     def _start_local(self, yaml_paths, cmd_args, append_terminal, on_port_found, on_finished):
         cmd = ["specula", *_cli_args(yaml_paths, cmd_args)]
-        append_terminal(f"[Local] {shlex.join(cmd)}\n")
+        append_terminal(f"[localhost] {shlex.join(cmd)}\n")
         try:
             self._spawn(cmd, append_terminal, on_port_found, on_finished, None)
         except Exception as exc:
-            append_terminal(f"[Local] Launch error: {exc}\n")
+            append_terminal(f"[localhost] Launch error: {exc}\n")
             log.exception("Could not start specula")
             on_finished()
 
@@ -210,7 +214,8 @@ class RemoteBackend(SimulationBackend):
             remote_cmd = remote_shell_command(self._remote_dir, _cli_args(remote_files, cmd_args))
             append_terminal(f"[Remote] {self.ssh_target}: {remote_cmd}\n")
             # -tt: a pseudo-terminal ties the remote process to this ssh
-            # session, so terminating ssh (abort) also stops SPECULA remotely.
+            # session; that alone does not always stop SPECULA when ssh is
+            # terminated, so abort also kills it (_cleanup_remote).
             self._spawn(["ssh", "-tt", *SSH_OPTIONS, self.ssh_target, remote_cmd],
                         append_terminal, on_port_found, on_finished,
                         self._resolved_ip or self.remote_ip)
@@ -236,7 +241,7 @@ class RemoteBackend(SimulationBackend):
                 chunk = proc.stdout.read(4096)
                 if not chunk:
                     break
-                text = decoder.decode(chunk).replace("\r\n", "\n")
+                text = _ANSI_ESCAPE.sub("", decoder.decode(chunk).replace("\r\n", "\n"))
                 if not text:
                     continue
                 append_terminal(text)
@@ -266,7 +271,7 @@ class RemoteBackend(SimulationBackend):
         remote_dir, self._remote_dir = self._remote_dir, None
         cmd = f"rm -rf {shlex.quote(remote_dir)}"
         if kill:
-            cmd = f"pkill -f {shlex.quote(remote_dir)}; " + cmd
+            cmd = f"{remote_kill_command(remote_dir)}; {cmd}"
         target = self.ssh_target
 
         def cleanup():
@@ -275,7 +280,9 @@ class RemoteBackend(SimulationBackend):
                 log.warning("Remote clean-up of %s on %s failed: %s", remote_dir, target,
                             explain_ssh_failure(res))
 
-        threading.Thread(target=cleanup, daemon=True, name="remote-cleanup").start()
+        # not a daemon: quitting the editor during a run (which aborts it)
+        # waits for the remote process to be stopped
+        threading.Thread(target=cleanup, daemon=False, name="remote-cleanup").start()
 
     def step(self, n: int = 1) -> None:
         if self._process and self._process.poll() is None:
@@ -405,6 +412,53 @@ class _AbortRun(KeyboardInterrupt):
     """Raised inside LoopControl.iter to stop an in-process run."""
 
 
+class _RunLog(logging.Handler):
+    """SPECULA's log records of the run thread, shown in the terminal as a
+    ``specula`` process shows them: gathered and sent every FLUSH_SECONDS
+    (several records per step would flood the terminal one by one)."""
+
+    FLUSH_SECONDS = 0.1
+    _PLAIN = logging.Formatter("%(asctime)s [%(levelname)s]: [%(name)s]: %(message)s")
+
+    def __init__(self, thread_id: int, append_terminal):
+        super().__init__()
+        self.thread_id = thread_id
+        self.append_terminal = append_terminal
+        self._pending: list[str] = []
+        self._pending_lock = threading.Lock()
+        self._timer: threading.Timer | None = None
+
+    @staticmethod
+    def _formatter():
+        """SPECULA's own formatter (set up by the run), or a plain equivalent."""
+        for handler in logging.getLogger().handlers:
+            if type(handler.formatter).__name__ == "SpeculaLogFormatter":
+                return handler.formatter
+        return _RunLog._PLAIN
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if record.thread != self.thread_id or record.name.startswith("specula_studio"):
+            return
+        try:
+            text = self._formatter().format(record)
+        except Exception:
+            text = record.getMessage()
+        with self._pending_lock:
+            self._pending.append(text + "\n")
+            if self._timer is None:
+                self._timer = threading.Timer(self.FLUSH_SECONDS, self.flush)
+                self._timer.daemon = True
+                self._timer.start()
+
+    def flush(self) -> None:
+        # sent under the lock: the batches stay in order (the last one is
+        # flushed when the run ends, before its closing lines)
+        with self._pending_lock:
+            text, self._pending, self._timer = "".join(self._pending), [], None
+            if text:
+                self.append_terminal(text)
+
+
 class InProcessBackend(SimulationBackend):
     """Runs SPECULA inside a daemon thread, monitors fed by probes."""
 
@@ -504,6 +558,12 @@ class InProcessBackend(SimulationBackend):
             self._pending.append((topic, probe))
             return probe
 
+    def probe_for(self, topic: str) -> MonitorProbeObj | None:
+        """The probe feeding *topic* ("object.output"), if any: also those the
+        loop added for monitors opened before the run."""
+        with self._lock:
+            return self._active.get(topic)
+
     def detach_probe(self, probe: MonitorProbeObj) -> None:
         if probe is None:
             return
@@ -558,6 +618,8 @@ class InProcessBackend(SimulationBackend):
 
     def _run_thread(self, yaml_paths, cmd_args, stepping, append_terminal, on_finished):
         old_stdin = sys.stdin
+        run_log = _RunLog(threading.get_ident(), append_terminal)
+        logging.getLogger().addHandler(run_log)
         try:
             if stepping and self._step_read is not None:
                 sys.stdin = self._step_read
@@ -570,7 +632,7 @@ class InProcessBackend(SimulationBackend):
             from specula.simul import Simul
 
             self._prepare_matplotlib()
-            append_terminal(f"[In-Process] Simul({', '.join(map(repr, yaml_paths))}, "
+            append_terminal(f"[Local Run] Simul({', '.join(map(repr, yaml_paths))}, "
                             f"nsimul={nsimul}, target={target}, precision={precision}, "
                             f"stepping={stepping})\n")
 
@@ -579,7 +641,7 @@ class InProcessBackend(SimulationBackend):
                 for simul_idx in range(nsimul):
                     if self._abort.is_set():
                         break
-                    append_terminal(f"[In-Process] Run {simul_idx + 1}/{nsimul}\n")
+                    append_terminal(f"[Local Run] Run {simul_idx + 1}/{nsimul}\n")
                     simul = Simul(*yaml_paths, simul_idx=simul_idx, stepping=stepping)
                     current_simul[0] = simul
                     try:
@@ -587,12 +649,14 @@ class InProcessBackend(SimulationBackend):
                     finally:
                         self._cleanup_matplotlib()
         except (_AbortRun, EOFError):
-            append_terminal("[In-Process] Simulation aborted.\n")
+            append_terminal("[Local Run] Simulation aborted.\n")
         except Exception as exc:
-            append_terminal(f"[In-Process] Error: {type(exc).__name__}: {exc}\n")
+            append_terminal(f"[Local Run] Error: {type(exc).__name__}: {exc}\n")
             append_terminal(traceback.format_exc())
             log.exception("In-process simulation failed")
         finally:
+            logging.getLogger().removeHandler(run_log)
+            run_log.flush()
             sys.stdin = old_stdin
             self._running = False
             with self._lock:
@@ -607,7 +671,7 @@ class InProcessBackend(SimulationBackend):
                         pass
             self._step_read = self._step_write = None
             on_finished()
-            append_terminal("\n--- Finished (in-process) ---\n")
+            append_terminal("\n--- Finished (local run) ---\n")
 
     # ── matplotlib (SPECULA display objects) ──────────────────────────────────
 

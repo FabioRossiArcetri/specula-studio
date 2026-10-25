@@ -73,6 +73,7 @@ class PreferencesMixin:
             dpg.set_value("pref_auto_simul_params_checkbox", self.preferences['auto_simul_params'])
             dpg.set_value("pref_include_defaults_checkbox",  self.preferences['include_defaults'])
             dpg.set_value("pref_render_size_radio",          self.preferences['render_size'])
+            dpg.set_value("pref_layout_spacing_input",       int(self.preferences['layout_spacing']))
             # Update font path display
             font_name = pathlib.Path(self._font_path()).name
             dpg.set_value("pref_font_path_text", f"Selected: {font_name}")
@@ -114,6 +115,26 @@ class PreferencesMixin:
             dpg.add_text(
                 "Controls font size and node dimensions. "
                 "All text and nodes are updated immediately.",
+                color=self.theme_manager.get_color("text_hint"),
+                wrap=490,
+            )
+
+            dpg.add_spacer(height=16)
+            dpg.add_separator()
+            dpg.add_spacer(height=12)
+
+            # ── Layout spacing ────────────────────────────────────────────────
+            dpg.add_input_int(
+                label="Layout Spacing (pixels)",
+                tag="pref_layout_spacing_input",
+                default_value=int(self.preferences["layout_spacing"]),
+                min_value=10, max_value=400, min_clamped=True, max_clamped=True,
+                step=10, width=160,
+                callback=self._on_layout_spacing_changed,
+            )
+            dpg.add_text(
+                "Space between objects in the automatic layouts (Layout menu) and "
+                "when several objects are added at once.",
                 color=self.theme_manager.get_color("text_hint"),
                 wrap=490,
             )
@@ -322,6 +343,10 @@ class PreferencesMixin:
         self._reload_font()                         # also rebuilds the nodes
         self._save_settings()
         log.info(f"[PREFERENCES] Render size set to: {new_size}")
+
+    def _on_layout_spacing_changed(self, sender, app_data):
+        self.preferences['layout_spacing'] = int(app_data)
+        self._save_settings()
 
     def _on_auto_simul_params_changed(self, sender, app_data):
         self.preferences['auto_simul_params'] = app_data

@@ -1,6 +1,9 @@
 """
 Standalone monitor window — runs as an independent subprocess, one per
-monitored output of a run with a display server.
+monitored output.  Its data comes either from the display server of a
+Remote run (Socket.IO, below) or, for a Local Run, from the editor over a
+:mod:`.control_link` (``--link host:port``, key in the environment): the
+editor sends ``{"type": "data", "payload": ...}``, ``raise`` and ``quit``.
 
 * ``--session-id``: every reconnect attempt reads the coordination file and
   compares its ``session_id`` with the one we were launched with.  If they
@@ -88,7 +91,12 @@ class StandaloneMonitor:
         node_name: str,
         output_name: str,
         session_id: str = "",
+        link_address: str = "",
+        slot: int = 0,
     ):
+        self.link_address       = link_address      # Local Run: data from the editor
+        self.slot               = slot              # place among the open monitors
+        self._raise_requested   = False
         self.server_url         = server_url
         self.server_url_file    = server_url_file
         self.server_output_name = server_output_name
@@ -118,13 +126,10 @@ class StandaloneMonitor:
         self.update_count: int   = 0
         self.min_update_interval = 0.05
 
-        # Window dimensions
-        self.window_width        = 920
-        self.window_height       = 720
-        self.plot_width          = 880
-        self.plot_height         = 500
-        self.last_container_width  = 0
-        self.last_container_height = 0
+        # Window size; the plot fills the space between the settings and the
+        # info lines, and follows the window when it is resized
+        self.window_width        = 1000
+        self.window_height       = 820
 
         # Pending UI updates (set from sio thread, applied on main thread)
         self._pending_status: str | None = None
@@ -360,6 +365,60 @@ class StandaloneMonitor:
                 retry_delay = min(retry_delay * 1.5, max_delay)
 
     # =========================================================================
+    # Local Run: data from the editor
+    # =========================================================================
+
+    def _enqueue(self, payload) -> None:
+        """Queue *payload* for the main thread (a full queue drops its oldest)."""
+        try:
+            self.data_queue.put_nowait({"payload": payload, "timestamp": time.time()})
+        except Full:
+            try:
+                self.data_queue.get_nowait()
+            except Empty:
+                pass
+            try:
+                self.data_queue.put_nowait({"payload": payload, "timestamp": time.time()})
+            except Full:
+                pass
+            self._drop_count += 1
+
+    def _link_loop(self):
+        """Background thread: receive the editor's frames until it says quit."""
+        from .control_link import KEY_ENV, connect
+
+        host, _, port = self.link_address.rpartition(":")
+        try:
+            conn = connect((host, int(port)), bytes.fromhex(os.environ.get(KEY_ENV, "")))
+        except Exception as exc:
+            log.error("[MONITOR] Cannot connect to the editor at %s: %s", self.link_address, exc)
+            self._set_status("error")
+            self._stop_flag.set()
+            return
+        self.connected = True
+        self._set_status("waiting_run")
+        try:
+            while not self._stop_flag.is_set():
+                try:
+                    msg = conn.recv()
+                except (EOFError, OSError):
+                    break                        # the editor closed the monitor or quit
+                kind = msg.get("type") if isinstance(msg, dict) else None
+                if kind == "data":
+                    self._enqueue(msg.get("payload"))
+                elif kind == "raise":
+                    self._raise_requested = True
+                elif kind == "quit":
+                    break
+        finally:
+            self.connected = False
+            try:
+                conn.close()
+            except Exception:
+                pass
+            self._stop_flag.set()
+
+    # =========================================================================
     # DPG setup
     # =========================================================================
 
@@ -424,7 +483,8 @@ class StandaloneMonitor:
 
             with dpg.collapsing_header(label="Connection", default_open=False):
                 dpg.add_text(
-                    f"Server:  {self.server_url}",
+                    "Source:  Local Run (data from the editor)" if self.link_address
+                    else f"Server:  {self.server_url}",
                     color=tm.get_color("text_hint"),
                     tag=self._TAG_URL_TXT,
                 )
@@ -437,12 +497,13 @@ class StandaloneMonitor:
                     color=tm.get_color("monitor_status_waiting"),
                     tag=self._TAG_STATUS,
                 )
-                dpg.add_button(
-                    label="Reconnect",
-                    callback=lambda: threading.Thread(
-                        target=self._do_reconnect, daemon=True
-                    ).start(),
-                )
+                if not self.link_address:
+                    dpg.add_button(
+                        label="Reconnect",
+                        callback=lambda: threading.Thread(
+                            target=self._do_reconnect, daemon=True
+                        ).start(),
+                    )
 
             dpg.add_separator()
 
@@ -479,32 +540,17 @@ class StandaloneMonitor:
                     tag=self._TAG_INFO_TIME,
                 )
 
-        dpg.create_viewport(title=title, width=self.window_width, height=self.window_height)
+        # side by side, then cascading: monitors opened together do not overlap
+        offset = (self.slot // 2) * 40
+        dpg.create_viewport(title=title, width=self.window_width, height=self.window_height,
+                            x_pos=40 + (self.slot % 2) * (self.window_width + 10) + offset,
+                            y_pos=60 + offset)
         dpg.setup_dearpygui()
         dpg.show_viewport()
         dpg.set_primary_window(self._TAG_WINDOW, True)
 
     def _do_reconnect(self):
         self.connected = False
-
-    def _update_responsive_layout(self):
-        try:
-            if not dpg.does_item_exist(self._TAG_PLOT_CONTAINER):
-                return
-            cw = dpg.get_item_width(self._TAG_PLOT_CONTAINER)
-            ch = dpg.get_item_height(self._TAG_PLOT_CONTAINER)
-            if (
-                abs(cw - self.last_container_width) > 5
-                or abs(ch - self.last_container_height) > 5
-            ):
-                self.plot_width            = cw
-                self.plot_height           = ch
-                self.last_container_width  = cw
-                self.last_container_height = ch
-                if self.dpg_plotter is not None:
-                    self.dpg_plotter.update_size(cw, ch)
-        except Exception:
-            pass
 
     # =========================================================================
     # Data conversion + plotting
@@ -518,11 +564,7 @@ class StandaloneMonitor:
             dpg.delete_item(self._TAG_PHOLDER)
 
         if self.dpg_plotter is None:
-            self.dpg_plotter = DPGPlotter(
-                parent_tag=self._TAG_PLOT_CONTAINER,
-                width=self.plot_width,
-                height=self.plot_height,
-            )
+            self.dpg_plotter = DPGPlotter(parent_tag=self._TAG_PLOT_CONTAINER)
             mode_val = dpg.get_value(self._TAG_VEC_MODE)
             self.dpg_plotter.set_vector_mode("history" if "Time" in mode_val else "snapshot")
             self.dpg_plotter.set_vector_style(dpg.get_value(self._TAG_VEC_STYLE).lower())
@@ -575,6 +617,7 @@ class StandaloneMonitor:
                 "error":        "monitor_status_error",
                 "retrying":     "monitor_status_waiting",
                 "waiting":      "monitor_status_waiting",
+                "waiting_run":  "monitor_status_waiting",
                 "unreachable":  "monitor_status_error",
             }
             label_map = {
@@ -585,6 +628,7 @@ class StandaloneMonitor:
                 "error":        "! Error",
                 "retrying":     "~ Retrying …",
                 "waiting":      "~ Waiting for the simulation (paused?) …",
+                "waiting_run":  "~ Waiting for data from the Local Run …",
                 "unreachable":  "! Display server not reachable (stopped?), retrying …",
             }
             label = label_map.get(status, status.capitalize())
@@ -627,13 +671,20 @@ class StandaloneMonitor:
 
     def run(self):
         self._build_ui()
-        threading.Thread(target=self._connection_loop, daemon=True).start()
+        source = self._link_loop if self.link_address else self._connection_loop
+        threading.Thread(target=source, daemon=True).start()
 
         while dpg.is_dearpygui_running():
             if self._stop_flag.is_set():
                 break
+            if self._raise_requested:
+                # No "focus" API for the viewport: briefly keeping it on top
+                # brings it in front of the other windows.
+                self._raise_requested = False
+                dpg.set_viewport_always_top(True)
+                dpg.set_frame_callback(dpg.get_frame_count() + 2,
+                                       lambda: dpg.set_viewport_always_top(False))
             self._apply_pending_status()
-            self._update_responsive_layout()
             self._drain_queue()
             dpg.render_dearpygui_frame()
 
@@ -672,6 +723,13 @@ def main():
         "--session-id", default="",
         help="Session ID of the simulation run that spawned this monitor",
     )
+    parser.add_argument(
+        "--link", default="",
+        help="host:port of the editor sending the data of a Local Run (key in the "
+             "environment); without it the data comes from the display server",
+    )
+    parser.add_argument("--slot", type=int, default=0,
+                        help="Place among the open monitor windows")
     args = parser.parse_args()
 
     from .logs import setup_logging
@@ -684,6 +742,8 @@ def main():
         node_name          = args.node_name,
         output_name        = args.output_name,
         session_id         = args.session_id,
+        link_address       = args.link,
+        slot               = args.slot,
     )
     monitor.run()
 

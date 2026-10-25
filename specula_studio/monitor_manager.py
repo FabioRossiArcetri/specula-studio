@@ -3,11 +3,14 @@ monitor_manager.py
 ==================
 Lifecycle of the monitor windows that show simulation outputs live.
 
-In-process runs (InProcessBackend)
-    ``open_monitor`` creates an :class:`InProcessMonitor` — a window inside
-    the editor — and asks the backend for a probe on ``<object>.<output>``.
-    Probes push data to the :class:`MonitorBus`; :meth:`tick` (called every
-    frame) drains it into the windows.
+In-process runs (InProcessBackend), and no run
+    ``open_monitor`` creates an :class:`InProcessMonitor` — a monitor window
+    process fed by the editor over a :mod:`.control_link` — and asks the
+    backend for a probe on ``<object>.<output>``.  Probes push data to the
+    :class:`MonitorBus`; the monitor passes the newest frame to its window.
+    Without a run the window opens all the same and waits: the loop of the
+    next Local Run adds probes for every output with a window.  :meth:`tick`
+    (called every frame) notices the windows the user closed.
 
 Subprocess runs (RemoteBackend, local or SSH)
     Each monitor is a separate process (``python -m
@@ -15,6 +18,10 @@ Subprocess runs (RemoteBackend, local or SSH)
     DisplayServer of the run.  The server URL and the run's session id are
     shared through a small JSON file in the run directory.  Monitors opened
     before the server is known are queued and started when it is.
+
+All monitors are separate OS windows.  When a run starts, the open monitors
+become of its kind (fed by the editor for a Local Run, by the display server
+for a Remote one).
 """
 
 import os
@@ -87,11 +94,35 @@ class MonitorManager:
         self._log(f"Monitor mode: {'in-process' if enabled else 'subprocess'}")
 
     def set_backend(self, backend) -> None:
+        """The backend of the run that starts (None: no run)."""
         self._backend = backend
         self._log(
             f"Backend reference {'set' if backend is not None else 'cleared'}: "
             f"{type(backend).__name__ if backend else 'None'}"
         )
+        if backend is not None:
+            self._match_monitors_to_run()
+
+    def _match_monitors_to_run(self) -> None:
+        """A run starts: its monitors become of its kind.  Windows opened
+        without a run are in-editor ones; a Remote run shows its outputs in
+        monitor processes instead, and a Local Run in the editor."""
+        if self._use_inprocess:
+            with self._lock:
+                remote = [(mid, info) for mid, info in self.active_monitors.items()
+                          if info["process"].poll() is None]
+            for mid, info in remote:
+                self.close_monitor(mid)
+                self.open_monitor(None, None, (info["node_uuid"], info["output_name"]))
+            pending, self._pending_monitors = self._pending_monitors, []
+            for sender, app_data, user_data in pending:
+                self.open_monitor(sender, app_data, user_data)
+        else:
+            for mid, monitor in list(self._inprocess_monitors.items()):
+                if monitor.is_open:
+                    self.close_monitor(mid)
+                    # started when the run's display server is known
+                    self._pending_monitors.append((None, None, (monitor.node_uuid, monitor.output_name)))
 
     def set_server_url_file(self, path: str | None) -> None:
         """Coordination file of the current run (read by subprocess monitors)."""
@@ -194,8 +225,8 @@ class MonitorManager:
         node_data = self.graph.nodes.get(node_uuid, {})
         node_name = node_data.get("name", node_uuid)
 
-        # ── Direct in-process mode path ────────────────────────────────────────
-        if self._use_inprocess:
+        # ── In the editor: Local Run, or no run (the window waits for data) ────
+        if self._use_inprocess or self._backend is None:
             # In direct mode, use the probe topic format directly:
             # no Socket.IO resolution needed
             server_output_name = f"{node_name}.{output_name}"
@@ -302,7 +333,8 @@ class MonitorManager:
             server_output_name=server_output_name,
             monitor_bus=self._monitor_bus,
         )
-        monitor.open()
+        # side by side: the next free place for an open monitor
+        monitor.open(slot=sum(1 for m in self._inprocess_monitors.values() if m.is_open))
         self._inprocess_monitors[monitor_id] = monitor
 
         if _is_direct_backend(self._backend):
@@ -328,9 +360,17 @@ class MonitorManager:
 
         monitor = self._inprocess_monitors.pop(monitor_id, None)
         if monitor is not None:
-            if monitor._probe is not None and _is_direct_backend(self._backend):
-                self._backend.detach_probe(monitor._probe)
+            self._detach_probe(monitor)
             monitor.close()
+
+    def _detach_probe(self, monitor: InProcessMonitor) -> None:
+        """Stop the probe feeding an in-editor monitor (the loop creates it
+        for monitors opened before the run)."""
+        if not _is_direct_backend(self._backend):
+            return
+        probe = monitor._probe or self._backend.probe_for(monitor.server_output_name)
+        if probe is not None:
+            self._backend.detach_probe(probe)
 
     @staticmethod
     def _force_kill_after(proc: subprocess.Popen, timeout: float):
@@ -366,8 +406,8 @@ class MonitorManager:
     # ── Ticking ──────────────────────────────────────────────────────────[...]
 
     def tick(self) -> None:
-        """Drain and render all in-process monitors every frame (with periodic
-        diagnostics of the bus traffic)."""
+        """Every frame: close the in-process monitors whose window was closed
+        (with periodic diagnostics of the bus traffic)."""
         if not self._inprocess_monitors:
             return
 
@@ -394,10 +434,8 @@ class MonitorManager:
         for mid in dead:
             monitor = self._inprocess_monitors.pop(mid, None)
             # Window closed with its [x]: stop the probe feeding it.
-            if monitor is not None and monitor._probe is not None \
-                    and _is_direct_backend(self._backend):
-                self._backend.detach_probe(monitor._probe)
             if monitor is not None:
+                self._detach_probe(monitor)
                 monitor.close()   # unsubscribe + delete the hidden window
             self._log(f"In-process monitor {mid} closed")
 

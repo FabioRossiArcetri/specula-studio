@@ -35,9 +35,10 @@ import dearpygui.dearpygui as dpg
 from . import sshutil
 from .control_link import ControlServer, WindowProcess
 from .core.run_prep import write_run_files
+from .render_scale import px
 from .simulation_backend import InProcessBackend, RemoteBackend, SimulationBackend
 from .theme_manager import ThemeManager
-from .ui.control_panel import DEFAULT_OPTIONS, TERMINAL_MAX_CHUNKS, ControlPanelView
+from .ui.control_panel import DEFAULT_OPTIONS, LOCAL_RUN, TERMINAL_MAX_CHUNKS, ControlPanelView
 
 log = logging.getLogger(__name__)
 
@@ -160,7 +161,7 @@ class SimulationControl:
             return
         self.view = ControlPanelView(self, self.theme_manager, self._recent_hosts())
         with dpg.window(label="Simulation Control Panel", tag=_DOCKED_WINDOW,
-                        width=980, height=640):
+                        width=px(980), height=px(640)):
             pass
         self.view.build(_DOCKED_WINDOW)
         self.view.reset_terminal(self._terminal_text())
@@ -351,7 +352,7 @@ class SimulationControl:
 
         self._session_id = str(uuid.uuid4())
         backend_mode = opts["backend"]
-        in_process = backend_mode == "In-Process"
+        in_process = backend_mode == LOCAL_RUN
         remote_ip = "localhost" if in_process else (opts["host"] or "localhost").strip()
         remote_user = "" if in_process else (opts["user"] or "").strip()
         is_ssh = not in_process and remote_ip not in _LOCAL_HOSTS

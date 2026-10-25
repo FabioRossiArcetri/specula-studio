@@ -448,6 +448,10 @@ class PropertyPanel:
             )
             dpg.add_separator(parent=panel_tag)
 
+            def _open_monitor(sender, app_data, user_data):
+                self.monitors.open_monitor(sender, app_data, user_data)
+                self.update_node_panel(node_uuid, panel_tag)    # now "Close Monitor"
+
             for output_name in sorted(all_outputs):
                 is_open = self.monitors.is_monitor_open(node_uuid, output_name)
                 with dpg.group(horizontal=True, parent=panel_tag):
@@ -459,7 +463,7 @@ class PropertyPanel:
                     if not is_open:
                         dpg.add_button(
                             label="Open Monitor",
-                            callback=self.monitors.open_monitor,
+                            callback=_open_monitor,
                             user_data=(node_uuid, output_name),
                             width=120,
                         )
@@ -471,9 +475,8 @@ class PropertyPanel:
                         monitor_id = self.monitors.find_monitor_id(node_uuid, output_name)
                         if monitor_id:
                             def _close_wrapper(sender, app_data, user_data):
-                                self.monitors.close_monitor(
-                                    user_data
-                                )
+                                self.monitors.close_monitor(user_data)
+                                self.update_node_panel(node_uuid, panel_tag)
                             dpg.add_button(
                                 label="Close Monitor",
                                 callback=_close_wrapper,

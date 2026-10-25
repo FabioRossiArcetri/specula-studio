@@ -105,6 +105,7 @@ class SpeculaEditor(
         """Mouse handlers of the node canvas (keyboard: EditMixin._on_key_press)."""
         with dpg.handler_registry():
             dpg.add_mouse_click_handler(callback=self.nm.on_click_editor)
+            dpg.add_mouse_release_handler(callback=self.nm.on_release_editor)
             dpg.add_mouse_double_click_handler(callback=self.nm._on_canvas_double_click)
             dpg.add_mouse_move_handler(callback=self.nm._on_mouse_move)
 
@@ -221,6 +222,9 @@ class SpeculaEditor(
                     dpg.add_separator()
                     dpg.add_menu_item(label="Find Object...", shortcut="Ctrl+F",
                                       callback=self._show_find_object)
+                    dpg.add_separator()
+                    dpg.add_menu_item(label="Display YAML",
+                                      callback=lambda: self.sim_control.show_yaml_window())
 
                 with dpg.menu(label="Add Objects"):
                     dpg.add_menu_item(label="Search...", shortcut="Ctrl+Space",
@@ -243,18 +247,19 @@ class SpeculaEditor(
                                       callback=self._show_remove_override_menu,
                                       tag="remove_override_menu")
 
-                with dpg.menu(label="Simulation"):
+                with dpg.menu(label="Run"):
                     dpg.add_menu_item(label="Control Panel", callback=lambda: self.sim_control.show_control_window())
-                    dpg.add_menu_item(label="Display Yaml", callback=lambda: self.sim_control.show_yaml_window())
-
-                with dpg.menu(label="HPC"):
-                    dpg.add_menu_item(label="Submit Batch Job (SLURM)...",
-                                      callback=self.hpc.show_submit_window)
-                    dpg.add_menu_item(label="Batch Jobs...", callback=self.hpc.show_jobs_window)
+                    with dpg.menu(label="HPC"):
+                        dpg.add_menu_item(label="Submit...", callback=self.hpc.show_submit_window)
+                        dpg.add_menu_item(label="Track...", callback=self.hpc.show_jobs_window)
 
                 with dpg.menu(label="Layout"):
-                    dpg.add_menu_item(label="Auto Layout",
-                                      callback=lambda: auto_layout_nodes(self.nm.graph, self.nm.uuid_to_dpg))
+                    with dpg.menu(label="Auto Layout"):
+                        for label, strategy in (("Left to Right", "left_to_right"),
+                                                ("Compact (Window Width)", "compact"),
+                                                ("Data Objects on Top", "data_objects_on_top")):
+                            dpg.add_menu_item(label=label, user_data=strategy,
+                                              callback=lambda s, a, u: self.auto_layout(u))
                     dpg.add_menu_item(label="Debug Info",
                                       callback=lambda: log.info(f"Nodes: {len(self.nm.graph.nodes)}, "
                                                              f"Connections: {len(self.nm.graph.connections)}"))
@@ -333,6 +338,11 @@ class SpeculaEditor(
         dpg.set_item_height("property_panel", new_height)
 
 
+    def auto_layout(self, strategy: str = "left_to_right") -> None:
+        """Lay the graph out (Layout menu; plain SPECULA files on load)."""
+        auto_layout_nodes(self.nm.graph, self.nm.uuid_to_dpg, strategy,
+                          int(self.preferences["layout_spacing"]), set(self.data_obj_templates))
+
     # ── Class catalog ────────────────────────────────────────────────────────
 
     def _populate_add_menus(self):
@@ -345,8 +355,7 @@ class SpeculaEditor(
                 dpg.add_menu_item(label=node_type, parent=tag,
                                   callback=self._on_menu_create, user_data=node_type)
         if dpg.does_item_exist("_mo_proc_listbox"):
-            dpg.configure_item("_mo_proc_listbox", items=sorted(self.proc_obj_templates))
-            dpg.configure_item("_mo_data_listbox", items=sorted(self.data_obj_templates))
+            self._mo_apply_filter()
         if dpg.does_item_exist("catalog_info_item"):
             dpg.configure_item("catalog_info_item",
                                label=f"Class catalog: {self.catalog_info.source}")

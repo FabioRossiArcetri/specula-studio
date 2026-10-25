@@ -5,8 +5,8 @@ Started by the editor (``python -m specula_studio.control_window --address
 host:port --kind KIND``, key in the environment), one process per window:
 
 * ``control``    — the simulation control panel;
-* ``hpc_submit`` — HPC → Submit Batch Job;
-* ``hpc_jobs``   — HPC → Batch Jobs.
+* ``hpc_submit`` — Run → HPC → Submit;
+* ``hpc_jobs``   — Run → HPC → Track.
 
 Everything a window does is sent to the editor over
 :mod:`specula_studio.control_link`; the editor runs the simulations and the
@@ -28,12 +28,14 @@ log = logging.getLogger(__name__)
 
 _MAIN = "control_main_window"
 
-# kind -> (default title, viewport width, viewport height)
+# kind -> (default title, viewport width, viewport height): pixels of the
+# layout's built-in 13 px font (see render_scale.px)
 KINDS = {
     "control":    ("SPECULA Studio - Simulation Control", 1020, 700),
     "hpc_submit": ("SPECULA Studio - HPC Batch Job (SLURM)", 900, 960),
     "hpc_jobs":   ("SPECULA Studio - HPC Jobs", 1020, 720),
 }
+MAX_SIZE = (1800, 1000)     # a full HD screen, its taskbar and the title bar
 
 
 class _Sender:
@@ -141,6 +143,7 @@ def main(argv=None) -> int:
     import dearpygui.dearpygui as dpg
 
     from . import render_scale, settings
+    from .fonts import FONT_PATH
     from .theme_manager import ThemeManager
 
     dpg.create_context()
@@ -148,8 +151,14 @@ def main(argv=None) -> int:
     tm.apply_theme()
     prefs = settings.store()
     render_scale.set_size(prefs.get("render_size", "MEDIUM"))
+    # the layout follows the font size, within a full HD screen
+    width = min(render_scale.px(width), MAX_SIZE[0])
+    height = min(render_scale.px(height), MAX_SIZE[1])
+    # the editor's font: the preferred one, else DejaVuSerif
     font = prefs.get("font_path")
-    if font and os.path.exists(font):
+    if not (font and os.path.exists(font)):
+        font = FONT_PATH
+    if os.path.exists(font):
         with dpg.font_registry():
             dpg.bind_font(dpg.add_font(font, render_scale.font_size()))
 

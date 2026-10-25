@@ -157,6 +157,14 @@ def test_graph_issues_report_missing_inputs_and_simulparams():
     assert any("SimulParams" in m for m in msgs)
 
 
+def test_monitors_open_without_a_run_and_follow_its_kind(scenarios):
+    res = scenarios["monitors_without_run"]
+    assert "exception" not in res, res
+    assert res["before"] == [["out_sr", True]]              # opened, waiting for data
+    assert res["remote"] == {"in_editor": 0, "queued": ["out_sr"]}
+    assert res["local"] == [["out_sr", True]] and res["queued_after"] == 0
+
+
 def test_control_window_link_drives_the_editor(scenarios):
     res = scenarios["control_window_link"]
     assert "exception" not in res, res
