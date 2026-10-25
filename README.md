@@ -37,13 +37,12 @@ simulations, built on [Dear PyGui](https://github.com/hoffstadt/DearPyGui).
 
 ## Installation
 
-```bash
-pip install -e .            # editable install from a checkout
-pip install -e ".[dev]"     # plus pytest / ruff for development
-```
+### Option 1: Install from TestPyPI
 
-SPECULA itself must be installed in the same environment for *Local Run*,
-tooltips and online help.
+During the testing phase, you can install `specula-studio` directly from TestPyPI. Because external dependencies (including `specula`) are hosted on standard PyPI, use `--extra-index-url`:
+
+```bash
+pip install --index-url [https://test.pypi.org/simple/](https://test.pypi.org/simple/) --extra-index-url [https://pypi.org/simple/](https://pypi.org/simple/) specula-studio
 
 ## Running
 
