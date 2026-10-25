@@ -35,7 +35,6 @@ simulations, built on [Dear PyGui](https://github.com/hoffstadt/DearPyGui).
 * *File → Compare with Saved File* shows what changed; *File → Export
   Diagram* writes a Graphviz `.dot` (and `.svg` when Graphviz is installed).
 
-```markdown
 ## Installation
 
 ### Option 1: Install from TestPyPI
