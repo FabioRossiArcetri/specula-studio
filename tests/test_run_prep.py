@@ -70,4 +70,9 @@ def test_cli_and_remote_command():
     outer = shlex.split(cmd)
     assert outer[:2] == ["bash", "-ic"]
     inner = shlex.split(outer[2])
-    assert inner[:4] == ["cd", "/tmp/d x", "&&", "specula"] and inner[4] == "a b.yml"
+    # the shell records its PID and becomes specula (exec): abort kills that process
+    assert inner[:10] == ["cd", "/tmp/d x", "&&", "echo", "$$", ">", run_prep.REMOTE_PID_FILE,
+                          "&&", "exec", "specula"] and inner[10] == "a b.yml"
+    kill = run_prep.remote_kill_command("/tmp/d x")
+    assert shlex.quote(f"/tmp/d x/{run_prep.REMOTE_PID_FILE}") in kill
+    assert "kill -TERM -- -$(ps -o pgid=" in kill and kill.endswith(shlex.quote("/tmp/d x"))

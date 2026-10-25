@@ -161,12 +161,30 @@ def specula_cli_args(files, stepping=False, nsimul=1, cpu=False, target=0,
     return args
 
 
+REMOTE_PID_FILE = ".specula.pid"
+
+
 def remote_shell_command(remote_dir: str, cli_args: list[str]) -> str:
     """
     Command run on the remote host through ssh.  ``bash -ic`` loads the
     user's interactive environment (conda etc.) where ``specula`` lives; every
-    argument is shell-quoted.
+    argument is shell-quoted.  The shell writes its PID to REMOTE_PID_FILE
+    and becomes ``specula`` (exec), so that an abort can stop exactly that
+    process (:func:`remote_kill_command`).
     """
-    inner = f"cd {shlex.quote(remote_dir)} && specula " + " ".join(
-        shlex.quote(a) for a in cli_args)
+    inner = (f"cd {shlex.quote(remote_dir)} && echo $$ > {REMOTE_PID_FILE} && exec specula "
+             + " ".join(shlex.quote(a) for a in cli_args))
     return f"bash -ic {shlex.quote(inner)}"
+
+
+def remote_kill_command(remote_dir: str) -> str:
+    """
+    Shell command stopping the run of :func:`remote_shell_command` in
+    *remote_dir*: SPECULA's process group (with its display server and worker
+    processes, which outlive SPECULA otherwise), then whatever still runs
+    there.  Closing the ssh session does not stop them reliably.
+    """
+    pid_file = shlex.quote(f"{remote_dir}/{REMOTE_PID_FILE}")
+    return (f"pid=$(cat {pid_file} 2>/dev/null); "
+            f'[ -n "$pid" ] && kill -TERM -- -$(ps -o pgid= -p "$pid" | tr -d " ") "$pid" 2>/dev/null; '
+            f"pkill -f {shlex.quote(remote_dir)}")

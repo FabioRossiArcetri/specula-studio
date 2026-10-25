@@ -37,6 +37,7 @@ import io
 import locale
 import logging
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -45,7 +46,7 @@ import traceback
 import uuid
 from abc import ABC, abstractmethod
 
-from .core.run_prep import extract_port, remote_shell_command, specula_cli_args
+from .core.run_prep import extract_port, remote_kill_command, remote_shell_command, specula_cli_args
 from .monitor_data import extract_display_array, make_payload
 from .sshutil import SSH_OPTIONS, explain_ssh_failure, run_command
 
@@ -53,6 +54,9 @@ log = logging.getLogger(__name__)
 
 # Encoding of the specula process's output and input (as text pipes would use)
 _OUTPUT_ENCODING = locale.getpreferredencoding(False)
+# terminal colour / cursor codes in the output (Flask colours its warnings):
+# the terminal widget cannot show them
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +214,8 @@ class RemoteBackend(SimulationBackend):
             remote_cmd = remote_shell_command(self._remote_dir, _cli_args(remote_files, cmd_args))
             append_terminal(f"[Remote] {self.ssh_target}: {remote_cmd}\n")
             # -tt: a pseudo-terminal ties the remote process to this ssh
-            # session, so terminating ssh (abort) also stops SPECULA remotely.
+            # session; that alone does not always stop SPECULA when ssh is
+            # terminated, so abort also kills it (_cleanup_remote).
             self._spawn(["ssh", "-tt", *SSH_OPTIONS, self.ssh_target, remote_cmd],
                         append_terminal, on_port_found, on_finished,
                         self._resolved_ip or self.remote_ip)
@@ -236,7 +241,7 @@ class RemoteBackend(SimulationBackend):
                 chunk = proc.stdout.read(4096)
                 if not chunk:
                     break
-                text = decoder.decode(chunk).replace("\r\n", "\n")
+                text = _ANSI_ESCAPE.sub("", decoder.decode(chunk).replace("\r\n", "\n"))
                 if not text:
                     continue
                 append_terminal(text)
@@ -266,7 +271,7 @@ class RemoteBackend(SimulationBackend):
         remote_dir, self._remote_dir = self._remote_dir, None
         cmd = f"rm -rf {shlex.quote(remote_dir)}"
         if kill:
-            cmd = f"pkill -f {shlex.quote(remote_dir)}; " + cmd
+            cmd = f"{remote_kill_command(remote_dir)}; {cmd}"
         target = self.ssh_target
 
         def cleanup():
@@ -275,7 +280,9 @@ class RemoteBackend(SimulationBackend):
                 log.warning("Remote clean-up of %s on %s failed: %s", remote_dir, target,
                             explain_ssh_failure(res))
 
-        threading.Thread(target=cleanup, daemon=True, name="remote-cleanup").start()
+        # not a daemon: quitting the editor during a run (which aborts it)
+        # waits for the remote process to be stopped
+        threading.Thread(target=cleanup, daemon=False, name="remote-cleanup").start()
 
     def step(self, n: int = 1) -> None:
         if self._process and self._process.poll() is None:
