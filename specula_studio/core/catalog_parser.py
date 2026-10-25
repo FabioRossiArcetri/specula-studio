@@ -172,7 +172,13 @@ class SpeculaMetadataParser(ast.NodeVisitor):
                                             ),
                                         }
                         elif target.value.attr == "outputs":
-                            key = self._get_key(target.slice)
+                            # only literal names: self.outputs[k] = ... in a
+                            # loop (DataSource) or an f-string are not outputs
+                            # of the class, but names chosen in the YAML file
+                            if not (isinstance(target.slice, ast.Constant)
+                                    and isinstance(target.slice.value, str)):
+                                continue
+                            key = target.slice.value
                             if key not in info["outputs"]:
                                 info["outputs"].append(key)
 

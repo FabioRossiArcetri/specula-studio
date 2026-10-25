@@ -16,6 +16,5 @@ SpeculaInput:
       default: null
       kind: value
   inputs: {}
-  outputs:
-  - real_name
+  outputs: []
   is_data_obj: false
