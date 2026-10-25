@@ -86,3 +86,66 @@ def test_manager_commit_edits(tmp_path):
     base = om.commit_edits(edited)
     assert base["main"]["total_time"] == 2.0 and base["dm"]["nmodes"] == 10
     assert om.get_base_snapshot()["main"]["total_time"] == 2.0
+
+
+def test_override_list_in_comments_with_relative_paths(tmp_path):
+    from specula_studio.core.overrides import overrides_comment, parse_overrides_comment
+    ov = tmp_path / "ovs" / "calib.yml"
+    ov.parent.mkdir()
+    ov.write_text("main_override:\n  total_time: 0.1\n")
+    om = OverrideManager()
+    om.load_overrides([str(ov)])
+    om.toggle_override(str(ov))
+    entries = om.to_dict(str(tmp_path))["overrides"]
+    assert entries == [{"path": "ovs/calib.yml", "enabled": True}]
+    text = "main:\n  class: SimulParams\n" + overrides_comment(entries, "sim.yml")
+    assert yaml.safe_load(text) == {"main": {"class": "SimulParams"}}   # SPECULA sees no extra key
+    assert "specula sim.yml ovs/calib.yml" in text
+    restored = OverrideManager()
+    restored.from_dict({"overrides": parse_overrides_comment(text)}, str(tmp_path))
+    assert restored.get_enabled_overrides() == [str(ov.resolve())]
+
+
+def test_moving_an_added_object_is_not_an_unsaved_edit(caplog):
+    base = {"main": {"class": "SimulParams"}}
+    merged = {**base, "pp": {"class": "PushPullGenerator", "gui_pos": [0, 0]}}
+    current = {**base, "pp": {"class": "PushPullGenerator", "gui_pos": [300, 40]}}
+    out = rebase_edits(base, merged, current)
+    assert "pp" not in out and "were not saved" not in caplog.text
+    current["pp"]["nmodes"] = 5
+    rebase_edits(base, merged, current)
+    assert "were not saved" in caplog.text
+
+
+def test_added_objects_keep_their_place(tmp_path):
+    ov = tmp_path / "ov.yml"
+    ov.write_text("pp:\n  class: PushPullGenerator\n")
+    om = OverrideManager()
+    om.load_overrides([str(ov)])
+    om.toggle_override(str(ov))
+    base = {"main": {"class": "SimulParams", "gui_pos": [0, 0]}}
+    om.set_base_snapshot(base)
+    merged = om.apply_overrides(base)
+    assert om.place_added(merged) == ["pp"]              # new: to be placed
+    om.set_merged_snapshot(merged)
+    moved = {**merged, "pp": {**merged["pp"], "gui_pos": [500, 60]}}
+    om.commit_edits(moved)                                # e.g. when toggled off
+    again = om.apply_overrides(om.get_base_snapshot())
+    assert om.place_added(again) == [] and again["pp"]["gui_pos"] == [500, 60]
+
+
+def test_place_new_next_to_links_without_overlaps():
+    from specula_studio.core.layout import place_new
+    positions = {"a": (0, 0), "b": (300, 0), "c": (300, 200)}
+    sizes = {"a": (200, 100), "b": (200, 100), "c": (200, 100), "n1": (150, 80), "n2": (150, 80)}
+    out = place_new(["n1", "n2"], positions, sizes, [("a", "n1"), ("n1", "n2")], gap=50)
+    boxes = {**positions, **out}
+
+    def overlap(p, q):
+        (px, py), (qx, qy) = boxes[p], boxes[q]
+        return (px < qx + sizes[q][0] and qx < px + sizes[p][0]
+                and py < qy + sizes[q][1] and qy < py + sizes[p][1])
+    names = list(boxes)
+    assert not any(overlap(p, q) for i, p in enumerate(names) for q in names[i + 1:])
+    assert out["n1"][0] == 250                    # right of its source a
+    assert out["n2"][0] == out["n1"][0] + 150 + 50  # and the chain follows it

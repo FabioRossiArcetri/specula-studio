@@ -9,7 +9,7 @@ import pathlib
 
 import dearpygui.dearpygui as dpg
 
-
+from ..dpg_utils import place_new_nodes
 
 log = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ class OverridesMixin:
 
         One menu item per registered override is inserted between
         'overrides_sep_top' and 'overrides_sep_bottom'.  Each item shows
-        the current enabled state (✓ / ○) and toggles it on click.
+        the current enabled state (a check mark) and toggles it on click.
 
         DPG calls every callback as callback(sender, app_data, user_data).
         Using a plain lambda with a default argument (lambda s, a, p=path:)
@@ -67,11 +67,11 @@ class OverridesMixin:
         self._override_item_tags.clear()
 
         for i, path in enumerate(self.override_manager.get_all_overrides()):
-            is_enabled = self.override_manager.is_enabled(path)
-            label = ("✓  " if is_enabled else "○  ") + pathlib.Path(path).name
             tag = f"_override_mi_{i}"
             dpg.add_menu_item(
-                label=label,
+                label=pathlib.Path(path).name,
+                check=True,
+                default_value=self.override_manager.is_enabled(path),
                 tag=tag,
                 parent="overrides_menu",
                 before="overrides_sep_bottom",
@@ -105,14 +105,13 @@ class OverridesMixin:
 
         # ── 5. Rebuild menu ───────────────────────────────────────────────────
         self._refresh_overrides_menu()
+        self._update_status_bar()
 
     def _current_export(self) -> dict:
         """Export the editor graph (with current positions), no override metadata."""
         self.fh.capture_positions()
         return self.fh.export_to_yaml_dict(
-            include_defaults=self.preferences.get('include_defaults', False),
-            include_override_metadata=False,
-        )
+            include_defaults=self.preferences.get('include_defaults', False))
 
     def _take_base_snapshot(self):
         """Store the current (override-free) simulation as the preview base."""
@@ -141,13 +140,33 @@ class OverridesMixin:
         base = om.get_base_snapshot()
         if om.any_enabled():
             merged = om.apply_overrides(base)
+            unplaced = om.place_added(merged)
             log.info("Reloading with %d active override(s)", len(om.get_enabled_overrides()))
             self.fh.load_from_yaml_dict(merged)
             om.set_merged_snapshot(self._current_export())
+            if unplaced:
+                self._place_added_objects(unplaced)
         else:
             log.info("All overrides disabled — restoring the base simulation")
             self.fh.load_from_yaml_dict(base)
             om.clear_base_snapshot()
+        # undoing past this point would mix the base and the preview
+        self._restart_history()
+
+    def _place_added_objects(self, names: list) -> None:
+        """Objects added by an override have no place on the canvas: once
+        drawn (their sizes are known a few frames later), put them next to
+        the objects they are linked to."""
+        def place():
+            graph = self.nm.graph
+            uuids = [u for u in (graph.find_by_name(n) for n in names) if u]
+            place_new_nodes(graph, self.nm.uuid_to_dpg, uuids,
+                            int(self.preferences["layout_spacing"]))
+            if self.override_manager.has_base_snapshot():
+                self.override_manager.set_merged_snapshot(self._current_export())
+            self._restart_history()
+
+        dpg.set_frame_callback(dpg.get_frame_count() + 3, place)
 
     def _show_remove_override_menu(self):
         """Open a modal popup listing loaded overrides with Remove buttons."""
@@ -180,10 +199,13 @@ class OverridesMixin:
                 state_badge = "ON " if is_enabled else "OFF"
                 btn_label   = f"[{state_badge}]  Remove: {pathlib.Path(path).name}"
                 # Text colour is handled by the theme below
+                # DearPyGui passes user_data as the third argument: a default
+                # argument (lambda s, a, p=path) would receive None
                 dpg.add_button(
                     label=btn_label,
                     width=-1,
-                    callback=lambda s, a, p=path: self._on_remove_override(p),
+                    user_data=path,
+                    callback=lambda s, a, u: self._on_remove_override(u),
                 )
                 # Set text colour for the button: green if enabled, otherwise muted
                 btn_color = self.theme_manager.get_color("text_success") if is_enabled else self.theme_manager.get_color("text_muted")
@@ -222,3 +244,4 @@ class OverridesMixin:
             self._apply_overrides_to_simulation()
 
         self._refresh_overrides_menu()
+        self._update_status_bar()

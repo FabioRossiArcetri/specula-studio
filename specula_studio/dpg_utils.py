@@ -155,6 +155,24 @@ def apply_link_style(link_id: int, color: list, thickness: float = 1.0) -> None:
     dpg.bind_item_theme(link_id, link_theme)
 
 
+def place_new_nodes(graph, uuid_to_dpg, new_uuids, spacing: int = 60) -> None:
+    """Move the drawn nodes *new_uuids* next to the nodes they are linked to
+    (:func:`core.layout.place_new`); the other nodes stay where they are."""
+    drawn = {u: i for u, i in uuid_to_dpg.items() if i and dpg.does_item_exist(i)}
+    new = [u for u in new_uuids if u in drawn]
+    if not new:
+        return
+    fallback = (render_scale.node_header_spacer_width(), 4 * render_scale.font_size())
+    sizes = {}
+    for u, item in drawn.items():
+        w, h = dpg.get_item_rect_size(item)
+        sizes[u] = (w if w > 0 else fallback[0], h if h > 0 else fallback[1])
+    fixed = {u: tuple(dpg.get_item_pos(i)) for u, i in drawn.items() if u not in new}
+    edges, _ = layout.graph_edges(graph)
+    for u, (x, y) in layout.place_new(new, fixed, sizes, edges, spacing).items():
+        dpg.set_item_pos(drawn[u], [round(x), round(y)])
+
+
 def auto_layout_nodes(graph, uuid_to_dpg, strategy: str = "left_to_right",
                       spacing: int = 60, data_types=()):
     """Lay the graph out with one of :data:`core.layout.STRATEGIES`, using the

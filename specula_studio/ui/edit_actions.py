@@ -5,6 +5,7 @@ Edit actions: undo/redo, copy/paste/duplicate, keyboard shortcuts and the
 Mixin of :class:`specula_studio.app.SpeculaEditor`.
 """
 
+import json
 import logging
 import time
 
@@ -33,17 +34,35 @@ class EditMixin:
 
     def _mark_clean(self):
         """Current graph = saved file: reset history and the dirty flag."""
-        fp = fingerprint(self.graph)
-        self.history.reset(self._capture_state(), fp)
-        self._saved_fingerprint = fp
+        self._restart_history()
+        self._saved_fingerprint = self._document_fingerprint()
         self._set_dirty(False)
 
     def _mark_saved(self):
-        self._saved_fingerprint = fingerprint(self.graph)
+        self._saved_fingerprint = self._document_fingerprint()
         self._set_dirty(False)
 
+    def _restart_history(self):
+        """Start the undo history from the current graph."""
+        self.history.reset(self._capture_state(), fingerprint(self.graph))
+
+    def _document_fingerprint(self) -> str:
+        """What saving would write: the graph (during an override preview, the
+        base with the edits folded in) and the list of override files.  The
+        graph shown in a preview is not the document: toggling an override
+        changes only the list."""
+        om = self.override_manager
+        if om.has_base_snapshot():
+            data = om.rebased(self._current_export())
+        else:
+            data = self.fh.export_to_yaml_dict(
+                include_defaults=self.preferences.get("include_defaults", False))
+        data = {name: ({k: v for k, v in obj.items() if k != "gui_pos"}
+                       if isinstance(obj, dict) else obj) for name, obj in data.items()}
+        return json.dumps([data, om.to_dict()], default=str)
+
     def is_dirty(self) -> bool:
-        return fingerprint(self.graph) != self._saved_fingerprint
+        return self._document_fingerprint() != self._saved_fingerprint
 
     def _set_dirty(self, dirty: bool):
         if dirty != self._dirty:
@@ -65,7 +84,7 @@ class EditMixin:
             log.debug("History: recorded change")
             if dpg.does_item_exist("issues_window") and dpg.is_item_shown("issues_window"):
                 self._refresh_issues()
-        self._set_dirty(fp != self._saved_fingerprint)
+        self._set_dirty(self._document_fingerprint() != self._saved_fingerprint)
 
     # ── undo / redo ───────────────────────────────────────────────────────────
 
@@ -88,7 +107,7 @@ class EditMixin:
         self.graph.restore(state["graph"])
         self.nm._hide_property_panel()
         self.nm.sync_ui_from_graph(state["positions"])
-        self._set_dirty(self.history.current_fingerprint != self._saved_fingerprint)
+        self._set_dirty(self._document_fingerprint() != self._saved_fingerprint)
 
     # ── clipboard ─────────────────────────────────────────────────────────────
 

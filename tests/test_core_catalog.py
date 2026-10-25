@@ -105,3 +105,17 @@ def test_installed_specula_sources_parse():
     data, proc = catalog.build_catalog(root, runtime=False)
     assert "SimulParams" in data
     assert {"Modalrec", "DM", "AtmoPropagation"} <= set(proc)
+
+
+def test_arguments_supplied_by_simul_are_not_required():
+    # Simul gives every class its data_dir (the class's folder under root_dir)
+    # and the internal getters: a calibrator without them is complete
+    tpl = {"ImCalibrator": {"parameters": {
+        "nmodes": {"default": "REQUIRED"}, "data_dir": {"default": "REQUIRED"},
+        "params_dict": {"default": "REQUIRED"}, "input_ref_getter": {"default": "REQUIRED"}}}}
+    catalog.apply_simul_supplied(tpl)
+    params = tpl["ImCalibrator"]["parameters"]
+    assert params["data_dir"]["default"] is None and params["nmodes"]["default"] == "REQUIRED"
+    assert "params_dict" not in params and "input_ref_getter" not in params
+    data, proc, _, _ = catalog.load_catalog(prefer_installed=False)
+    assert proc["ImCalibrator"]["parameters"]["data_dir"]["default"] is None

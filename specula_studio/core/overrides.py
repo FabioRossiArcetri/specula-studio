@@ -17,12 +17,19 @@ the *base snapshot*; the graph is then reloaded from
 ``base + enabled overrides``.  Edits made while overrides are active are
 folded back into the base with :func:`rebase_edits` when saving, so the
 saved file never contains values that came from an override.
+
+In the saved file
+-----------------
+The override files of a simulation are listed in comment lines at its end
+(:func:`overrides_comment`), so that the file stays a plain SPECULA
+parameter file: SPECULA reads every top-level key as an object.
 """
 
 from __future__ import annotations
 
 import copy
 import logging
+import os
 import re
 from collections import OrderedDict
 from pathlib import Path
@@ -136,8 +143,9 @@ def rebase_edits(base: dict, merged: dict, current: dict) -> OrderedDict:
         if old is None or obj == old:
             continue
         if name not in new_base or not isinstance(new_base[name], dict):
-            log.warning("Edits to '%s' were not saved: the object only exists "
-                        "because an override adds it", name)
+            if _without_position(obj) != _without_position(old):     # not just moved
+                log.warning("Edits to '%s' were not saved: the object only exists "
+                            "because an override adds it", name)
             continue
         target = new_base[name]
         for key, val in obj.items():
@@ -148,6 +156,41 @@ def rebase_edits(base: dict, merged: dict, current: dict) -> OrderedDict:
                 target.pop(key, None)
 
     return new_base
+
+
+def _without_position(obj) -> Any:
+    if isinstance(obj, dict):
+        return {k: v for k, v in obj.items() if k != "gui_pos"}
+    return obj
+
+
+# ── the override list in a saved simulation ───────────────────────────────────
+
+_COMMENT_TAG = "#studio-override:"
+_COMMENT_RE = re.compile(r"^#studio-override:\s*(on|off)\s+(.+?)\s*$")
+
+
+def overrides_comment(entries, sim_name: str = "") -> str:
+    """Comment lines listing *entries* (``[{path, enabled}]``) at the end of a
+    saved simulation; :func:`parse_overrides_comment` reads them back."""
+    if not entries:
+        return ""
+    files = " ".join(e["path"] for e in entries if e["enabled"])
+    lines = ["", "# Override files loaded in SPECULA Studio (SPECULA does not read these",
+             "# lines: give the active ones after this file, e.g.",
+             f"#   specula {sim_name or 'this_file.yml'} {files or '<override files>'})"]
+    lines += [f"{_COMMENT_TAG} {'on' if e['enabled'] else 'off'} {e['path']}" for e in entries]
+    return "\n".join(lines) + "\n"
+
+
+def parse_overrides_comment(text: str) -> list[dict]:
+    """The ``[{path, enabled}]`` written by :func:`overrides_comment`."""
+    found = []
+    for line in text.splitlines():
+        m = _COMMENT_RE.match(line.strip())
+        if m:
+            found.append({"path": m.group(2), "enabled": m.group(1) == "on"})
+    return found
 
 
 # ── OverrideManager ───────────────────────────────────────────────────────────
@@ -168,6 +211,9 @@ class OverrideManager:
         self._base_snapshot: dict | None = None
         # What the editor loaded the last time overrides were applied
         self._merged_snapshot: dict | None = None
+        # Where the objects that only overrides add were on the canvas (they
+        # are not in the base): kept while the simulation is open
+        self._added_positions: dict = {}
 
     # ── snapshots ─────────────────────────────────────────────────────────────
 
@@ -202,9 +248,29 @@ class OverrideManager:
         """Fold *current*'s edits into the base snapshot and return it."""
         new_base = self.rebased(current)
         if self._base_snapshot is not None:
+            for name, obj in current.items():
+                if name not in new_base and isinstance(obj, dict) and "gui_pos" in obj:
+                    self._added_positions[name] = list(obj["gui_pos"])
             self._base_snapshot = copy.deepcopy(new_base)
             self._merged_snapshot = copy.deepcopy(current)
         return new_base
+
+    def added_objects(self, merged: dict) -> list[str]:
+        """Objects of *merged* that only the overrides add (not in the base)."""
+        base = self._base_snapshot or {}
+        return [n for n, obj in merged.items() if n not in base and isinstance(obj, dict)]
+
+    def place_added(self, merged: dict) -> list[str]:
+        """Give the added objects of *merged* the places they had the last
+        time; returns those that have none yet (to be placed on the canvas)."""
+        unplaced = []
+        for name in self.added_objects(merged):
+            pos = self._added_positions.get(name)
+            if pos is not None:
+                merged[name]["gui_pos"] = list(pos)
+            elif "gui_pos" not in merged[name]:
+                unplaced.append(name)
+        return unplaced
 
     # ── file management ───────────────────────────────────────────────────────
 
@@ -268,17 +334,28 @@ class OverrideManager:
 
     # ── persistence ───────────────────────────────────────────────────────────
 
-    def to_dict(self) -> dict:
-        """Serialise state for embedding in a saved simulation YAML."""
-        return {"overrides": [{"path": p, "enabled": e["enabled"]}
+    def to_dict(self, base_dir: str | None = None) -> dict:
+        """The override list, for a simulation saved in *base_dir*: paths
+        relative to it when possible (the folder can then be moved)."""
+        def shown(path):
+            if base_dir:
+                try:
+                    return os.path.relpath(path, base_dir).replace("\\", "/")
+                except ValueError:          # another drive
+                    pass
+            return path
+        return {"overrides": [{"path": shown(p), "enabled": e["enabled"]}
                               for p, e in self._overrides.items()]}
 
-    def from_dict(self, data: dict):
-        """Restore state from a loaded simulation YAML."""
+    def from_dict(self, data: dict, base_dir: str | None = None):
+        """Restore the override list of a simulation loaded from *base_dir*
+        (relative paths are relative to it)."""
         for item in data.get("overrides", []):
             path = item.get("path")
             if not path:
                 continue
+            if base_dir and not os.path.isabs(path):
+                path = os.path.join(base_dir, path)
             path = str(Path(path).resolve())
             try:
                 with open(path, encoding="utf-8") as f:

@@ -62,6 +62,9 @@ def test_override_preview_edit_save_disable(scenarios):
     assert res["saved_psf_wl"] == 750
     assert not res["saved_has_im_calibrator"]
     assert res["saved_meta"]["overrides"][0]["enabled"] is True
+    # the override list is in comment lines: the file stays a SPECULA file
+    assert res["saved_specula_keys"] == []
+    assert res["saved_meta"]["overrides"][0]["path"] == "params_scao_sh_test_rec.yml"
     # disabling the override keeps the edit
     assert res["off_total_time"] == 0.01 and res["off_psf_wl"] == 750
     assert not res["off_has_im_calibrator"]
