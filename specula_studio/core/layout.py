@@ -33,6 +33,7 @@ Positions are top-left corners in canvas pixels (a node's ``gui_pos``).
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Sequence
 
 Edge = tuple[str, str]
 Size = tuple[float, float]
@@ -90,7 +91,7 @@ def _acyclic(nodes: list, edges: list[Edge]) -> list[Edge]:
     return [e for e in edges if e not in back]
 
 
-def layers(nodes: list, edges: list[Edge], refs: list[Edge] = ()) -> dict:
+def layers(nodes: list, edges: list[Edge], refs: Sequence[Edge] = ()) -> dict:
     """Stage of every node: longest path over the data *edges*; nodes without
     data inputs right before their first consumer (data or reference)."""
     edges = _acyclic(nodes, [e for e in edges if e[0] in nodes and e[1] in nodes])
@@ -127,7 +128,7 @@ def layers(nodes: list, edges: list[Edge], refs: list[Edge] = ()) -> dict:
 def _neighbours(nodes, edges, refs) -> list[Edge]:
     """Edges that attract nodes to each other: data edges, and references to
     objects used by few nodes."""
-    uses = defaultdict(int)
+    uses: defaultdict[str, int] = defaultdict(int)
     for a, _ in refs:
         uses[a] += 1
     attract = [r for r in refs if uses[r[0]] <= SHARED_REF]
@@ -233,14 +234,14 @@ def _flow(nodes, sizes, layer, links, gap_major, gap_minor, origin) -> dict:
 
 # ── strategies ───────────────────────────────────────────────────────────────
 
-def left_to_right(nodes: list, sizes: dict, edges: list[Edge], refs: list[Edge] = (),
+def left_to_right(nodes: list, sizes: dict, edges: list[Edge], refs: Sequence[Edge] = (),
                   gap_x: float = 60, gap_y: float = 60, origin=(50, 50)) -> dict:
     """The signal flow from left to right, one column per stage."""
     layer = layers(nodes, edges, refs)
     return _flow(nodes, sizes, layer, _neighbours(nodes, edges, refs), gap_x, gap_y, origin)
 
 
-def compact(nodes: list, sizes: dict, edges: list[Edge], refs: list[Edge] = (),
+def compact(nodes: list, sizes: dict, edges: list[Edge], refs: Sequence[Edge] = (),
             max_width: float = 1800, gap_x: float = 60, gap_y: float = 60,
             origin=(50, 50)) -> dict:
     """Left to right, wrapped into bands no wider than *max_width*."""
@@ -272,7 +273,7 @@ def _bands(width: list, spans: list, max_width: float, gap: float) -> list[list[
     def cut(k):                                  # links crossing between k-1 and k
         return sum(1 for a, b in spans if min(a, b) < k <= max(a, b))
 
-    best = {0: (0, 0, 0.0, [])}                  # stage -> (bands, cuts, widest, starts)
+    best: dict[int, tuple] = {0: (0, 0, 0.0, [])}                  # stage -> (bands, cuts, widest, starts)
     for j in range(1, count + 1):
         options = []
         for i in range(j):
@@ -287,7 +288,7 @@ def _bands(width: list, spans: list, max_width: float, gap: float) -> list[list[
     return [list(range(a, b)) for a, b in zip(starts, starts[1:], strict=False)]
 
 
-def data_objects_on_top(nodes: list, sizes: dict, edges: list[Edge], refs: list[Edge] = (),
+def data_objects_on_top(nodes: list, sizes: dict, edges: list[Edge], refs: Sequence[Edge] = (),
                         data_objects=(), gap_x: float = 60, gap_y: float = 60,
                         origin=(50, 50)) -> dict:
     """The *data_objects* (simulation parameters, sources, pupil stops...)
@@ -317,8 +318,8 @@ def data_objects_on_top(nodes: list, sizes: dict, edges: list[Edge], refs: list[
     # objects that feed data first, then the ones only referenced
     order = sorted(top_row, key=lambda n: (wish[n], n not in feeds))
     widths = {n: sizes[n][0] for n in top_row}
-    xs = _place(order, wish, widths, gap_x, origin[0])
-    positions.update({n: (xs[n], origin[1]) for n in top_row})
+    placed = _place(order, wish, widths, gap_x, origin[0])
+    positions.update({n: (placed[n], origin[1]) for n in top_row})
     return positions
 
 
