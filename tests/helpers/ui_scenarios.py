@@ -158,6 +158,29 @@ def scenario_undo_dirty():
     return res
 
 
+def scenario_monitors_without_run():
+    """A monitor opens before any run (in the editor, waiting for data); a
+    Remote run turns it into a monitor process, queued until its display
+    server is known; a Local Run brings it back into the editor."""
+    from specula_studio.simulation_backend import InProcessBackend, RemoteBackend
+
+    nm, _fh = make()
+    psf = nm.create_node("PSF")
+    mm = nm.monitors
+    mm.open_monitor(None, None, (psf, "out_sr"))
+    before = [[m.output_name, m.is_open] for m in mm._inprocess_monitors.values()]
+    mm.set_inprocess_mode(False)
+    mm.set_backend(RemoteBackend("localhost"))
+    remote = {"in_editor": len(mm._inprocess_monitors),
+              "queued": [ud[1] for _s, _a, ud in mm._pending_monitors]}
+    mm.set_backend(None)                    # the run ends
+    mm.set_inprocess_mode(True)
+    mm.set_backend(InProcessBackend(monitor_bus=nm.monitor_bus))
+    local = [[m.output_name, m.is_open] for m in mm._inprocess_monitors.values()]
+    return {"before": before, "remote": remote, "local": local,
+            "queued_after": len(mm._pending_monitors)}
+
+
 def scenario_control_window_link():
     import time
 

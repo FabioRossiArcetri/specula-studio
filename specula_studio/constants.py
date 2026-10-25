@@ -3,8 +3,6 @@ import dearpygui.dearpygui as dpg
 SOCKETIO_SERVER = "http://127.0.0.1:5000"
 MONITOR_QUEUE_SIZE = 100
 MAX_PLOT_HISTORY = 200
-DEFAULT_PLOT_WIDTH = 780
-DEFAULT_PLOT_HEIGHT = 400
 MAX_QUEUE_ITEMS_PER_FRAME = 5
 
 # Seconds a monitor waits for a 'done' event before it re-arms the pull cycle;

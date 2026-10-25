@@ -118,13 +118,10 @@ class StandaloneMonitor:
         self.update_count: int   = 0
         self.min_update_interval = 0.05
 
-        # Window dimensions
-        self.window_width        = 920
-        self.window_height       = 720
-        self.plot_width          = 880
-        self.plot_height         = 500
-        self.last_container_width  = 0
-        self.last_container_height = 0
+        # Window size; the plot fills the space between the settings and the
+        # info lines, and follows the window when it is resized
+        self.window_width        = 1000
+        self.window_height       = 820
 
         # Pending UI updates (set from sio thread, applied on main thread)
         self._pending_status: str | None = None
@@ -487,25 +484,6 @@ class StandaloneMonitor:
     def _do_reconnect(self):
         self.connected = False
 
-    def _update_responsive_layout(self):
-        try:
-            if not dpg.does_item_exist(self._TAG_PLOT_CONTAINER):
-                return
-            cw = dpg.get_item_width(self._TAG_PLOT_CONTAINER)
-            ch = dpg.get_item_height(self._TAG_PLOT_CONTAINER)
-            if (
-                abs(cw - self.last_container_width) > 5
-                or abs(ch - self.last_container_height) > 5
-            ):
-                self.plot_width            = cw
-                self.plot_height           = ch
-                self.last_container_width  = cw
-                self.last_container_height = ch
-                if self.dpg_plotter is not None:
-                    self.dpg_plotter.update_size(cw, ch)
-        except Exception:
-            pass
-
     # =========================================================================
     # Data conversion + plotting
     # =========================================================================
@@ -518,11 +496,7 @@ class StandaloneMonitor:
             dpg.delete_item(self._TAG_PHOLDER)
 
         if self.dpg_plotter is None:
-            self.dpg_plotter = DPGPlotter(
-                parent_tag=self._TAG_PLOT_CONTAINER,
-                width=self.plot_width,
-                height=self.plot_height,
-            )
+            self.dpg_plotter = DPGPlotter(parent_tag=self._TAG_PLOT_CONTAINER)
             mode_val = dpg.get_value(self._TAG_VEC_MODE)
             self.dpg_plotter.set_vector_mode("history" if "Time" in mode_val else "snapshot")
             self.dpg_plotter.set_vector_style(dpg.get_value(self._TAG_VEC_STYLE).lower())
@@ -633,7 +607,6 @@ class StandaloneMonitor:
             if self._stop_flag.is_set():
                 break
             self._apply_pending_status()
-            self._update_responsive_layout()
             self._drain_queue()
             dpg.render_dearpygui_frame()
 

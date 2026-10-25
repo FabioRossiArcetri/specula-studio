@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 import dearpygui.dearpygui as dpg
 import numpy as np
 
+from . import render_scale
 from .constants import MAX_QUEUE_ITEMS_PER_FRAME, MONITOR_QUEUE_SIZE
 from .dpg_plotting import DPGPlotter
 from .monitor_data import describe_array, min_update_interval, payload_to_array, plot_array
@@ -95,19 +96,36 @@ class InProcessMonitor:
         if dpg.does_item_exist(self._win_tag):
             dpg.focus_item(self._win_tag)
 
-    def open(self) -> None:
+    @staticmethod
+    def geometry(slot: int) -> tuple[list, int, int]:
+        """Position and size of the *slot*-th open monitor: the left or the
+        right half of the editor's window, below the menu bar; further ones
+        cascade over the first two."""
+        vw = dpg.get_viewport_client_width() or 1600
+        vh = dpg.get_viewport_client_height() or 900
+        top = render_scale.font_size() + 16          # below the menu bar
+        width = max(480, vw // 2 - 12)
+        height = max(400, int((vh - top) * 0.7))
+        step = (slot // 2) * (render_scale.font_size() + 18)
+        return [6 + (slot % 2) * (vw // 2) + step, top + step], width, height
+
+    def open(self, slot: int = 0) -> None:
         if self.is_open and dpg.does_item_exist(self._win_tag):
             dpg.focus_item(self._win_tag)
             return
 
         title = f"Monitor: {self.node_name}.{self.output_name}"
         tm = ThemeManager()
+        pos, width, height = self.geometry(slot)
+        # the four info lines at the bottom; the plot takes the rest
+        info_height = 4 * (render_scale.font_size() + 6) + 16
 
         with dpg.window(
             label=title,
             tag=self._win_tag,
-            width=920,
-            height=720,
+            pos=pos,
+            width=width,
+            height=height,
             on_close=self._on_dpg_close,
         ):
             dpg.add_text(
@@ -136,12 +154,12 @@ class InProcessMonitor:
                     callback=self._on_image_filtering,
                 )
             dpg.add_separator()
-            dpg.add_text(
-                "Waiting for data …",
-                color=tm.get_color("text_hint"),
-                tag=self._pholder_tag,
-            )
-            dpg.add_group(tag=self._plot_grp_tag)
+            with dpg.child_window(tag=self._plot_grp_tag, border=False, height=-info_height):
+                dpg.add_text(
+                    "Waiting for data …",
+                    color=tm.get_color("text_hint"),
+                    tag=self._pholder_tag,
+                )
             dpg.add_separator()
             dpg.add_text(
                 "Type:    —",
@@ -225,7 +243,7 @@ class InProcessMonitor:
         if dpg.does_item_exist(self._pholder_tag):
             dpg.delete_item(self._pholder_tag)
         if self._plotter is None:
-            self._plotter = DPGPlotter(parent_tag=self._plot_grp_tag, width=880, height=500)
+            self._plotter = DPGPlotter(parent_tag=self._plot_grp_tag)
             self._plotter.set_vector_mode(self._vector_mode)
             self._plotter.set_vector_style(self._vector_style)
             self._plotter.set_image_filtering(self._image_filtering)

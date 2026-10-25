@@ -3,7 +3,7 @@ import numpy as np
 import dearpygui.dearpygui as dpg
 from matplotlib import colormaps
 import traceback
-from .constants import MAX_PLOT_HISTORY, DEFAULT_PLOT_WIDTH, DEFAULT_PLOT_HEIGHT
+from .constants import MAX_PLOT_HISTORY
 from .theme_manager import ThemeManager
 import logging
 
@@ -61,12 +61,12 @@ class InteractiveImageViewer:
 
     Both place image row 0 at the bottom (y = 0).
 
-    Resizing
-    --------
-    ``update_size(width, height)`` reconfigures the DPG plot widget to match
-    the container dimensions on every frame in which a resize is detected.
-    ``equal_aspects=True`` takes care of the content aspect ratio inside the
-    (potentially non-square) plot area.
+    Size
+    ----
+    By default (width and height -1) the plot fills its parent below the info
+    bar, so it follows the window when it is resized; ``equal_aspects=True``
+    takes care of the content aspect ratio inside the (potentially
+    non-square) plot area.
     """
 
     # Reserve this many pixels for the one-line info bar above the plot
@@ -79,7 +79,7 @@ class InteractiveImageViewer:
                  filtering: bool = False):
         self.parent = parent_tag
         self.filtering = filtering
-        # -1 means "fill remaining space"; explicit px values are set by update_size()
+        # -1: fill the remaining space of the parent
         self.width  = width
         self.height = height
 
@@ -267,28 +267,6 @@ class InteractiveImageViewer:
         except Exception:
             pass
 
-    def update_size(self, width: int, height: int) -> None:
-        """
-        Resize the plot widget to fill the given container dimensions.
-
-        Called by ``DPGPlotter.update_size()`` on every frame where the host
-        window is resized.  ``_INFO_ROW_PX`` pixels are reserved for the info
-        bar above the plot.  The plot's ``equal_aspects=True`` setting then
-        letterboxes/pillarboxes the image content to preserve its aspect ratio
-        within the (potentially non-square) plot frame.
-        """
-        self.width = max(width, 50)
-        if height > 0:
-            plot_h = max(height - self._INFO_ROW_PX, 50)
-        else:
-            plot_h = -1
-
-        if self.plot_tag and dpg.does_item_exist(self.plot_tag):
-            try:
-                dpg.configure_item(self.plot_tag, width=self.width, height=plot_h)
-            except Exception as e:
-                log.error(f"[InteractiveImageViewer.update_size] Error: {e}")
-
     def set_filtering(self, enabled: bool) -> None:
         """Switch texture filtering and redraw the current image at once."""
         if enabled == self.filtering:
@@ -301,10 +279,10 @@ class InteractiveImageViewer:
 class DPGPlotter:
     """Unified plotting class with multiple visualization modes and responsive layout."""
 
-    def __init__(self, parent_tag=None, width=DEFAULT_PLOT_WIDTH, height=DEFAULT_PLOT_HEIGHT):
+    def __init__(self, parent_tag=None, width: int = -1, height: int = -1):
         self.parent = parent_tag
-        self.base_width = width
-        self.base_height = height
+        # -1: the plots fill the parent (a child window sized by the monitor),
+        # and follow it when the window is resized
         self.current_width = width
         self.current_height = height
 
@@ -404,8 +382,9 @@ class DPGPlotter:
             with dpg.plot(label=label, parent=self.parent, height=self.current_height, width=self.current_width) as plot_id:
                 self.plot_tag = plot_id
                 dpg.add_plot_legend()
-                dpg.add_plot_axis(dpg.mvXAxis, label="Timestep")
-                with dpg.plot_axis(dpg.mvYAxis, label="Value") as y_axis:
+                # live data: the axes follow it (fitted every frame)
+                dpg.add_plot_axis(dpg.mvXAxis, label="Timestep", auto_fit=True)
+                with dpg.plot_axis(dpg.mvYAxis, label="Value", auto_fit=True) as y_axis:
                     for i in range(v_len):
                         tag = dpg.add_line_series(x_axis_data, self.vector_history_buffer[:, i].tolist(),
                                                 label=f"Idx {i}", parent=y_axis)
@@ -424,8 +403,9 @@ class DPGPlotter:
                         height=self.current_height, width=self.current_width,
                         equal_aspects=False) as plot_id:
                 dpg.add_plot_legend()
-                dpg.add_plot_axis(dpg.mvXAxis, label="Index")
-                y_axis = dpg.add_plot_axis(dpg.mvYAxis, label="Value")
+                # live data: the axes follow it (fitted every frame)
+                dpg.add_plot_axis(dpg.mvXAxis, label="Index", auto_fit=True)
+                y_axis = dpg.add_plot_axis(dpg.mvYAxis, label="Value", auto_fit=True)
                 self.plot_tag = plot_id
                 self.line_series_tag = series_factory(x_data, y_data,
                                                     label=label, parent=y_axis)
@@ -467,22 +447,6 @@ class DPGPlotter:
             self.current_mode = None
         except Exception as e:
             log.error(f"[DPGPlotter.clear] Error: {e}")
-
-    def update_size(self, width: int, height: int) -> None:
-        """Update the plot/viewer size for responsive layout."""
-        self.current_width  = max(width,  200)
-        self.current_height = max(height, 150)
-
-        if self.plot_tag and dpg.does_item_exist(self.plot_tag):
-            try:
-                dpg.configure_item(self.plot_tag,
-                                   width=self.current_width,
-                                   height=self.current_height)
-            except Exception as e:
-                log.error(f"[DPGPlotter.update_size] Error updating plot: {e}")
-
-        if self.image_viewer is not None:
-            self.image_viewer.update_size(self.current_width, self.current_height)
 
     def plot_2d_image_clean(self, data_2d, label="2D Image", colormap='seismic'):
         """

@@ -558,6 +558,12 @@ class InProcessBackend(SimulationBackend):
             self._pending.append((topic, probe))
             return probe
 
+    def probe_for(self, topic: str) -> MonitorProbeObj | None:
+        """The probe feeding *topic* ("object.output"), if any: also those the
+        loop added for monitors opened before the run."""
+        with self._lock:
+            return self._active.get(topic)
+
     def detach_probe(self, probe: MonitorProbeObj) -> None:
         if probe is None:
             return
