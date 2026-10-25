@@ -45,7 +45,7 @@ from .templates import TEMPLATES_DIR, load_bundled_templates
 
 log = logging.getLogger(__name__)
 
-CATALOG_FORMAT = 2
+CATALOG_FORMAT = 3
 
 
 # ── locating SPECULA ──────────────────────────────────────────────────────────

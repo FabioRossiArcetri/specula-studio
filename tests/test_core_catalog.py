@@ -119,3 +119,22 @@ def test_arguments_supplied_by_simul_are_not_required():
     assert "params_dict" not in params and "input_ref_getter" not in params
     data, proc, _, _ = catalog.load_catalog(prefer_installed=False)
     assert proc["ImCalibrator"]["parameters"]["data_dir"]["default"] is None
+
+
+def test_outputs_named_in_the_yaml_are_not_class_outputs():
+    # DataSource fills self.outputs[k] in a loop over the names given in the
+    # YAML: "k" is not an output (it was added to every DataSource exported)
+    import ast
+
+    from specula_studio.core.catalog_parser import SpeculaMetadataParser
+    src = ("class DataSource(BaseProcessingObj):\n"
+           "    def __init__(self, outputs: list, store_dir: str):\n"
+           "        for k in outputs:\n"
+           "            self.outputs[k] = None\n"
+           "        self.outputs['fixed'] = None\n"
+           "        self.outputs[f'out_{k}'] = None\n")
+    parser = SpeculaMetadataParser()
+    parser.visit(ast.parse(src))
+    assert parser.found_classes["DataSource"]["outputs"] == ["fixed"]
+    data, proc, _, _ = catalog.load_catalog(prefer_installed=False)
+    assert proc["DataSource"]["outputs"] == []

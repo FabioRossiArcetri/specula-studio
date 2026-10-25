@@ -20,6 +20,5 @@ DataSource:
       default: null
       kind: value
   inputs: {}
-  outputs:
-  - k
+  outputs: []
   is_data_obj: false
