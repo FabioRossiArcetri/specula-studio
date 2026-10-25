@@ -46,6 +46,9 @@
   always copied before being drawn.
 - Monitor options: *Image filtering* (off by default: image pixels stay
   sharp when enlarged) and snapshot vectors drawn as a line or a histogram.
+- Monitors of a Local Run (and those opened without a run) are separate OS
+  windows, like the monitors of Remote runs: the editor sends each window
+  the newest frame of its output over a local link.
 - Changing the render size or the font could crash the application: the
   font was replaced from DearPyGui's callback thread while a frame was
   being drawn, and the font in use was deleted.  Fonts are now switched by

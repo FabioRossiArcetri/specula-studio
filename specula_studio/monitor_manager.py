@@ -4,12 +4,13 @@ monitor_manager.py
 Lifecycle of the monitor windows that show simulation outputs live.
 
 In-process runs (InProcessBackend), and no run
-    ``open_monitor`` creates an :class:`InProcessMonitor` — a window inside
-    the editor — and asks the backend for a probe on ``<object>.<output>``.
-    Probes push data to the :class:`MonitorBus`; :meth:`tick` (called every
-    frame) drains it into the windows.  Without a run the window opens all
-    the same and waits: the loop of the next Local Run adds probes for every
-    output with a window.
+    ``open_monitor`` creates an :class:`InProcessMonitor` — a monitor window
+    process fed by the editor over a :mod:`.control_link` — and asks the
+    backend for a probe on ``<object>.<output>``.  Probes push data to the
+    :class:`MonitorBus`; the monitor passes the newest frame to its window.
+    Without a run the window opens all the same and waits: the loop of the
+    next Local Run adds probes for every output with a window.  :meth:`tick`
+    (called every frame) notices the windows the user closed.
 
 Subprocess runs (RemoteBackend, local or SSH)
     Each monitor is a separate process (``python -m
@@ -18,8 +19,9 @@ Subprocess runs (RemoteBackend, local or SSH)
     shared through a small JSON file in the run directory.  Monitors opened
     before the server is known are queued and started when it is.
 
-When a run starts, the open monitors become of its kind (in the editor for a
-Local Run, processes for a Remote one).
+All monitors are separate OS windows.  When a run starts, the open monitors
+become of its kind (fed by the editor for a Local Run, by the display server
+for a Remote one).
 """
 
 import os
@@ -404,8 +406,8 @@ class MonitorManager:
     # ── Ticking ──────────────────────────────────────────────────────────[...]
 
     def tick(self) -> None:
-        """Drain and render all in-process monitors every frame (with periodic
-        diagnostics of the bus traffic)."""
+        """Every frame: close the in-process monitors whose window was closed
+        (with periodic diagnostics of the bus traffic)."""
         if not self._inprocess_monitors:
             return
 

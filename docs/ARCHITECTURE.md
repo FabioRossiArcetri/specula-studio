@@ -100,6 +100,11 @@ SimulParams' defaults when missing, because `Simul` reads them from the YAML.
   wrapped only during the run: probes for open monitors are added before the
   first step, later ones between steps, and abort stops the loop.  Probes read
   `array_for_display()` (as SPECULA's DisplayServer does) into a CPU copy.
+  Their monitors are separate windows too: `InProcessMonitor` keeps the
+  newest frame from the `MonitorBus` and a sender thread passes it over a
+  `control_link` to a `monitor_window --link` process, the same window the
+  Remote monitors use; old frames are dropped, so neither the simulation nor
+  the editor waits for a window.
 * **Remote** (`RemoteBackend`), on localhost or over SSH: the `specula`
   command, with a DisplayServer (data mode, session id) injected.  Port `0`
   lets SPECULA pick a free port, read back from its `[SPECULA_PORT:n]` output

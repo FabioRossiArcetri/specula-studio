@@ -1,41 +1,40 @@
 """
 inprocess_monitor.py
 ====================
-Monitor window inside the editor, used for in-process runs.
+Monitors of the runs inside the editor (Local Run, or no run yet), shown in
+their own OS windows like the monitors of Remote runs.
 
 Data flow: a ``MonitorProbeObj`` in SPECULA's loop (simulation thread) pushes
-payloads to the ``MonitorBus``; :meth:`InProcessMonitor._on_data` only
-enqueues them; :meth:`render_frame` (GUI thread, every frame) drains the
-queue and draws with a ``DPGPlotter``.  A full queue drops frames instead of
-blocking the simulation.
+payloads to the ``MonitorBus``; :meth:`InProcessMonitor._on_data` keeps only
+the newest; a sender thread passes it, at most every ``min_update_interval``,
+over a :mod:`.control_link` to the monitor window process (``python -m
+specula_studio.monitor_window --link host:port``), which draws it with the
+same plots and settings as the monitors of Remote runs.  Older frames are
+dropped, never queued: neither the simulation nor the editor waits for a
+window.  Closing the window closes the monitor.
 """
 
 from __future__ import annotations
 
+import logging
+import threading
 import time
-from queue import Empty, Full, Queue
 from typing import TYPE_CHECKING
 
-import dearpygui.dearpygui as dpg
-import numpy as np
-
-from . import render_scale
-from .constants import MAX_QUEUE_ITEMS_PER_FRAME, MONITOR_QUEUE_SIZE
-from .dpg_plotting import DPGPlotter
-from .monitor_data import describe_array, min_update_interval, payload_to_array, plot_array
-from .monitor_bus import _DropFrame
-from .theme_manager import ThemeManager
-import logging
+from .control_link import ControlServer, WindowProcess
+from .monitor_data import min_update_interval
 
 log = logging.getLogger(__name__)
-
 
 if TYPE_CHECKING:
     from .simulation_backend import MonitorProbeObj
 
 
 class InProcessMonitor:
-    """An in-process, DPG-native monitor window."""
+    """The editor side of a Local Run monitor window."""
+
+    # False in tests: the link is made, the window process is not started
+    launch_windows = True
 
     def __init__(
         self,
@@ -51,250 +50,111 @@ class InProcessMonitor:
         self.node_name          = node_name
         self.output_name        = output_name
         self.server_output_name = server_output_name
-        self._bus        = monitor_bus
-        self._data_queue: Queue = Queue(maxsize=MONITOR_QUEUE_SIZE)
+        self._bus = monitor_bus
 
         self._probe: MonitorProbeObj | None = None
+        self._link: ControlServer | None = None
+        self._window: WindowProcess | None = None
 
-        self._win_tag      = f"ipm_win_{monitor_id}"
-        self._plot_grp_tag = f"ipm_plot_{monitor_id}"
-        self._pholder_tag  = f"ipm_ph_{monitor_id}"
-        self._output_tag   = f"ipm_output_{monitor_id}"
-        self._type_tag     = f"ipm_type_{monitor_id}"
-        self._shp_tag      = f"ipm_shp_{monitor_id}"
-        self._rng_tag      = f"ipm_rng_{monitor_id}"
-        self._time_tag     = f"ipm_time_{monitor_id}"
+        self._lock = threading.Lock()
+        self._latest = None                  # newest payload not sent yet
+        self._wake = threading.Event()
+        self._stop = threading.Event()
+        self._sender: threading.Thread | None = None
 
-        self._plotter: DPGPlotter | None = None
-        self._vector_mode = "snapshot"
-        self._vector_style = "line"
-        self._image_filtering = False
-        self.is_open            = False
-        self.update_count        = 0
-        self.last_update         = 0.0
+        self.is_open      = False
+        self.update_count = 0                # payloads received from the probe
+        self.sent_count   = 0                # payloads sent to the window
         self.min_update_interval = 0.05
 
-        # Subscribe to the monitor bus with this monitor's callback
         monitor_bus.subscribe(server_output_name, self._on_data)
 
-    # ── Bus callback ────────────────────────────────────────────────────────────
+    # ── bus callback (simulation thread) ──────────────────────────────────────
 
-    def _on_data(self, raw_data) -> None:
-        """Enqueue *raw_data* from the producer thread.
+    def _on_data(self, payload) -> None:
+        """Keep the newest payload; the sender thread passes it on."""
+        with self._lock:
+            self._latest = payload
+            self.update_count += 1
+        self._wake.set()
 
-        Raises ``_DropFrame`` if the queue is full instead of blocking or silently
-        discarding, so the bus can track drop counts centrally.
-        """
-        try:
-            self._data_queue.put_nowait(raw_data)
-        except Full:
-            raise _DropFrame() from None
-
-    # ── DPG window lifecycle ───────────────────────────────────────────────────
-
-    def focus(self) -> None:
-        if dpg.does_item_exist(self._win_tag):
-            dpg.focus_item(self._win_tag)
-
-    @staticmethod
-    def geometry(slot: int) -> tuple[list, int, int]:
-        """Position and size of the *slot*-th open monitor: the left or the
-        right half of the editor's window, below the menu bar; further ones
-        cascade over the first two."""
-        vw = dpg.get_viewport_client_width() or 1600
-        vh = dpg.get_viewport_client_height() or 900
-        top = render_scale.font_size() + 16          # below the menu bar
-        width = max(480, vw // 2 - 12)
-        height = max(400, int((vh - top) * 0.7))
-        step = (slot // 2) * (render_scale.font_size() + 18)
-        return [6 + (slot % 2) * (vw // 2) + step, top + step], width, height
+    # ── window lifecycle (GUI thread) ─────────────────────────────────────────
 
     def open(self, slot: int = 0) -> None:
-        if self.is_open and dpg.does_item_exist(self._win_tag):
-            dpg.focus_item(self._win_tag)
+        """Start the monitor window (*slot*: its place among the open ones)."""
+        if self.is_open:
+            self.focus()
             return
-
-        title = f"Monitor: {self.node_name}.{self.output_name}"
-        tm = ThemeManager()
-        pos, width, height = self.geometry(slot)
-        # the four info lines at the bottom; the plot takes the rest
-        info_height = 4 * (render_scale.font_size() + 6) + 16
-
-        with dpg.window(
-            label=title,
-            tag=self._win_tag,
-            pos=pos,
-            width=width,
-            height=height,
-            on_close=self._on_dpg_close,
-        ):
-            dpg.add_text(
-                f"Output:  {self.server_output_name}",
-                color=tm.get_color("monitor_output_label"),
-                tag=self._output_tag,
-            )
-            dpg.add_text(
-                "Status:  Waiting for data …",
-                color=tm.get_color("monitor_status_waiting"),
-                tag=f"ipm_status_{self.monitor_id}",
-            )
-            with dpg.group(horizontal=True):
-                dpg.add_combo(
-                    ["Vector: Snapshot", "Vector: Time History"],
-                    default_value="Vector: Snapshot", width=220,
-                    callback=self._on_vector_mode,
-                )
-                dpg.add_combo(
-                    ["Snapshot: Line", "Snapshot: Histogram"],
-                    default_value="Snapshot: Line", width=200,
-                    callback=self._on_vector_style,
-                )
-                dpg.add_checkbox(
-                    label="Image filtering", default_value=self._image_filtering,
-                    callback=self._on_image_filtering,
-                )
-            dpg.add_separator()
-            with dpg.child_window(tag=self._plot_grp_tag, border=False, height=-info_height):
-                dpg.add_text(
-                    "Waiting for data …",
-                    color=tm.get_color("text_hint"),
-                    tag=self._pholder_tag,
-                )
-            dpg.add_separator()
-            dpg.add_text(
-                "Type:    —",
-                color=tm.get_color("text_secondary"),
-                tag=self._type_tag,
-            )
-            dpg.add_text(
-                "Shape:   —",
-                color=tm.get_color("text_secondary"),
-                tag=self._shp_tag,
-            )
-            dpg.add_text(
-                "Range:   —",
-                color=tm.get_color("text_secondary"),
-                tag=self._rng_tag,
-            )
-            dpg.add_text(
-                "Updated: never",
-                color=tm.get_color("text_secondary"),
-                tag=self._time_tag,
-            )
-
+        self._link = ControlServer()
+        self._window = WindowProcess(
+            self._link, "monitor", f"Monitor: {self.node_name}.{self.output_name}",
+            module="specula_studio.monitor_window",
+            argv=["--node-name", self.node_name, "--output-name", self.output_name,
+                  "--server-output-name", self.server_output_name, "--slot", str(slot)])
+        if self.launch_windows:
+            try:
+                self._window.launch()
+            except Exception:
+                log.exception("Cannot start the monitor window of %s", self.server_output_name)
+                self._link.close()
+                return
+        self._stop.clear()
+        self._sender = threading.Thread(target=self._send_loop, daemon=True,
+                                        name=f"monitor-{self.server_output_name}")
+        self._sender.start()
         self.is_open = True
 
-    def _on_dpg_close(self) -> None:
-        self.is_open = False
-        self._bus.unsubscribe(self.server_output_name, self._on_data)
+    def focus(self) -> None:
+        if self._link is not None:
+            self._link.send({"type": "raise"})
 
     def close(self) -> None:
         self._bus.unsubscribe(self.server_output_name, self._on_data)
-        if dpg.does_item_exist(self._win_tag):
-            dpg.delete_item(self._win_tag)
-        self.is_open  = False
-        self._probe   = None
-
-    # ── Per-frame rendering ────────────────────────────────────────────────────
+        self._stop.set()
+        self._wake.set()
+        if self._window is not None:
+            self._window.stop()
+        if self._link is not None:
+            self._link.close()
+        self.is_open = False
+        self._probe = None
 
     def render_frame(self) -> bool:
-        """Drain the queue and update the plot.
-
-        Back-pressure policy: if the minimum update interval has not elapsed,
-        drain at most one extra item (to keep the queue from growing unbounded)
-        then return — no point in dequeuing dozens of frames we won't render.
-        """
-        if not self.is_open or not dpg.does_item_exist(self._win_tag):
+        """Every frame: False once the window has been closed (by the user)."""
+        if not self.is_open:
             return False
-
-        now      = time.time()
-        can_draw = (now - self.last_update) >= self.min_update_interval
-
-        items_to_drain = MAX_QUEUE_ITEMS_PER_FRAME if can_draw else 1
-
-        for _ in range(items_to_drain):
-            try:
-                raw_data = self._data_queue.get_nowait()
-            except Empty:
-                break
-
-            if not can_draw:
-                # queue is backing up — absorb the item but don't render
-                continue
-
-            arr = self._raw_to_numpy(raw_data)
-            if arr is None:
-                continue
-
-            if self._plot(arr):
-                self._update_info_labels(arr)
-                self.last_update   = now
-                self.update_count += 1
-                self._set_status("receiving")
-
+        if self._window is not None and self._window.process is not None:
+            return self._window.running
         return True
 
-    # ── Plotting ───────────────────────────────────────────────────────────────
+    # ── sending (own thread) ──────────────────────────────────────────────────
 
-    def _raw_to_numpy(self, payload: dict) -> np.ndarray | None:
-        return payload_to_array(payload)
-
-    def _plot(self, arr: np.ndarray) -> bool:
-        if dpg.does_item_exist(self._pholder_tag):
-            dpg.delete_item(self._pholder_tag)
-        if self._plotter is None:
-            self._plotter = DPGPlotter(parent_tag=self._plot_grp_tag)
-            self._plotter.set_vector_mode(self._vector_mode)
-            self._plotter.set_vector_style(self._vector_style)
-            self._plotter.set_image_filtering(self._image_filtering)
-        self.min_update_interval = min_update_interval(arr)
-        try:
-            return plot_array(self._plotter, arr)
-        except Exception:
-            log.exception("Monitor plot error")
-            return False
-
-    def _on_vector_mode(self, sender, app_data):
-        self._vector_mode = "history" if "Time" in app_data else "snapshot"
-        if self._plotter is not None:
-            self._plotter.set_vector_mode(self._vector_mode)
-
-    def _on_vector_style(self, sender, app_data):
-        self._vector_style = "histogram" if "Histogram" in app_data else "line"
-        if self._plotter is not None:
-            self._plotter.set_vector_style(self._vector_style)
-
-    def _on_image_filtering(self, sender, app_data):
-        self._image_filtering = bool(app_data)
-        if self._plotter is not None:
-            self._plotter.set_image_filtering(self._image_filtering)
-
-    # ── Status / info helpers ──────────────────────────────────────────────────
-
-    _STATUS_COLORS = {
-        "receiving":  "monitor_status_receiving",
-        "subscribed": "monitor_status_subscribed",
-        "error":      "monitor_status_error",
-    }
-
-    def _set_status(self, status: str) -> None:
-        tag = f"ipm_status_{self.monitor_id}"
-        if dpg.does_item_exist(tag):
-            tm = ThemeManager()
-            color = tm.get_color(self._STATUS_COLORS.get(status, "text_secondary"))
-            dpg.set_value(tag, f"Status:  {status.capitalize()}")
-            dpg.configure_item(tag, color=color)
-
-    def _update_info_labels(self, arr: np.ndarray) -> None:
-        tm = ThemeManager()
-        dtype_str, shape_str, range_str = describe_array(arr)
-        ts = time.strftime("%H:%M:%S")
-        for tag, text in (
-            (self._type_tag, f"Type:    {dtype_str}"),
-            (self._shp_tag,  f"Shape:   {shape_str}"),
-            (self._rng_tag,  f"Range:   {range_str}"),
-            (self._time_tag, f"Updated: {ts}  (#{self.update_count})"),
-        ):
-            if dpg.does_item_exist(tag):
-                dpg.set_value(tag, text)
-                dpg.configure_item(tag, color=tm.get_color("text_secondary"))
+    def _send_loop(self) -> None:
+        last_sent = 0.0
+        while not self._stop.is_set():
+            self._wake.wait(0.5)
+            self._wake.clear()
+            if self._stop.is_set():
+                return
+            wait = self.min_update_interval - (time.time() - last_sent)
+            if wait > 0:                      # not faster than the window draws
+                self._stop.wait(wait)
+            with self._lock:
+                payload, self._latest = self._latest, None
+            if payload is None:
+                continue
+            link = self._link
+            if link is None or not link.connected:
+                # the window is starting: keep the frame (unless a newer came)
+                with self._lock:
+                    if self._latest is None:
+                        self._latest = payload
+                self._stop.wait(0.1)
+                self._wake.set()
+                continue
+            data = payload.get("data") if isinstance(payload, dict) else None
+            if data is not None and hasattr(data, "shape"):
+                self.min_update_interval = min_update_interval(data)
+            if link.send({"type": "data", "payload": payload}):
+                self.sent_count += 1
+                last_sent = time.time()

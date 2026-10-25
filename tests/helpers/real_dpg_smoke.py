@@ -39,6 +39,9 @@ logs.setup_logging("WARNING")
 
 from specula_studio.app import SpeculaEditor  # noqa: E402
 from specula_studio.core.templates import TEMPLATES_DIR  # noqa: E402
+from specula_studio.inprocess_monitor import InProcessMonitor  # noqa: E402
+
+InProcessMonitor.launch_windows = False      # monitor windows are other processes
 from specula_studio.ui.control_panel import LOCAL_RUN, REMOTE  # noqa: E402
 
 
@@ -305,6 +308,24 @@ def main(path):
         editor.sim_control.start()              # options read from the docked panel
         gen = editor.graph.find_by_name("gen")
         nm.monitors.open_monitor(None, None, (gen, "output"))
+        # stand in for the monitor window process: receive what it would draw
+        import threading
+
+        from specula_studio import control_link
+        monitor = next(iter(nm.monitors._inprocess_monitors.values()))
+        conn = control_link.connect(monitor._link.address, monitor._link.authkey)
+        frames = []
+
+        def window():
+            try:
+                while True:
+                    msg = conn.recv()
+                    if msg.get("type") == "data":
+                        frames.append(msg["payload"])
+            except (EOFError, OSError):
+                pass
+
+        threading.Thread(target=window, daemon=True).start()
         t0 = time.time()
         while time.time() - t0 < 120:
             nm.monitors.tick()
@@ -317,6 +338,13 @@ def main(path):
         if not monitors or monitors[0].update_count == 0:
             raise RuntimeError("monitor received no data: "
                                + "".join(editor.sim_control.terminal_data)[-2000:])
+        deadline = time.time() + 5
+        while not frames and time.time() < deadline:
+            time.sleep(0.05)
+        if not frames or frames[-1].get("type") is None or "data" not in frames[-1]:
+            raise RuntimeError(f"the monitor window got no data over its link: {frames[-1:]}")
+        nm.monitors.cleanup()                     # closes the link: the window would quit
+        conn.close()
         steps.append("inprocess_run_monitor")
     dpg.destroy_context()
     print("@@STEPS@@" + ",".join(steps))

@@ -25,6 +25,10 @@ from specula_studio import socketio_client  # noqa: E402
 
 socketio_client.SocketIOClient.reconnect = lambda self: None
 
+from specula_studio.inprocess_monitor import InProcessMonitor  # noqa: E402
+
+InProcessMonitor.launch_windows = False      # no OS windows in the tests
+
 from specula_studio.core.templates import TEMPLATES_DIR  # noqa: E402
 from specula_studio.core.templates import load_bundled_templates  # noqa: E402
 from specula_studio.file_handler import FileHandler  # noqa: E402
